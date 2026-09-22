@@ -26,7 +26,7 @@ npm run simulate        # fake radio + mock transcriber, no hardware needed
 | Pluggable transcription: sherpa-onnx, whisper.cpp, any command, mock | working; not yet run against a real model |
 | Radio registry, keyed by MAC, HTCommander model table | working |
 | Python sidecar protocol + simulator | working, tested end to end |
-| Real radio link (BlueZ RFCOMM control + SBC audio) | **written, not yet run against a radio** — see [docs/bluetooth.md](docs/bluetooth.md) |
+| Real radio link (BlueZ RFCOMM control + SBC audio) | working — connects, decodes audio and disconnects cleanly against a real UV-Pro |
 | Protocol assumptions (service UUID, GAIA framing, status bits, SBC parameters) | confirmed against a real UV-Pro — see [docs/bluetooth.md](docs/bluetooth.md#verified-against-a-real-uv-pro) |
 | Audio frame codec (`sidecar/htframe.py`) | parses a real 248 kB / 799-frame capture, end markers included |
 | Digital modes (AFSK/IRC/file transfer) | design only, see [docs/digital-modes.md](docs/digital-modes.md) |

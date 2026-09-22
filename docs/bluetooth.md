@@ -300,6 +300,37 @@ seeing it confirms the pairing the audio channel depends on. `sdptool browse
 programmatically. The radio may present more than one bond; pair whatever
 `scan on` actually shows rather than deriving an address.
 
+## First contact with hardware
+
+The backend's first run against a real UV-Pro, on Ubuntu 24.04, worked. With
+the squelch opened by hand it produced 36 `audio` events carrying 3.52 s of
+decoded PCM, an `audio-end`, and a clean `disconnected` on exit.
+
+What the audio shows:
+
+- **ffmpeg decoded the SBC.** The samples are smooth and continuous, swing to
+  full scale, and about 9% clip — loud, unmuted receiver noise. A wrong decode
+  produces discontinuous rubbish, not a coherent waveform.
+- **It is band-limited, not white.** Zero crossings came to 0.062 per sample.
+  White noise at 32 kHz would be near 0.5; noise through this radio's
+  300–3000 Hz voice path should be 0.06–0.14, and it is. (An earlier reading
+  of this as "not hiss" applied the white-noise figure and was wrong.)
+- **Chunking is right.** 6400-byte chunks are exactly 100 ms at 32 kHz.
+
+### The status bits do not mean "audio is flowing"
+
+Worth its own heading, because it decides the segmentation design.
+
+Throughout those 3.52 seconds of audio, every `radio-status` poll reported
+`in_rx=False`, `squelch=False`, `rssi=0`. Opening the squelch by hand unmutes
+the receiver without there being a signal, so the radio streams audio while
+reporting that it is receiving nothing.
+
+**`is_in_rx` and `is_sq` track a signal being present, not audio being sent.**
+Anything that segmented on them alone would have missed this transmission
+entirely. The run markers are the boundary to trust, and the status bits are
+the fallback — which is the way round `src/segmenter.js` already has it.
+
 ## The backend
 
 [`sidecar/bluez.py`](../sidecar/bluez.py) implements the above. It is written

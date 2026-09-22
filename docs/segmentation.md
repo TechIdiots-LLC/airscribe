@@ -20,6 +20,14 @@ to go on.
 Upstream HTCommander does the same thing, starting and completing a speech
 segment on those frames.
 
+## Why the markers, and not the squelch flag
+
+Confirmed on hardware, and more sharply than expected: with the squelch opened
+by hand, a UV-Pro streamed 3.5 seconds of audio while every status poll
+reported `is_in_rx=False` and `rssi=0`. The flag means *a signal is present*,
+not *audio is being sent*. Segmenting on it alone would have dropped that
+audio on the floor.
+
 ## Why squelch and energy are still there
 
 The markers cannot carry it alone:
