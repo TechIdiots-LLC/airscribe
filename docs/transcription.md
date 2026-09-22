@@ -69,6 +69,7 @@ understand.
 | `sense-voice` | sense-voice | ~1 GB | English, Chinese, Japanese, Korean, Cantonese, with language auto-detection |
 | `whisper-tiny.en` | whisper | ~110 MB | English, fastest, least accurate |
 | `whisper-base.en` | whisper | ~210 MB | English, a good balance |
+| `whisper-small.en` | whisper | ~600 MB | English, more accurate on clear speech and more inventive on noise |
 
 `modelDir` is the unpacked directory. For an unlisted model, set `family`
 (`sense-voice` or `whisper`) instead of `model`. Streaming Zipformer is not
@@ -111,6 +112,23 @@ waits for at most one other run, never for a whole backlog.
 
 Each transcript is stored separately, so re-running one model leaves the
 others alone.
+
+### Judging them
+
+```sh
+python3 tools/compare-engines.py http://localhost:8100 <token>
+```
+
+It prints, per engine, how many clips produced words, how many came back
+empty, how many were an annotation like `(static)` or `*DING*`, and how many
+were one of the stock phrases Whisper falls back on when fed noise — then
+shows the longest clips with each engine's version side by side.
+
+The columns worth watching are not just `words`. On a scanner feed a good
+fraction of every clip is not speech, so a model with **no** empties and
+**no** annotations is not being accurate; it is guessing. Declining to
+transcribe noise is the correct behaviour, and it is what separates a model
+that suits this material from one that merely scores well on clean speech.
 
 ## Recovering clips that were never transcribed
 

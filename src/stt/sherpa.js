@@ -30,6 +30,12 @@ export const SHERPA_MODELS = [
     name: 'Whisper Base English (~210 MB)',
     url: 'https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-whisper-base.en.tar.bz2',
   },
+  {
+    id: 'whisper-small.en',
+    family: 'whisper',
+    name: 'Whisper Small English (~600 MB)',
+    url: 'https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-whisper-small.en.tar.bz2',
+  },
 ];
 
 /**
