@@ -1,4 +1,5 @@
 import { spawn } from 'node:child_process';
+import { existsSync } from 'node:fs';
 import { createInterface } from 'node:readline';
 import { fileURLToPath } from 'node:url';
 
@@ -62,6 +63,17 @@ export class SherpaEngine {
     }
     this.c = { language: 'auto', threads: 2, python: 'python3', ...c };
     this.family = c.family ?? known?.family ?? 'sense-voice';
+    // The worker starts on the first clip, so a wrong path would otherwise
+    // stay hidden until a radio transmitted — and then fail once per
+    // transmission. Say so at startup instead, without refusing to boot: the
+    // rest of the server is still useful, and the model may yet appear.
+    if (!existsSync(this.c.modelDir)) {
+      console.warn(
+        `[stt] model directory does not exist: ${this.c.modelDir}
+` +
+          '      Transcription will fail until it does. See docs/transcription.md.',
+      );
+    }
     this.pending = new Map();
     this.nextId = 1;
     this.child = null;

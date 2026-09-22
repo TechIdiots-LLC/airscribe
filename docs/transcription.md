@@ -30,11 +30,22 @@ build today.
 Install and fetch a model:
 
 ```sh
-pip install sherpa-onnx
-cd /srv/models
+pip install sherpa-onnx --break-system-packages   # or into a venv
+mkdir -p /var/lib/airscribe/models && cd /var/lib/airscribe/models
 curl -LO https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-whisper-base.en.tar.bz2
 tar xf sherpa-onnx-whisper-base.en.tar.bz2
+ls sherpa-onnx-whisper-base.en/    # expect *encoder*.onnx, *decoder*.onnx, *tokens.txt
 ```
+
+Ubuntu 24.04 refuses to install into the system Python without
+`--break-system-packages`. A venv is tidier; point
+`stt["sherpa-onnx"].python` at its interpreter if you use one.
+
+**`modelDir` is the unpacked directory, and the sample config ships a
+deliberate `/EDIT-ME/` placeholder.** Leaving it produces
+`no whisper encoder/decoder/tokens found in /EDIT-ME/…` on every
+transmission. The server warns about a non-existent directory at startup, so
+check the first lines of its log after a config change.
 
 `model` picks the family and is one of:
 

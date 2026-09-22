@@ -87,3 +87,28 @@ test('a crashed worker fails the clip, then a later clip starts a new worker', a
     await assert.rejects(e.transcribe('/clips/b.wav'), /sherpa worker exited/);
   } finally { e.stop(); }
 });
+
+test('a missing model directory is reported at startup, not at the first clip', () => {
+  const warned = [];
+  const real = console.warn;
+  console.warn = (m) => warned.push(m);
+  try {
+    new SherpaEngine({ modelDir: '/EDIT-ME/models/sherpa-onnx-whisper-base.en' });
+  } finally {
+    console.warn = real;
+  }
+  assert.equal(warned.length, 1, 'the operator should hear about this at boot');
+  assert.match(warned[0], /EDIT-ME/, 'and be told which path is wrong');
+});
+
+test('an existing model directory warns about nothing', () => {
+  const warned = [];
+  const real = console.warn;
+  console.warn = (m) => warned.push(m);
+  try {
+    new SherpaEngine({ modelDir: process.cwd() });
+  } finally {
+    console.warn = real;
+  }
+  assert.deepEqual(warned, []);
+});
