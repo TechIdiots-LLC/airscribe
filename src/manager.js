@@ -76,6 +76,13 @@ export class Manager extends EventEmitter {
         // A backend that sends no run markers still drives the indicator.
         this.setActivity(e.mac, { rx: !!e.rx, tx: !!e.transmit });
         break;
+      // Something the sidecar could not do — a missing SBC decoder, a radio
+      // that stopped answering. Logged as well as forwarded, because these
+      // explain an otherwise silent absence of transcripts.
+      case 'sidecar-error':
+        console.error(`[sidecar] ${e.mac ? `${e.mac}: ` : ''}${e.error}`);
+        this.emit('update', { type: 'error', mac: e.mac, error: e.error });
+        break;
       default:
         break;
     }

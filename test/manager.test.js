@@ -129,3 +129,26 @@ test('a transmitting radio is shown as transmitting, not receiving', () => {
   const last = updates.filter((u) => u.type === 'activity').at(-1);
   assert.deepEqual([last.rx, last.tx], [false, true]);
 });
+
+test('a sidecar error is surfaced rather than swallowed', () => {
+  const { updates, fire } = make();
+  const errs = [];
+  const realError = console.error;
+  console.error = (m) => errs.push(m);
+  try {
+    fire({ event: 'sidecar-error', mac: MAC, error: 'no SBC-capable ffmpeg found' });
+  } finally {
+    console.error = realError;
+  }
+  // Logged, because this is the thing that explains an absence of transcripts.
+  assert.equal(errs.length, 1);
+  assert.match(errs[0], /no SBC-capable ffmpeg found/);
+  const u = updates.find((x) => x.type === 'error');
+  assert.ok(u, 'the UI is told too');
+  assert.equal(u.mac, MAC);
+});
+
+test('an unknown sidecar event is ignored without throwing', () => {
+  const { fire } = make();
+  assert.doesNotThrow(() => fire({ event: 'something-new', mac: MAC }));
+});
