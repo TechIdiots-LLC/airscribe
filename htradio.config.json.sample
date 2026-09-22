@@ -1,0 +1,42 @@
+{
+  "host": "127.0.0.1",
+  "port": 8100,
+  "dataDir": "./data",
+
+  "auth": {
+    "tokens": []
+  },
+
+  "sidecar": {
+    "python": "python3",
+    "backend": "bluez"
+  },
+
+  "audio": {
+    "sampleRate": 32000,
+    "preRollMs": 300,
+    "holdMs": 1200,
+    "minMs": 400,
+    "maxMs": 120000,
+    "energyThreshold": 0.02
+  },
+
+  "stt": {
+    "engine": "sherpa-onnx",
+    "sherpa-onnx": {
+      "python": "python3",
+      "model": "whisper-base.en",
+      "modelDir": "/EDIT-ME/models/sherpa-onnx-whisper-base.en",
+      "language": "en",
+      "threads": 2
+    },
+    "whisper-cpp": {
+      "binary": "whisper-cli",
+      "model": "/EDIT-ME/models/ggml-base.en.bin",
+      "language": "en"
+    },
+    "command": {
+      "template": ["/EDIT-ME/transcribe.sh", "{wav}"]
+    }
+  }
+}

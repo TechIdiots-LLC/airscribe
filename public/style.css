@@ -1,0 +1,36 @@
+:root {
+  --bg: #fff; --fg: #1a1d21; --muted: #667; --line: #dde1e6; --card: #f6f7f9;
+  --accent: #0a6cff; --ok: #1a8a3c; --warn: #b26a00; --bad: #c62828;
+}
+@media (prefers-color-scheme: dark) {
+  :root { --bg: #14171a; --fg: #e6e8eb; --muted: #98a; --line: #2a2f35; --card: #1c2025; --accent: #5aa2ff; --ok: #4cc26b; --warn: #e0a040; --bad: #ef6b6b; }
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--fg); font: 15px/1.45 system-ui, sans-serif; }
+header { display: flex; align-items: center; gap: 12px; padding: 12px 16px; border-bottom: 1px solid var(--line); }
+h1 { font-size: 18px; margin: 0; }
+h2 { font-size: 16px; margin: 0; }
+h3 { font-size: 14px; color: var(--muted); margin: 12px 0 4px; }
+main { display: grid; grid-template-columns: 320px 1fr; gap: 16px; padding: 16px; max-width: 1200px; margin: 0 auto; }
+@media (max-width: 800px) { main { grid-template-columns: 1fr; } }
+.row { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
+.row h2 { flex: 1; }
+ul { list-style: none; margin: 0; padding: 0; }
+li { background: var(--card); border: 1px solid var(--line); border-radius: 8px; padding: 10px 12px; margin-bottom: 8px; }
+button, select, input { font: inherit; color: inherit; background: var(--bg); border: 1px solid var(--line); border-radius: 6px; padding: 4px 10px; }
+button { cursor: pointer; }
+button:hover { border-color: var(--accent); }
+input[type=search] { flex: 1; min-width: 0; }
+.pill { font-size: 12px; padding: 2px 8px; border-radius: 99px; background: var(--card); border: 1px solid var(--line); color: var(--muted); }
+.pill.ok { color: var(--ok); } .pill.bad { color: var(--bad); }
+.radio-head { display: flex; align-items: center; gap: 8px; }
+.radio-head strong { flex: 1; }
+.dot { width: 10px; height: 10px; border-radius: 50%; background: var(--muted); }
+.dot.connected { background: var(--ok); } .dot.rx { background: var(--warn); box-shadow: 0 0 6px var(--warn); }
+.meta { color: var(--muted); font-size: 12px; margin-top: 2px; }
+.tx-text { margin: 6px 0; white-space: pre-wrap; }
+.tx-text.pending { color: var(--muted); font-style: italic; }
+.tx-text.error { color: var(--bad); }
+audio { width: 100%; height: 32px; }
+.links a { color: var(--accent); font-size: 13px; margin-right: 12px; }
+.actions { display: flex; gap: 6px; margin-top: 6px; }

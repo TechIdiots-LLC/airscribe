@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>HTRadioWeb</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header><h1>HTRadioWeb</h1><span id="conn" class="pill">connecting…</span></header>
+<main>
+  <section id="radios-panel">
+    <div class="row"><h2>Radios</h2><button id="scan">Scan for radios</button></div>
+    <ul id="radios"></ul>
+    <div id="found" hidden>
+      <h3>Found</h3>
+      <ul id="found-list"></ul>
+    </div>
+  </section>
+  <section id="feed-panel">
+    <div class="row">
+      <h2>Transmissions</h2>
+      <select id="filter-radio"><option value="">All radios</option></select>
+      <input id="search" type="search" placeholder="Search text…">
+    </div>
+    <ul id="feed"></ul>
+  </section>
+</main>
+<script src="app.js" type="module"></script>
+</body>
+</html>

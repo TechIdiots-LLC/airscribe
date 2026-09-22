@@ -1,0 +1,23 @@
+{
+  "name": "htradioweb",
+  "version": "0.1.0",
+  "description": "Web front end for Bluetooth handheld radios: manage radios, capture each transmission, transcribe it on the server, and download the audio and text",
+  "type": "module",
+  "main": "src/index.js",
+  "bin": {
+    "htradioweb": "src/index.js"
+  },
+  "scripts": {
+    "start": "node src/index.js",
+    "simulate": "node src/index.js --simulate",
+    "test": "node --test test/*.test.js",
+    "test:py": "python3 -m unittest discover -s sidecar -p \"test_*.py\""
+  },
+  "engines": {
+    "node": "^22.13.0 || 24"
+  },
+  "dependencies": {
+    "express": "^5.2.1"
+  },
+  "private": true
+}

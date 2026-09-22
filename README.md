@@ -1,0 +1,76 @@
+# HTRadioWeb
+
+A web front end for Bluetooth handheld radios. A server pairs with the radios,
+listens to each one, splits the audio into one clip per transmission,
+transcribes every clip, and shows the text with audio and text downloads in a
+browser.
+
+Rebuilt from the web/voice work in the HTCommander fork as a server-side
+application, because browsers can only reach a radio's Bluetooth LE control
+channel, not the Classic Bluetooth audio channel that transcription needs.
+
+```sh
+npm install
+npm run simulate        # fake radio + mock transcriber, no hardware needed
+# then open http://127.0.0.1:8100 , Scan, Add, Connect
+```
+
+## Status
+
+| Piece | State |
+| --- | --- |
+| Web UI: radios, live status, transcript feed, search, downloads | working (against the simulator) |
+| Segmenting audio into one clip per transmission | working, unit-tested |
+| Pluggable transcription: sherpa-onnx, whisper.cpp, any command, mock | working; not yet run against a real model |
+| Radio registry, keyed by MAC, HTCommander model table | working |
+| Python sidecar protocol + simulator | working, tested end to end |
+| **Real radio link (BlueZ RFCOMM control + SBC audio)** | **not written yet**, see [docs/bluetooth.md](docs/bluetooth.md) |
+| Digital modes (AFSK/IRC/file transfer) | design only, see [docs/digital-modes.md](docs/digital-modes.md) |
+
+Documentation: [transcription](docs/transcription.md) ·
+[Bluetooth link](docs/bluetooth.md) · [digital modes](docs/digital-modes.md)
+
+Developed against a **BTech UV-Pro**, which is also BenLink's original target
+and the best-tested model upstream.
+
+Tests: `npm test` (27 Node tests) and `npm run test:py` (13 Python tests).
+The store and API tests need Node 22.5+ (`node:sqlite`) and report as skipped
+on older Node. Neither suite needs a radio or a speech model.
+
+## Requirements
+
+- Node 22.13+ or 24
+- Python 3 on the same host as the radios
+- Ubuntu 22.04 / 24.04 with BlueZ for real radios (Windows can run the
+  simulator; the Windows Bluetooth backend is not planned yet)
+- For transcription: `pip install sherpa-onnx` and a model — see
+  [docs/transcription.md](docs/transcription.md). whisper.cpp and any
+  transcript-printing command also work.
+
+## Configuration
+
+Copy [htradio.config.json.sample](htradio.config.json.sample) and pass it with
+`--config`. The server binds to `127.0.0.1`; binding anywhere reachable is
+refused unless `auth.tokens` is set (send `Authorization: Bearer <token>`, or
+open the page with `?token=<token>`).
+
+## Layout
+
+- `src/` Node server: `api.js` routes, `manager.js` pipeline, `segmenter.js`,
+  `stt/` engines, `store.js` SQLite, `sidecar.js` child-process client,
+  `models.js` radio table
+- `sidecar/` Python helpers (JSON lines on stdio): the Bluetooth backend, the
+  sherpa-onnx transcription worker, the audio frame codec, and their tests
+- `public/` the web UI (no build step)
+
+## License
+
+Apache-2.0, matching HTCommander, so code can move between the projects
+freely. See [LICENSE](LICENSE) and [NOTICE.md](NOTICE.md).
+
+## Credits
+
+The radio protocol comes from the work of Kyle Husmann (KC3SLD) and the
+[BenLink](https://github.com/khusmann/benlink) project, via
+[HTCommander](https://github.com/Ylianst/HTCommander) by Ylian Saint-Hilaire.
+See [NOTICE.md](NOTICE.md). An amateur radio licence is required to transmit.
