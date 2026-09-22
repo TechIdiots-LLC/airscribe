@@ -13,7 +13,7 @@ test('store round-trips radios and transmissions', { skip: !sqlite }, async () =
   assert.equal(s.transmission(id).transmit, 0, 'received unless stated otherwise');
   const sent = s.addTransmission({ mac: 'AA:BB:CC:DD:EE:FF', startedAt: 2, durationMs: 900, audioFile: 'y.wav', transmit: true });
   assert.equal(s.transmission(sent).transmit, 1);
-  s.finishTransmission(id, { status: 'done', text: 'net check in', engine: 'mock' });
+  s.saveTranscript(id, 'mock', { status: 'done', text: 'net check in' });
   assert.equal(s.transmissions({ q: 'check' }).length, 1);
   assert.equal(s.transmissions({ q: 'nomatch' }).length, 0);
   s.deleteRadio('AA:BB:CC:DD:EE:FF');

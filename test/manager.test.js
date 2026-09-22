@@ -21,7 +21,13 @@ class FakeStore {
     this.rows.set(id, { id, ...t, transmit: t.transmit ? 1 : 0, status: 'pending' });
     return id;
   }
-  finishTransmission(id, r) { Object.assign(this.rows.get(id), r); }
+  saveTranscript(id, engine, r) {
+    const row = this.rows.get(id);
+    row.transcripts = (row.transcripts ?? []).filter((t) => t.engine !== engine);
+    row.transcripts.push({ engine, ...r });
+    Object.assign(row, { status: r.status, text: r.text ?? null, engine, error: r.error ?? null });
+  }
+  needingTranscript() { return []; }
   transmission(id) { return this.rows.get(id); }
 }
 

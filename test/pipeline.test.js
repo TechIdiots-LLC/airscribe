@@ -17,7 +17,13 @@ class FakeStore {
     this.rows.set(id, { id, mac: t.mac, started_at: t.startedAt, duration_ms: Math.round(t.durationMs), audio_file: t.audioFile, transmit: t.transmit ? 1 : 0, status: 'pending' });
     return id;
   }
-  finishTransmission(id, r) { Object.assign(this.rows.get(id), r); }
+  saveTranscript(id, engine, r) {
+    const row = this.rows.get(id);
+    row.transcripts = (row.transcripts ?? []).filter((t) => t.engine !== engine);
+    row.transcripts.push({ engine, ...r });
+    Object.assign(row, { status: r.status, text: r.text ?? null, engine, error: r.error ?? null });
+  }
+  needingTranscript() { return []; }
   transmission(id) { return this.rows.get(id); }
 }
 

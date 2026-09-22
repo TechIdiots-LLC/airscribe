@@ -20,7 +20,10 @@ function make(connectBehaviour = async () => {}) {
   });
   const manager = new Manager({
     sidecar,
-    store: { radios: () => [], addTransmission: () => 1, transmission: () => ({}), finishTransmission() {} },
+    store: {
+      radios: () => [], addTransmission: () => 1, transmission: () => ({}),
+      saveTranscript() {}, needingTranscript: () => [],
+    },
     engine: { name: 'mock', transcribe: async () => ({ text: '' }) },
     audio: { sampleRate: 8000, preRollMs: 0, holdMs: 500, minMs: 100, maxMs: 9999, energyThreshold: 0.05 },
     dataDir: mkdtempSync(join(tmpdir(), 'airscribe-rc-')),

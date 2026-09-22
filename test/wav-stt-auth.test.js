@@ -70,3 +70,13 @@ test('a public bind is refused without a token however it was asked for', async 
     assertSafeToListen(host, { tokens: ['a-long-token'] });
   }
 });
+
+test('the sample config describes a usable engine set', async () => {
+  const { createEngines } = await import('../src/stt/index.js');
+  const { readFileSync } = await import('node:fs');
+  const cfg = JSON.parse(readFileSync(new URL('../airscribe.config.json.sample', import.meta.url)));
+  const { engines, primary, extra } = createEngines(cfg.stt);
+  assert.ok(engines.has(primary), 'the default engine must be one of the configured ones');
+  assert.deepEqual(extra, [], 'comparison engines are opt-in, not on by default');
+  assert.deepEqual([...engines.keys()].sort(), ['base', 'tiny']);
+});

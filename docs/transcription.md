@@ -83,6 +83,51 @@ first clip, so a bad model path does not stop the server from booting — the
 first transmission reports the reason instead. If the worker dies, that clip
 fails and the next one starts a fresh worker.
 
+## Several engines at once
+
+A clip can be read by more than one model, which is the only honest way to
+judge them against your own channel's noise rather than someone else's
+benchmark.
+
+```json
+"stt": {
+  "engines": {
+    "base": { "type": "sherpa-onnx", "model": "whisper-base.en", "modelDir": "…" },
+    "tiny": { "type": "sherpa-onnx", "model": "whisper-tiny.en", "modelDir": "…" }
+  },
+  "default": "base",
+  "alsoRun": ["tiny"]
+}
+```
+
+The names are yours, so two models of the same type stay apart. `default` is
+the transcript the feed shows and the text download returns; everything in
+`alsoRun` appears beneath it, labelled.
+
+**Comparison never delays live traffic.** The default engine on a new clip
+outranks every comparison run and every recovery job. A job already running
+is not interrupted — a speech model is not interruptible — so a new clip
+waits for at most one other run, never for a whole backlog.
+
+Each transcript is stored separately, so re-running one model leaves the
+others alone.
+
+## Recovering clips that were never transcribed
+
+A failed transcription does not lose the audio. When the cause is fixed — a
+missing module, a wrong model path — the clips can be worked through:
+
+```sh
+curl -X POST -H 'authorization: Bearer <token>'   'http://localhost:8100/api/transcribe-missing?engine=base'
+```
+
+It answers with how many were queued, and they run behind live traffic. One
+clip at a time:
+
+```sh
+curl -X POST -H 'authorization: Bearer <token>'   'http://localhost:8100/api/transmissions/42/transcribe?engine=tiny'
+```
+
 ## whisper.cpp
 
 ```json

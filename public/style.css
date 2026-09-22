@@ -40,6 +40,8 @@ li.sent { border-left: 3px solid var(--bad); }
 .tx-text { margin: 6px 0; white-space: pre-wrap; }
 .tx-text.pending { color: var(--muted); font-style: italic; }
 .tx-text.error { color: var(--bad); }
+.tx-text.alt { color: var(--muted); font-size: 14px; }
+.engine { font-size: 11px; text-transform: uppercase; letter-spacing: .04em; color: var(--muted); border: 1px solid var(--line); border-radius: 4px; padding: 1px 5px; }
 audio { width: 100%; height: 32px; }
 .links a { color: var(--accent); font-size: 13px; margin-right: 12px; }
 .actions { display: flex; gap: 6px; margin-top: 6px; }

@@ -83,3 +83,54 @@ export function createEngine(stt) {
   }
   return make(stt[stt.engine]);
 }
+
+/**
+ * Build every configured engine, by name.
+ *
+ * Two shapes are accepted. The original names one engine by its type:
+ *
+ *   { "engine": "sherpa-onnx", "sherpa-onnx": {…} }
+ *
+ * The other names several, so the same clip can be read by more than one
+ * model — which is the only way to judge them against a channel's own noise
+ * rather than against someone else's benchmark:
+ *
+ *   { "engines": { "base": { "type": "sherpa-onnx", … } },
+ *     "default": "base", "alsoRun": ["tiny"] }
+ *
+ * @param {object} stt - The `stt` section of the config.
+ * @returns {{engines: Map<string, SttEngine>, primary: string, extra: string[]}} The set.
+ */
+export function createEngines(stt) {
+  const engines = new Map();
+  if (!stt.engines) {
+    const e = createEngine(stt);
+    engines.set(e.name, e);
+    return { engines, primary: e.name, extra: [] };
+  }
+
+  for (const [name, cfg] of Object.entries(stt.engines)) {
+    const make = ENGINES[cfg.type];
+    if (!make) {
+      throw new Error(
+        `stt.engines.${name}.type "${cfg.type}" is unknown ` +
+          `(have: ${Object.keys(ENGINES).join(', ')})`,
+      );
+    }
+    const engine = make(cfg);
+    // The config's name wins, so two models of the same type stay apart:
+    // "tiny" and "base" are both sherpa-onnx and must not collide.
+    engines.set(name, { ...engine, name, transcribe: (w) => engine.transcribe(w),
+                        stop: () => engine.stop?.() });
+  }
+
+  const primary = stt.default ?? [...engines.keys()][0];
+  if (!engines.has(primary)) {
+    throw new Error(`stt.default "${primary}" is not in stt.engines`);
+  }
+  const extra = (stt.alsoRun ?? []).filter((n) => n !== primary);
+  for (const n of extra) {
+    if (!engines.has(n)) throw new Error(`stt.alsoRun names "${n}", which is not in stt.engines`);
+  }
+  return { engines, primary, extra };
+}

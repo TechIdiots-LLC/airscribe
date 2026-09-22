@@ -1,5 +1,5 @@
 import { EventEmitter } from 'node:events';
-import { mkdirSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { Segmenter } from './segmenter.js';
 import { encodeWav, halveRate } from './wav.js';
@@ -23,13 +23,19 @@ export class Manager extends EventEmitter {
    * @param {object} o.audio - The `audio` config section.
    * @param {string} o.dataDir - Where clips are written.
    */
-  constructor({ sidecar, store, engine, audio, dataDir, reconnect }) {
+  constructor({ sidecar, store, engine, engines, primary, extra, audio, dataDir, reconnect }) {
     super();
-    Object.assign(this, { sidecar, store, engine, audio, dataDir });
+    Object.assign(this, { sidecar, store, audio, dataDir });
+    // One engine or several. A lone engine becomes a set of one, so there is
+    // a single path through the rest of this class.
+    this.engines = engines ?? new Map([[engine.name, engine]]);
+    this.primary = primary ?? engine.name;
+    this.extra = extra ?? [];
+    this.jobs = [];       // {priority, id, engineName, wav}
+    this.working = null;  // the in-flight pump, or null
     this.reconnect = { baseMs: 5000, maxMs: 300000, ...reconnect };
     this.state = new Map(); // mac -> {state, rx, tx, rssi}
     this.segmenters = new Map();
-    this.queue = Promise.resolve();
     this.wanted = new Set(); // radios that should be connected
     this.retries = new Map(); // mac -> {timer, delay}
     sidecar.on('event', (e) => this.onEvent(e));
@@ -162,15 +168,101 @@ export class Manager extends EventEmitter {
     });
     this.emit('update', { type: 'transmission', ...this.store.transmission(id) });
 
-    this.queue = this.queue.then(async () => {
+    this.enqueue({ priority: 0, id, engineName: this.primary, wav: engineWav });
+    for (const name of this.extra) {
+      this.enqueue({ priority: 1, id, engineName: name, wav: engineWav });
+    }
+  }
+
+  /**
+   * Queue one transcription.
+   *
+   * Priority 0 is the default engine on a clip that just arrived; 1 is
+   * everything else — comparison engines and the recovery sweep. Work is
+   * strictly serial because a speech model saturates a CPU, so two at once
+   * only makes both slower.
+   *
+   * A running job is not interrupted, so a new clip waits for at most one
+   * comparison run rather than for the whole backlog. That is the bound
+   * worth having: recovering hundreds of old clips cannot stall what is on
+   * the air now.
+   * @param {{priority: number, id: number, engineName: string, wav: string}} job - The work.
+   * @returns {void}
+   */
+  enqueue(job) {
+    this.jobs.push(job);
+    this.pump();
+  }
+
+  /**
+   * Work the queue until it is empty.
+   *
+   * Returns the run already in progress when there is one, rather than
+   * nothing, so callers can wait for the queue to drain — which shutdown
+   * wants, and which is the only way to test the ordering.
+   * @returns {Promise<void>} Resolves when no work is left.
+   */
+  pump() {
+    if (this.working) return this.working;
+    this.working = (async () => {
       try {
-        const { text } = await this.engine.transcribe(engineWav);
-        this.store.finishTransmission(id, { status: 'done', text, engine: this.engine.name });
-      } catch (e) {
-        this.store.finishTransmission(id, { status: 'error', error: e.message });
+        while (this.jobs.length) {
+          // Re-sorted each time rather than once: a clip arriving mid-backlog
+          // must not wait behind a queue of comparison runs.
+          this.jobs.sort((a, b) => a.priority - b.priority);
+          await this.runJob(this.jobs.shift());
+        }
+      } finally {
+        this.working = null;
       }
-      this.emit('update', { type: 'transmission', ...this.store.transmission(id) });
-    });
+    })();
+    return this.working;
+  }
+
+  /**
+   * @param {{id: number, engineName: string, wav: string}} job - The work.
+   * @returns {Promise<void>}
+   */
+  async runJob({ id, engineName, wav }) {
+    const engine = this.engines.get(engineName);
+    if (!engine) return;
+    try {
+      const { text } = await engine.transcribe(wav);
+      this.store.saveTranscript(id, engineName, { status: 'done', text });
+    } catch (e) {
+      this.store.saveTranscript(id, engineName, { status: 'error', error: e.message });
+    }
+    this.emit('update', { type: 'transmission', ...this.store.transmission(id) });
+  }
+
+  /**
+   * Transcribe clips an engine has not managed yet.
+   *
+   * The audio outlives a failed transcription, so a missing module or a wrong
+   * model path costs nothing permanent once the cause is fixed. Queued behind
+   * live traffic, so recovering a backlog never delays what is on the air now.
+   * @param {string} [engineName] - Engine to catch up; the default one if omitted.
+   * @param {number} [limit] - Most clips to queue.
+   * @returns {number} How many were queued.
+   */
+  retranscribe(engineName = this.primary, limit = 500) {
+    if (!this.engines.has(engineName)) throw new Error(`unknown engine ${engineName}`);
+    const rows = this.store.needingTranscript(engineName, limit);
+    for (const row of rows) {
+      const wav = this.engineWavFor(row);
+      if (wav) this.enqueue({ priority: 1, id: row.id, engineName, wav });
+    }
+    return rows.length;
+  }
+
+  /**
+   * @param {object} row - A transmission row.
+   * @returns {string | null} Path to its 16 kHz copy, if it still exists.
+   */
+  engineWavFor(row) {
+    const wav = join(this.dataDir, 'clips', row.audio_file).replace('.wav', '.16k.wav');
+    // eslint-disable-next-line security/detect-non-literal-fs-filename -- path built from our own row
+    return existsSync(wav) ? wav : null;
   }
 
   /**

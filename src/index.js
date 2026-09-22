@@ -5,7 +5,7 @@ import { assertSafeToListen } from './auth.js';
 import { Store } from './store.js';
 import { Sidecar } from './sidecar.js';
 import { Manager } from './manager.js';
-import { createEngine } from './stt/index.js';
+import { createEngines } from './stt/index.js';
 import { createApp } from './api.js';
 
 const args = process.argv.slice(2);
@@ -28,13 +28,15 @@ if (flag('--simulate')) {
 
 assertSafeToListen(config.host, config.auth);
 
-const store = new Store(join(config.dataDir, 'airscribe.sqlite'));
+const { engines, primary, extra } = createEngines(config.stt);
+const store = new Store(join(config.dataDir, 'airscribe.sqlite'), primary);
 const sidecar = new Sidecar(config.sidecar);
-const engine = createEngine(config.stt);
 const manager = new Manager({
   sidecar,
   store,
-  engine,
+  engines,
+  primary,
+  extra,
   audio: config.audio,
   dataDir: config.dataDir,
   reconnect: config.reconnect,
@@ -50,7 +52,7 @@ const server = createApp({ manager, store, sidecar, auth: config.auth, dataDir: 
 const shutdown = () => {
   manager.stopRetrying();
   sidecar.stop();
-  engine.stop?.(); // engines that hold a worker process (sherpa-onnx) release it
+  for (const e of engines.values()) e.stop?.(); // release any held workers
 
   server.close(() => {
     store.close();

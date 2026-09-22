@@ -134,13 +134,28 @@ async function add(d) {
 
 function renderTx(t) {
   const radio = radios.find((r) => r.mac === t.mac);
-  const text = t.status === 'pending' ? 'transcribing…' : t.status === 'error' ? `transcription failed: ${t.error}` : t.text || '(no speech recognised)';
+  const scripts = t.transcripts ?? [];
+  /** @param {object} s - A transcript row. @returns {string} What to show. */
+  const bodyOf = (s) => s.status === 'pending' ? 'transcribing…'
+    : s.status === 'error' ? `transcription failed: ${s.error}`
+    : (s.text || '').trim() || '(no speech recognised)';
+  const text = scripts.length ? bodyOf(scripts.find((s) => s.engine === t.engine) ?? scripts[0])
+    : t.status === 'pending' ? 'transcribing…'
+    : t.status === 'error' ? `transcription failed: ${t.error}`
+    : t.text || '(no speech recognised)';
+  const primaryScript = scripts.find((s) => s.engine === t.engine) ?? scripts[0];
+  // Only worth labelling once more than one model has had a go at it.
+  const others = scripts.filter((s) => s !== primaryScript);
   const dir = t.transmit ? 'sent' : 'heard';
   return el('li', { id: `tx-${t.id}`, className: t.transmit ? 'sent' : '' },
     el('div', { className: 'meta' },
       el('span', { className: `tag ${dir}` }, dir), ' ',
       `${new Date(t.started_at).toLocaleString()} · ${radio?.name ?? t.mac} · ${(t.duration_ms / 1000).toFixed(1)}s`),
-    el('div', { className: `tx-text ${t.status === 'done' ? '' : t.status}` }, text),
+    el('div', { className: `tx-text ${(primaryScript?.status ?? t.status) === 'done' ? '' : (primaryScript?.status ?? t.status)}` },
+      others.length ? el('span', { className: 'engine' }, `${primaryScript.engine} `) : '', text),
+    ...others.map((s) =>
+      el('div', { className: `tx-text alt ${s.status === 'done' ? '' : s.status}` },
+        el('span', { className: 'engine' }, `${s.engine} `), bodyOf(s))),
     // 'metadata' rather than 'none' so the player shows the clip's length
     // instead of 0:00 until it is played. A transmission is seconds long, so
     // the headers this costs are cheap; the audio itself is still not fetched.

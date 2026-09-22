@@ -93,6 +93,37 @@ export function createApp({ manager, store, sidecar, auth, dataDir }) {
     res.json(store.transmissions({ mac, q: req.query.q && String(req.query.q), limit: req.query.limit }));
   });
 
+  // What engines exist, and which is the default. The UI labels transcripts
+  // with these.
+  api.get('/engines', (req, res) =>
+    res.json({ engines: [...manager.engines.keys()], primary: manager.primary, extra: manager.extra }),
+  );
+
+  // Catch up clips an engine has not managed. The audio outlives a failed
+  // transcription, so a backlog from a missing module is recoverable.
+  api.post('/transcribe-missing', (req, res) => {
+    const engine = req.query.engine ? String(req.query.engine) : undefined;
+    try {
+      const queued = manager.retranscribe(engine, Number(req.query.limit) || 500);
+      res.status(202).json({ queued, engine: engine ?? manager.primary });
+    } catch (e) {
+      res.status(400).json({ error: e.message });
+    }
+  });
+
+  api.post('/transmissions/:id/transcribe', (req, res) => {
+    const t = store.transmission(Number(req.params.id));
+    if (!t) return res.status(404).json({ error: 'unknown transmission' });
+    const engineName = req.query.engine ? String(req.query.engine) : manager.primary;
+    if (!manager.engines.has(engineName)) {
+      return res.status(400).json({ error: `unknown engine ${engineName}` });
+    }
+    const wav = manager.engineWavFor(t);
+    if (!wav) return res.status(409).json({ error: 'the audio for this clip is gone' });
+    manager.enqueue({ priority: 1, id: t.id, engineName, wav });
+    res.status(202).json({ ok: true, engine: engineName });
+  });
+
   api.get('/transmissions/:id/audio', (req, res) => {
     const t = store.transmission(Number(req.params.id));
     // audio_file is written by this server, but resolve it under clips/ anyway.

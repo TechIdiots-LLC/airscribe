@@ -30,21 +30,23 @@
   },
 
   "stt": {
-    "engine": "sherpa-onnx",
-    "sherpa-onnx": {
-      "python": "python3",
-      "model": "whisper-base.en",
-      "modelDir": "/EDIT-ME/models/sherpa-onnx-whisper-base.en",
-      "language": "en",
-      "threads": 2
+    "engines": {
+      "base": {
+        "type": "sherpa-onnx",
+        "python": "python3",
+        "model": "whisper-base.en",
+        "modelDir": "/EDIT-ME/models/sherpa-onnx-whisper-base.en",
+        "language": "en"
+      },
+      "tiny": {
+        "type": "sherpa-onnx",
+        "python": "python3",
+        "model": "whisper-tiny.en",
+        "modelDir": "/EDIT-ME/models/sherpa-onnx-whisper-tiny.en",
+        "language": "en"
+      }
     },
-    "whisper-cpp": {
-      "binary": "whisper-cli",
-      "model": "/EDIT-ME/models/ggml-base.en.bin",
-      "language": "en"
-    },
-    "command": {
-      "template": ["/EDIT-ME/transcribe.sh", "{wav}"]
-    }
+    "default": "base",
+    "alsoRun": []
   }
 }
