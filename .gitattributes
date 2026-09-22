@@ -1,0 +1,7 @@
+# Store text with LF, as pmtiles-swarm does and as the Ubuntu target expects.
+# Without this, files written by a Windows editor land in git as CRLF and a
+# later edit from a tool that writes LF shows up as a whole-file diff.
+* text=auto eol=lf
+*.png binary
+*.ico binary
+*.wav binary
