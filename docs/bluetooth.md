@@ -215,6 +215,29 @@ bookkeeping, not a link problem — most often right after an earlier session on
 that channel closed. **The backend must rediscover channels on each connect,
 and retry a refusal rather than treat it as fatal.**
 
+### Confirmed working on Linux
+
+With the channel numbers given rather than probed, both channels open and
+behave:
+
+```
+control channel 1: open (held)
+  GAIA replied: True
+audio channel 2: open (held), is_aoc_connected=True
+```
+
+That is the whole transport proven on the target OS: RFCOMM sockets from
+Python, GAIA on the control channel, and the radio confirming the audio
+channel is attached. Passing `--control`/`--audio` to skip probing is what
+made it reliable, because probing spends sessions the radio is slow to free.
+
+**A control session does not survive the process.** A second run moments later
+was refused on channel 1, even though the first exited cleanly through its
+`finally`. Whether a longer settle, or `bluetoothctl disconnect`, or only a
+power cycle recovers it is not yet established — but a server should assume it
+gets **one** control session per link and hold it, rather than reconnecting
+per operation.
+
 ### The control channel is opened once and held
 
 This is the rule that matters most, and it took several wrong guesses to see.
