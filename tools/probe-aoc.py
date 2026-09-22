@@ -21,8 +21,13 @@ keeps them for as long as it needs the radio. The backend has to do the same.
 Read-only. It sends GET_HT_STATUS and nothing else, and never keys the
 transmitter.
 
-    python3 tools/probe-aoc.py <MAC>                 # find channels, then capture
-    python3 tools/probe-aoc.py <MAC> --discover      # find channels only
+    python3 tools/probe-aoc.py <MAC>                            # probe, then capture
+    python3 tools/probe-aoc.py <MAC> --discover                 # probe only
+    python3 tools/probe-aoc.py <MAC> --control 1 --audio 2      # skip probing
+
+Prefer the last form once the numbers are known. Every channel the probe
+touches costs the radio a session it is slow to release, and enough of them
+wedge its control service until its Bluetooth is power-cycled.
 """
 import argparse
 import os
@@ -168,14 +173,34 @@ def main():
     ap.add_argument("--discover", action="store_true",
                     help="find the channels and stop, instead of capturing")
     ap.add_argument("--last", type=int, default=10, help="highest channel to probe")
+    ap.add_argument("--control", type=int,
+                    help="known control channel; skips probing for it")
+    ap.add_argument("--audio", type=int,
+                    help="known audio channel; skips probing for it")
     ap.add_argument("--capture", type=float, default=45.0, help="capture seconds")
     ap.add_argument("--out", default="aoc_capture.bin")
     args = ap.parse_args()
 
-    control_ch, ctrl = find_control(args.mac, args.last)
+    # Every probed channel costs the radio a session it is slow to free, and
+    # enough of them wedge it. When the numbers are already known, open just
+    # those two and touch nothing else.
+    if args.control:
+        control_ch, ctrl = args.control, rfcomm(args.mac, args.control)
+        print(f"control channel {control_ch}: open (held)")
+        st = ht_status(ctrl)
+        print(f"  GAIA replied: {bool(st)}" + ("" if st else "  <-- not the control channel?"))
+    else:
+        control_ch, ctrl = find_control(args.mac, args.last)
+
     audio_ch, audio = None, None
     try:
-        audio_ch, audio = find_audio(args.mac, ctrl, control_ch, args.last)
+        if args.audio:
+            audio_ch, audio = args.audio, rfcomm(args.mac, args.audio)
+            st = ht_status(ctrl)
+            print(f"audio channel {audio_ch}: open (held), "
+                  f"is_aoc_connected={st[0] if st else '?'}")
+        else:
+            audio_ch, audio = find_audio(args.mac, ctrl, control_ch, args.last)
         print(f"\n  control channel : {control_ch}")
         print(f"  audio channel   : {audio_ch if audio_ch else 'not found'}")
         if audio and not args.discover:
