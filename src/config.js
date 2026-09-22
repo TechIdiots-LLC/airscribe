@@ -56,5 +56,12 @@ export function flagValue(argv, name) {
 export function loadConfig(path) {
   if (!path) return structuredClone(DEFAULTS);
   // eslint-disable-next-line security/detect-non-literal-fs-filename -- path is the operator's --config argument
-  return merge(DEFAULTS, JSON.parse(readFileSync(path, 'utf8')));
+  const file = JSON.parse(readFileSync(path, 'utf8'));
+  const config = merge(DEFAULTS, file);
+  // The default is a single mock engine, and merging leaves `stt.engine`
+  // beside the operator's `stt.engines`. Nothing reads it in that case, but
+  // leaving it there means deleting `engines` later silently falls back to
+  // mock transcription instead of complaining.
+  if (file.stt?.engines && !file.stt.engine) delete config.stt.engine;
+  return config;
 }

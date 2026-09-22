@@ -22,6 +22,13 @@ if (port) config.port = Number(port);
 // --simulate swaps in the fake radio and the mock transcriber, so the whole
 // pipeline can be exercised on a machine with no Bluetooth or Whisper model.
 if (flag('--simulate')) {
+  // Said out loud because it replaces both the radio and the transcriber, and
+  // a forgotten --simulate looks exactly like a configuration that stopped
+  // working: real-looking traffic, mock transcripts.
+  console.warn(
+    '[simulate] using a fake radio and mock transcription; ' +
+      'the stt and sidecar sections of the config are ignored',
+  );
   config.sidecar.backend = 'sim';
   config.stt = { engine: 'mock' };
 }
@@ -29,6 +36,11 @@ if (flag('--simulate')) {
 assertSafeToListen(config.host, config.auth);
 
 const { engines, primary, extra } = createEngines(config.stt);
+// Which model is running should never be a guess.
+console.log(
+  `[stt] ${[...engines.keys()].join(', ')}` +
+    ` (default: ${primary}${extra.length ? `, also: ${extra.join(', ')}` : ''})`,
+);
 const store = new Store(join(config.dataDir, 'airscribe.sqlite'), primary);
 const sidecar = new Sidecar(config.sidecar);
 const manager = new Manager({
