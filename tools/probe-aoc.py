@@ -33,11 +33,25 @@ CMD_NAMES = {0x00: "audio (odd)", 0x01: "AUDIO END", 0x02: "ack",
              0x03: "audio", 0x09: "transmit audio"}
 
 
-def rfcomm(mac, channel, timeout=6):
-    s = socket.socket(socket.AF_BLUETOOTH, socket.SOCK_STREAM, socket.BTPROTO_RFCOMM)
-    s.settimeout(timeout)
-    s.connect((mac, channel))
-    return s
+def rfcomm(mac, channel, timeout=6, tries=1):
+    """Open one RFCOMM channel.
+
+    Retries because these radios refuse a channel that worked moments earlier,
+    typically right after another session on it closed.
+    """
+    last = None
+    for attempt in range(tries):
+        s = socket.socket(socket.AF_BLUETOOTH, socket.SOCK_STREAM, socket.BTPROTO_RFCOMM)
+        s.settimeout(timeout)
+        try:
+            s.connect((mac, channel))
+            return s
+        except OSError as e:
+            s.close()
+            last = e
+            if attempt + 1 < tries:
+                time.sleep(1.5)
+    raise last
 
 
 def ht_status(ctrl):
@@ -119,14 +133,24 @@ def discover(mac, last):
 
     print(f"\n  control channel : {control}")
     print(f"  audio channel   : {audio if audio else 'not found'}")
-    if audio:
-        print(f"\nCapture with:\n  python3 tools/probe-aoc.py {mac} "
-              f"--control {control} --audio {audio} --capture 45")
+    return control, audio
 
 
 def capture(mac, control, audio_ch, seconds, out):
-    ctrl = rfcomm(mac, control)
-    audio = rfcomm(mac, audio_ch)
+    # A channel that worked a minute ago can refuse now, so fall back to
+    # probing again rather than failing. This is why the backend must
+    # rediscover channels per connection instead of caching them.
+    try:
+        ctrl = rfcomm(mac, control, tries=3)
+        audio = rfcomm(mac, audio_ch, tries=3)
+    except OSError as e:
+        print(f"channel {control}/{audio_ch} refused ({e.strerror or e}); re-probing ...")
+        control, audio_ch = discover(mac, 10)
+        if not (control and audio_ch):
+            raise SystemExit("could not find both channels")
+        print()
+        ctrl = rfcomm(mac, control, tries=3)
+        audio = rfcomm(mac, audio_ch, tries=3)
     audio.setblocking(False)
     print(f"control ch{control} + audio ch{audio_ch} connected; capturing {seconds}s")
     reader, raw, counts, polls, last = FrameReader(), bytearray(), {}, [], 0.0
@@ -171,7 +195,15 @@ def main():
     args = ap.parse_args()
 
     if args.discover or not (args.control and args.audio):
-        discover(args.mac, args.last)
+        control, audio = discover(args.mac, args.last)
+        if control and audio and not args.discover:
+            print()
+            capture(args.mac, control, audio, args.capture, args.out)
+        elif control and audio:
+            print()
+            print("Capture with:")
+            print(f"  python3 tools/probe-aoc.py {args.mac} "
+                  f"--control {control} --audio {audio} --capture 45")
     else:
         capture(args.mac, args.control, args.audio, args.capture, args.out)
 

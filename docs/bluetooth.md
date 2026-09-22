@@ -207,6 +207,14 @@ On the UV-Pro tested, channels 1-4 accept connections and 5-30 refuse.
 | control (answers GAIA) | **1** | **4** |
 | BS AOC audio | **2** | **2** |
 
+**Channel numbers are not stable, so they cannot be cached.** Channel 1
+answered GAIA during one probe and refused with `ECONNREFUSED` minutes later,
+with the radio still paired and in range. `ECONNREFUSED` rather than a timeout
+means the radio answered and declined, so this is the radio's own channel
+bookkeeping, not a link problem — most often right after an earlier session on
+that channel closed. **The backend must rediscover channels on each connect,
+and retry a refusal rather than treat it as fatal.**
+
 **Audio was channel 2 on both hosts**, which is the number that matters most.
 Control differs, and the likely reason is that more than one channel speaks
 GAIA: the Windows run was told to use 4 and it worked, while the Linux probe
