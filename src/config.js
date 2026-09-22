@@ -12,6 +12,7 @@ const DEFAULTS = {
     holdMs: 1200,
     minMs: 400,
     maxMs: 120000,
+    overlapMs: 300,
     energyThreshold: 0.02,
   },
   stt: { engine: 'mock' },

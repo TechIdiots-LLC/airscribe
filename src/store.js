@@ -22,9 +22,27 @@ export class Store {
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         mac TEXT NOT NULL, started_at INTEGER NOT NULL, duration_ms INTEGER NOT NULL,
         audio_file TEXT NOT NULL, status TEXT NOT NULL,
+        transmit INTEGER NOT NULL DEFAULT 0,
         text TEXT, engine TEXT, error TEXT);
       CREATE INDEX IF NOT EXISTS tx_time ON transmissions(started_at DESC);
     `);
+    this.migrate();
+  }
+
+  /**
+   * Bring an older database up to the current schema. Columns added after a
+   * table exists are invisible to CREATE TABLE IF NOT EXISTS, so each one is
+   * added here instead of rebuilding the table and losing its rows.
+   * @returns {void}
+   */
+  migrate() {
+    const columns = this.db.prepare('PRAGMA table_info(transmissions)').all();
+    const added = [['transmit', 'INTEGER NOT NULL DEFAULT 0']];
+    for (const [name, decl] of added) {
+      if (!columns.some((c) => c.name === name)) {
+        this.db.exec(`ALTER TABLE transmissions ADD COLUMN ${name} ${decl}`);
+      }
+    }
   }
 
   /** @returns {object[]} All saved radios. */
@@ -62,16 +80,17 @@ export class Store {
   }
 
   /**
-   * @param {{mac: string, startedAt: number, durationMs: number, audioFile: string}} t - A new clip.
+   * @param {{mac: string, startedAt: number, durationMs: number, audioFile: string,
+   *   transmit?: boolean}} t - A new clip.
    * @returns {number} Its id.
    */
-  addTransmission({ mac, startedAt, durationMs, audioFile }) {
+  addTransmission({ mac, startedAt, durationMs, audioFile, transmit = false }) {
     const r = this.db
       .prepare(
-        `INSERT INTO transmissions (mac, started_at, duration_ms, audio_file, status)
-         VALUES (?, ?, ?, ?, 'pending')`,
+        `INSERT INTO transmissions (mac, started_at, duration_ms, audio_file, status, transmit)
+         VALUES (?, ?, ?, ?, 'pending', ?)`,
       )
-      .run(mac, startedAt, Math.round(durationMs), audioFile);
+      .run(mac, startedAt, Math.round(durationMs), audioFile, transmit ? 1 : 0);
     return Number(r.lastInsertRowid);
   }
 

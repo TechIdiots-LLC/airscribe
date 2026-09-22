@@ -7,9 +7,10 @@ import { encodeWav, halveRate } from './wav.js';
 /**
  * Ties the sidecar, the segmenter, the transcriber and the store together.
  *
- * One Segmenter per connected radio. Finished clips are written to disk,
- * recorded as `pending`, and transcribed one at a time: Whisper is the
- * bottleneck, and running clips in parallel would only make each slower.
+ * One Segmenter per connected radio, driven by the radio's own audio-run
+ * markers. Finished clips are written to disk, recorded as `pending`, and
+ * transcribed one at a time: a speech model saturates a CPU on a single clip,
+ * so running clips in parallel would only make each slower.
  *
  * Emits 'update' with {type, ...} for the web UI's event stream.
  */
@@ -25,7 +26,7 @@ export class Manager extends EventEmitter {
   constructor({ sidecar, store, engine, audio, dataDir }) {
     super();
     Object.assign(this, { sidecar, store, engine, audio, dataDir });
-    this.state = new Map(); // mac -> {state, rx, rssi}
+    this.state = new Map(); // mac -> {state, rx, tx, rssi}
     this.segmenters = new Map();
     this.queue = Promise.resolve();
     this.wanted = new Set(); // radios to re-connect after a sidecar restart
@@ -38,20 +39,52 @@ export class Manager extends EventEmitter {
    * @returns {void}
    */
   onEvent(e) {
-    if (e.event === 'status') {
-      const s = { ...this.state.get(e.mac), state: e.state, rssi: e.rssi, detail: e.detail };
-      this.state.set(e.mac, s);
-      if (e.state !== 'connected') this.segmenters.get(e.mac)?.flush();
-      this.emit('update', { type: 'status', mac: e.mac, ...s });
-    } else if (e.event === 'audio') {
-      const seg = this.segmenterFor(e.mac);
-      const s = { ...this.state.get(e.mac), rx: !!e.rx };
-      if (s.rx !== this.state.get(e.mac)?.rx) {
+    switch (e.event) {
+      case 'status': {
+        const s = { ...this.state.get(e.mac), state: e.state, rssi: e.rssi, detail: e.detail };
         this.state.set(e.mac, s);
-        this.emit('update', { type: 'rx', mac: e.mac, rx: s.rx });
+        // A radio that drops mid-transmission still owes us the clip so far.
+        if (e.state !== 'connected') {
+          this.segmenters.get(e.mac)?.flush();
+          s.rx = false;
+          s.tx = false;
+        }
+        this.emit('update', { type: 'status', mac: e.mac, ...s });
+        break;
       }
-      seg.push(Buffer.from(e.pcm, 'base64'), !!e.rx);
+      case 'audio-start':
+        this.segmenterFor(e.mac).begin({ transmit: !!e.transmit });
+        this.setActivity(e.mac, { rx: !e.transmit, tx: !!e.transmit });
+        break;
+      case 'audio-end':
+        this.segmenterFor(e.mac).end();
+        this.setActivity(e.mac, { rx: false, tx: false });
+        break;
+      case 'audio':
+        this.segmenterFor(e.mac).push(Buffer.from(e.pcm, 'base64'), {
+          rx: !!e.rx,
+          transmit: !!e.transmit,
+        });
+        // A backend that sends no run markers still drives the indicator.
+        this.setActivity(e.mac, { rx: !!e.rx, tx: !!e.transmit });
+        break;
+      default:
+        break;
     }
+  }
+
+  /**
+   * Update the receive/transmit indicator, emitting only on a real change so
+   * the event stream does not carry one message per 100 ms of audio.
+   * @param {string} mac - Radio MAC.
+   * @param {{rx: boolean, tx: boolean}} a - The new activity.
+   * @returns {void}
+   */
+  setActivity(mac, a) {
+    const prev = this.state.get(mac) ?? {};
+    if (prev.rx === a.rx && prev.tx === a.tx) return;
+    this.state.set(mac, { ...prev, ...a });
+    this.emit('update', { type: 'activity', mac, ...a });
   }
 
   /**
@@ -69,7 +102,7 @@ export class Manager extends EventEmitter {
 
   /**
    * @param {string} mac - Radio that produced the clip.
-   * @param {{startMs: number, durationMs: number, pcm: Buffer}} clip - The audio.
+   * @param {{startMs: number, durationMs: number, pcm: Buffer, transmit: boolean}} clip - The audio.
    * @returns {void}
    */
   onClip(mac, clip) {
@@ -83,7 +116,13 @@ export class Manager extends EventEmitter {
     const engineWav = join(dir, name.replace('.wav', '.16k.wav'));
     writeFileSync(engineWav, encodeWav(halveRate(clip.pcm), this.audio.sampleRate / 2));
 
-    const id = this.store.addTransmission({ mac, startedAt, durationMs: clip.durationMs, audioFile });
+    const id = this.store.addTransmission({
+      mac,
+      startedAt,
+      durationMs: clip.durationMs,
+      audioFile,
+      transmit: clip.transmit,
+    });
     this.emit('update', { type: 'transmission', ...this.store.transmission(id) });
 
     this.queue = this.queue.then(async () => {

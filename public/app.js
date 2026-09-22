@@ -28,14 +28,15 @@ function renderRadios() {
   const list = $('radios');
   list.replaceChildren(
     ...radios.map((r) => {
-      const state = r.rx ? 'rx' : r.state === 'connected' ? 'connected' : '';
       const connected = r.state === 'connected';
+      const dot = r.tx ? 'tx' : r.rx ? 'rx' : connected ? 'connected' : '';
+      const activity = r.tx ? 'transmitting' : r.rx ? 'receiving' : (r.state ?? 'disconnected');
       return el(
         'li', {},
         el('div', { className: 'radio-head' },
-          el('span', { className: `dot ${state}` }),
+          el('span', { className: `dot ${dot}` }),
           el('strong', {}, r.name),
-          el('span', { className: 'pill' }, r.rx ? 'receiving' : r.state ?? 'disconnected')),
+          el('span', { className: 'pill' }, activity)),
         el('div', { className: 'meta' }, `${models.get(r.model)?.name ?? 'unknown model'} · ${r.mac}`),
         el('div', { className: 'actions' },
           el('button', { onclick: () => act(r.mac, connected ? 'disconnect' : 'connect') }, connected ? 'Disconnect' : 'Connect'),
@@ -87,8 +88,11 @@ async function add(d) {
 function renderTx(t) {
   const radio = radios.find((r) => r.mac === t.mac);
   const text = t.status === 'pending' ? 'transcribing…' : t.status === 'error' ? `transcription failed: ${t.error}` : t.text || '(no speech recognised)';
-  return el('li', { id: `tx-${t.id}` },
-    el('div', { className: 'meta' }, `${new Date(t.started_at).toLocaleString()} · ${radio?.name ?? t.mac} · ${(t.duration_ms / 1000).toFixed(1)}s`),
+  const dir = t.transmit ? 'sent' : 'heard';
+  return el('li', { id: `tx-${t.id}`, className: t.transmit ? 'sent' : '' },
+    el('div', { className: 'meta' },
+      el('span', { className: `tag ${dir}` }, dir), ' ',
+      `${new Date(t.started_at).toLocaleString()} · ${radio?.name ?? t.mac} · ${(t.duration_ms / 1000).toFixed(1)}s`),
     el('div', { className: `tx-text ${t.status === 'done' ? '' : t.status}` }, text),
     el('audio', { controls: true, preload: 'none', src: url(`/api/transmissions/${t.id}/audio`) }),
     el('div', { className: 'links' },
@@ -121,7 +125,7 @@ function listen() {
   es.onmessage = (m) => {
     const u = JSON.parse(m.data);
     if (u.type === 'transmission') { txs.set(u.id, u); renderFeed(); }
-    else if (u.type === 'status' || u.type === 'rx') {
+    else if (u.type === 'status' || u.type === 'activity') {
       const r = radios.find((x) => x.mac === u.mac);
       if (r) { Object.assign(r, u); delete r.type; renderRadios(); }
     }

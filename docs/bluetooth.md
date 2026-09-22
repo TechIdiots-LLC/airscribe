@@ -50,14 +50,17 @@ sender uses bitpool 40; one upstream analysis document assumes bitpool 18
 [Paring.md](https://github.com/Ylianst/HTCommander/blob/main/docs/Paring.md)
 notes that two Bluetooth devices must be paired in quick succession.
 
-## Segmenting: use the radio's own audio boundaries
+## Segmenting: the radio's own audio boundaries
 
-The radio brackets each received transmission itself: audio frames (`0x00`/`0x03`)
-begin a run and a `0x01` frame ends it. Upstream starts and completes a
-speech segment on these, force-splits a segment at a maximum length, and keeps a
-short overlap tail across the split so boundary words are not lost. The sidecar
-should therefore set `rx` on `audio` events from the audio run, not only from the
-status packet, and `Segmenter` could gain an overlap tail on `maxMs` splits.
+The radio brackets each transmission itself: audio frames (`0x00`/`0x03`) begin
+a run and a `0x01` frame ends it, and `0x09` marks audio the radio is itself
+transmitting. This is the boundary to trust, and it is what
+[src/segmenter.js](../src/segmenter.js) is built around — see
+[segmentation.md](segmentation.md).
+
+**A backend must therefore emit `audio-start` and `audio-end` around each run**,
+with `transmit: true` for a `0x09` run. Squelch and energy remain a fallback,
+never the primary signal.
 
 ## The UV-Pro
 
@@ -99,6 +102,10 @@ Requests `{"id", "cmd": "scan"|"connect"|"disconnect"|"ping", "mac"?}`; replies
 Events:
 
 - `{"event":"status","mac","state":"connected"|"disconnected","rssi"?}`
-- `{"event":"audio","mac","rx":bool,"pcm":"<base64 s16le 32 kHz mono>"}`
+- `{"event":"audio-start","mac","transmit":bool}` — the radio opened a run
+- `{"event":"audio","mac","rx":bool,"transmit":bool,"pcm":"<base64 s16le 32 kHz mono>"}`
+- `{"event":"audio-end","mac"}` — the radio closed the run
 
-Audio arrives as ~100 ms chunks.
+Audio arrives as ~100 ms chunks. A backend that cannot produce the run markers
+may send `audio` alone; segmentation then falls back to squelch and energy, and
+is correspondingly worse at telling two quick transmissions apart.

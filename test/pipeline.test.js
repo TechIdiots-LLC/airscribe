@@ -14,7 +14,7 @@ class FakeStore {
   addTransmission(t) {
     const id = this.rows.size + 1;
     // Same column names as the real Store's rows.
-    this.rows.set(id, { id, mac: t.mac, started_at: t.startedAt, duration_ms: Math.round(t.durationMs), audio_file: t.audioFile, status: 'pending' });
+    this.rows.set(id, { id, mac: t.mac, started_at: t.startedAt, duration_ms: Math.round(t.durationMs), audio_file: t.audioFile, transmit: t.transmit ? 1 : 0, status: 'pending' });
     return id;
   }
   finishTransmission(id, r) { Object.assign(this.rows.get(id), r); }
@@ -29,6 +29,10 @@ test('simulated radio -> one clip -> transcript, end to end through the Python s
     sidecar, store, engine: createEngine({ engine: 'mock' }), dataDir,
     audio: { sampleRate: 32000, preRollMs: 300, holdMs: 500, minMs: 400, maxMs: 120000, energyThreshold: 0.02 },
   });
+  const markers = [];
+  sidecar.on('event', (e) => {
+    if (e.event === 'audio-start' || e.event === 'audio-end') markers.push(e.event);
+  });
   sidecar.start();
   try {
     const done = new Promise((resolve) =>
@@ -41,6 +45,10 @@ test('simulated radio -> one clip -> transcript, end to end through the Python s
     assert.match(tx.text, /mock transcript/);
     assert.ok(tx.duration_ms > 1500, `clip should span the burst, got ${tx.duration_ms}`);
     assert.ok(existsSync(join(dataDir, 'clips', tx.audio_file)));
+    assert.equal(tx.transmit, 0, 'a received transmission, not one we sent');
+    // The simulator brackets its burst with the run markers a real radio
+    // sends, so a clip arriving at all proves they were followed.
+    assert.ok(markers.includes('audio-start') && markers.includes('audio-end'));
     await manager.disconnect('00:11:22:33:44:55');
   } finally {
     sidecar.stop();

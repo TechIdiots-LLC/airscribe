@@ -1,9 +1,9 @@
 # HTRadioWeb
 
 A web front end for Bluetooth handheld radios. A server pairs with the radios,
-listens to each one, splits the audio into one clip per transmission,
-transcribes every clip, and shows the text with audio and text downloads in a
-browser.
+listens to each one, splits the audio into one clip per transmission using the
+radio's own start/end-of-audio markers, transcribes every clip, and shows the
+text with audio and text downloads in a browser.
 
 Rebuilt from the web/voice work in the HTCommander fork as a server-side
 application, because browsers can only reach a radio's Bluetooth LE control
@@ -20,20 +20,21 @@ npm run simulate        # fake radio + mock transcriber, no hardware needed
 | Piece | State |
 | --- | --- |
 | Web UI: radios, live status, transcript feed, search, downloads | working (against the simulator) |
-| Segmenting audio into one clip per transmission | working, unit-tested |
+| Segmenting audio into one clip per transmission | working, driven by the radio's own run markers, unit-tested |
 | Pluggable transcription: sherpa-onnx, whisper.cpp, any command, mock | working; not yet run against a real model |
 | Radio registry, keyed by MAC, HTCommander model table | working |
 | Python sidecar protocol + simulator | working, tested end to end |
 | **Real radio link (BlueZ RFCOMM control + SBC audio)** | **not written yet**, see [docs/bluetooth.md](docs/bluetooth.md) |
 | Digital modes (AFSK/IRC/file transfer) | design only, see [docs/digital-modes.md](docs/digital-modes.md) |
 
-Documentation: [transcription](docs/transcription.md) ·
-[Bluetooth link](docs/bluetooth.md) · [digital modes](docs/digital-modes.md)
+Documentation: [segmentation](docs/segmentation.md) ·
+[transcription](docs/transcription.md) · [Bluetooth link](docs/bluetooth.md) ·
+[digital modes](docs/digital-modes.md)
 
 Developed against a **BTech UV-Pro**, which is also BenLink's original target
 and the best-tested model upstream.
 
-Tests: `npm test` (27 Node tests) and `npm run test:py` (13 Python tests).
+Tests: `npm test` (44 Node tests) and `npm run test:py` (13 Python tests).
 The store and API tests need Node 22.5+ (`node:sqlite`) and report as skipped
 on older Node. Neither suite needs a radio or a speech model.
 
