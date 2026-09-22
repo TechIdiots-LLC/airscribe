@@ -65,7 +65,8 @@ open the page with `?token=<token>`).
   sherpa-onnx transcription worker, the audio frame codec, and their tests
 - `public/` the web UI (no build step)
 - `tools/` diagnostics — `probe-radio.ps1` sends read-only GAIA queries to a
-  radio over Bluetooth SPP and prints the raw frames
+  radio over Bluetooth SPP; `probe-aoc.py` finds the BS AOC audio channel and
+  captures its frames through the project's own codec
 
 ## License
 

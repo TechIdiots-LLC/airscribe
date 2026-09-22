@@ -100,6 +100,33 @@ that path is now known to be reading real fields rather than a guess.
 The radio also reports `is_aoc_connected`, which was false throughout: the
 audio channel is a separate RFCOMM connection that nothing had opened.
 
+**The link must be up before an RFCOMM connect will work.** From cold, a raw
+RFCOMM connect to the radio fails with "destination host was down" or simply
+times out; once the link is established it connects in about 0.1 s. On Windows
+opening the SPP COM port is enough to bring it up. **This is why the Linux
+backend must call BlueZ's `Connect()` on the device before opening any
+socket** — HTCommander's Linux code does exactly that, and now the reason is
+clear rather than incidental.
+
+**Channel numbers on the unit tested** were SPP/control on **4** and BS AOC
+audio on **2**. These are per-device and must still be resolved through SDP —
+do not hardcode them. Two things make them findable: the control channel
+collides with the Windows SPP COM port, and **the audio channel identifies
+itself**, because opening it flips `is_aoc_connected` in the HT status. That
+second trick needs no audio and no SDP, and is what
+[tools/probe-aoc.py](../tools/probe-aoc.py) uses.
+
+**Python can open RFCOMM on Windows.** `socket.AF_BLUETOOTH` with
+`BTPROTO_RFCOMM` and an `(mac, channel)` address works on Windows CPython, so
+a Windows backend for the sidecar is feasible. Only RFCOMM is exposed, though
+— `BTPROTO_L2CAP`, `BTPROTO_HCI` and `BTPROTO_SCO` are all absent — and there
+is no SDP lookup, which is the real gap.
+
+**Audio only flows when the radio has audio.** With the radio idle and
+scanning, the AOC channel stays completely silent: 0 bytes over a 20 s
+capture, with every status poll reporting `is_in_rx=False, is_sq=False,
+rssi=0`. The channel being open is not enough; the squelch has to open.
+
 **A note on the transport used.** These queries went over the SPP service as
 a Windows COM port, not a raw RFCOMM socket, which is a convenient shortcut on
 Windows but not what the Linux backend will do. The GAIA bytes on the wire are
