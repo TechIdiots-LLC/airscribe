@@ -25,6 +25,7 @@ npm run simulate        # fake radio + mock transcriber, no hardware needed
 | Radio registry, keyed by MAC, HTCommander model table | working |
 | Python sidecar protocol + simulator | working, tested end to end |
 | **Real radio link (BlueZ RFCOMM control + SBC audio)** | **not written yet**, see [docs/bluetooth.md](docs/bluetooth.md) |
+| Protocol assumptions (service UUID, GAIA framing, status bits) | confirmed against a real UV-Pro — see [docs/bluetooth.md](docs/bluetooth.md#verified-against-a-real-uv-pro) |
 | Digital modes (AFSK/IRC/file transfer) | design only, see [docs/digital-modes.md](docs/digital-modes.md) |
 
 Documentation: [segmentation](docs/segmentation.md) ·
@@ -63,6 +64,8 @@ open the page with `?token=<token>`).
 - `sidecar/` Python helpers (JSON lines on stdio): the Bluetooth backend, the
   sherpa-onnx transcription worker, the audio frame codec, and their tests
 - `public/` the web UI (no build step)
+- `tools/` diagnostics — `probe-radio.ps1` sends read-only GAIA queries to a
+  radio over Bluetooth SPP and prints the raw frames
 
 ## License
 

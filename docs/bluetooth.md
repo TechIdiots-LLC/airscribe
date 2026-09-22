@@ -62,6 +62,49 @@ transmitting. This is the boundary to trust, and it is what
 with `transmit: true` for a `0x09` run. Squelch and energy remain a fallback,
 never the primary signal.
 
+## Verified against a real UV-Pro
+
+Checked on 2026-09-21 against a BTech UV-Pro (firmware 0.8.12, 30 channels)
+from a Windows VM with a USB Bluetooth adapter passed through, using
+[tools/probe-radio.ps1](../tools/probe-radio.ps1). Everything below is
+observed, not read from someone else's source.
+
+**The BS AOC service UUID is right.** A paired UV-Pro exposes
+`{39144315-32FA-40DB-85ED-FBFEBA2D86E6}`, named `BS AOC` in its own SDP
+record. This is what `sidecar/btinfo.py` keys on to tell a radio from a
+headset.
+
+**The radio pairs as two Bluetooth devices**, with MACs one apart
+(`38:D2:00:01:56:21` and `...:51` on the unit tested). Each exposes its own
+copy of the services. This is the "pair two devices in quick succession"
+quirk upstream documents.
+
+**Services exposed per device:** SPP `0x1101` (control), HFP `0x111F`, and
+the BS AOC vendor service (audio). Windows binds the first two to inbox
+drivers and leaves BS AOC without one, which is correct — an RFCOMM service
+is reached by socket, not through a driver.
+
+**GAIA framing is exactly as described above.** `GET_DEV_INFO` (group 2,
+command 4) sent as `FF 01 00 00 00 02 00 04` returned
+`FF 01 00 05 00 02 80 04 00 00 01 00 8C`: the `payload + 8 + checksum` length
+rule holds, the flags byte was 0 (no checksum), and the response carried the
+request's command number with `0x8000` set.
+
+**The HT status bit layout is confirmed.** `GET_HT_STATUS` (command 20)
+returned `00-02-80-14-00-82-01-00-80`, which decodes through the reference
+parser's offsets as power on, scanning, squelch closed, not receiving, not
+transmitting, RSSI 0 — an idle handheld hearing nothing. **These are the
+`is_in_rx` and `is_sq` bits the segmenter uses as its fallback signal**, so
+that path is now known to be reading real fields rather than a guess.
+
+The radio also reports `is_aoc_connected`, which was false throughout: the
+audio channel is a separate RFCOMM connection that nothing had opened.
+
+**A note on the transport used.** These queries went over the SPP service as
+a Windows COM port, not a raw RFCOMM socket, which is a convenient shortcut on
+Windows but not what the Linux backend will do. The GAIA bytes on the wire are
+the same either way, which is why the result transfers.
+
 ## The UV-Pro
 
 This project is developed against a **BTech UV-Pro**, the radio BenLink was
@@ -77,10 +120,11 @@ bluetoothctl                     # scan on / pair / trust — two devices, in qu
 bluetoothctl info <MAC> | grep -i uuid
 ```
 
-The `info` output should list `39144315-32fa-40db-85ed-fbfeba2d86e6`. That is
-what `scan` keys on, and seeing it confirms the pairing that the audio channel
-depends on. `sdptool browse <MAC>` then shows the RFCOMM channel numbers the
-next step has to resolve programmatically.
+The `info` output should list `39144315-32fa-40db-85ed-fbfeba2d86e6` (see
+above — confirmed present on real hardware). That is what `scan` keys on, and
+seeing it confirms the pairing the audio channel depends on. `sdptool browse
+<MAC>` then shows the RFCOMM channel numbers the next step has to resolve
+programmatically. Expect **two** paired MACs, one apart.
 
 ## What is not written yet
 
