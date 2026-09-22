@@ -215,6 +215,21 @@ bookkeeping, not a link problem — most often right after an earlier session on
 that channel closed. **The backend must rediscover channels on each connect,
 and retry a refusal rather than treat it as fatal.**
 
+It gets worse with use. After a few probe runs the radio refused channel 1
+outright and *no* channel answered GAIA, while 2, 3 and 4 still accepted
+connections — the control service had become unreachable while the rest of the
+RFCOMM server kept working. Closing a socket is evidently not enough for the
+radio to free the session; `shutdown()` before `close()`, and a pause
+afterwards, is what the tooling now does.
+
+**When the radio gets into that state, power-cycle its Bluetooth.** Nothing on
+the host side recovers it, because the stuck state is the radio's.
+
+**And keep other hosts off it.** These radios serve one host at a time, and a
+second machine that still has the radio paired and trusted will try to
+reconnect on its own and take the control channel. When testing from one host,
+unpair or disable the adapter on the others.
+
 **Audio was channel 2 on both hosts**, which is the number that matters most.
 Control differs, and the likely reason is that more than one channel speaks
 GAIA: the Windows run was told to use 4 and it worked, while the Linux probe

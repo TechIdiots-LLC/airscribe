@@ -29,8 +29,23 @@ sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), ".."
 from htframe import FrameReader  # noqa: E402
 
 GET_HT_STATUS = bytes([0xFF, 0x01, 0x00, 0x00, 0x00, 0x02, 0x00, 0x14])
+SETTLE = 0.6  # the radio needs a moment to free a channel after a session ends
 CMD_NAMES = {0x00: "audio (odd)", 0x01: "AUDIO END", 0x02: "ack",
              0x03: "audio", 0x09: "transmit audio"}
+
+
+def release(sock):
+    """Close a channel so the radio frees it.
+
+    A bare close() leaves the radio refusing that channel on the next attempt,
+    so the session is shut down explicitly and given a moment to settle.
+    """
+    try:
+        sock.shutdown(socket.SHUT_RDWR)
+    except OSError:
+        pass
+    sock.close()
+    time.sleep(SETTLE)
 
 
 def rfcomm(mac, channel, timeout=6, tries=1):
@@ -88,8 +103,7 @@ def discover(mac, last):
             continue
         open_channels.append(ch)
         print(f"  channel {ch:2d}: open")
-        s.close()
-        time.sleep(0.2)
+        release(s)
     if not open_channels:
         raise SystemExit("\nNo channel accepted a connection. Is the radio on and in range?")
 
@@ -104,8 +118,7 @@ def discover(mac, last):
             control, ctrl_sock = ch, s
             print(f"  channel {ch}: answered GAIA  <== CONTROL")
             break
-        s.close()
-        time.sleep(0.3)
+        release(s)
     if control is None:
         raise SystemExit("No channel answered a GAIA query; cannot identify the rest.")
 
@@ -124,12 +137,11 @@ def discover(mac, last):
         if st and st[0]:
             audio = ch
             print(f"  channel {ch}: is_aoc_connected=True  <== BS AOC AUDIO")
-            cand.close()
+            release(cand)
             break
         print(f"  channel {ch}: is_aoc_connected={st[0] if st else '?'}")
-        cand.close()
-        time.sleep(1.0)
-    ctrl_sock.close()
+        release(cand)
+    release(ctrl_sock)
 
     print(f"\n  control channel : {control}")
     print(f"  audio channel   : {audio if audio else 'not found'}")
@@ -169,8 +181,8 @@ def capture(mac, control, audio_ch, seconds, out):
             st = ht_status(ctrl)
             if st:
                 polls.append(st[1:])
-    audio.close()
-    ctrl.close()
+    release(audio)
+    release(ctrl)
     with open(out, "wb") as fh:
         fh.write(raw)
     print(f"\n{len(raw)} bytes -> {out}")
