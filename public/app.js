@@ -75,7 +75,14 @@ function renderRadios() {
           el('span', { className: `dot ${dot}` }),
           el('strong', {}, r.name),
           el('span', { className: 'pill' }, activity)),
-        el('div', { className: 'meta' }, `${models.get(r.model)?.name ?? 'unknown model'} · ${r.mac}`),
+        el('div', { className: 'meta' },
+          `${models.get(r.model)?.name ?? 'unknown model'} · ${r.mac}`,
+          // Signal is the only visible sign the radio is being polled, and
+          // the difference between "hearing nothing" and "not connected".
+          connected && r.rssi !== undefined
+            ? el('span', { className: 'signal', title: `RSSI ${r.rssi} of 15` },
+                ` · ${'█'.repeat(Math.min(5, Math.round(r.rssi / 3)))}${'░'.repeat(5 - Math.min(5, Math.round(r.rssi / 3)))} ${r.rssi}`)
+            : ''),
         el('div', { className: 'actions' },
           el('button', { onclick: () => act(r.mac, connected ? 'disconnect' : 'connect') }, connected ? 'Disconnect' : 'Connect'),
           el('button', { onclick: () => remove(r) }, 'Remove')),

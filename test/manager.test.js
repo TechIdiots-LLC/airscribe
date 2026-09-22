@@ -152,3 +152,22 @@ test('an unknown sidecar event is ignored without throwing', () => {
   const { fire } = make();
   assert.doesNotThrow(() => fire({ event: 'something-new', mac: MAC }));
 });
+
+test('a change in signal level reaches the UI', () => {
+  const { updates, fire } = make();
+  fire({ event: 'radio-status', mac: MAC, rssi: 0, in_rx: false, in_tx: false });
+  fire({ event: 'radio-status', mac: MAC, rssi: 7, in_rx: false, in_tx: false });
+  fire({ event: 'radio-status', mac: MAC, rssi: 7, in_rx: false, in_tx: false });
+  const act = updates.filter((u) => u.type === 'activity');
+  // Two changes, not three polls: RSSI 0 -> 7, and the repeat is silent.
+  assert.deepEqual(act.map((a) => a.rssi), [0, 7]);
+});
+
+test('an unchanged poll emits nothing', () => {
+  const { updates, fire } = make();
+  for (let i = 0; i < 5; i++) {
+    fire({ event: 'radio-status', mac: MAC, rssi: 3, in_rx: false, in_tx: false });
+  }
+  assert.equal(updates.filter((u) => u.type === 'activity').length, 1,
+    'a radio polled every second must not emit every second');
+});

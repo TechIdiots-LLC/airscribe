@@ -34,6 +34,7 @@ input[type=search] { flex: 1; min-width: 0; }
 .tag.heard { color: var(--ok); }
 li.sent { border-left: 3px solid var(--bad); }
 .meta { color: var(--muted); font-size: 12px; margin-top: 2px; }
+.signal { font-family: ui-monospace, monospace; letter-spacing: -1px; }
 .tx-text { margin: 6px 0; white-space: pre-wrap; }
 .tx-text.pending { color: var(--muted); font-style: italic; }
 .tx-text.error { color: var(--bad); }

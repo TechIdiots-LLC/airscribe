@@ -54,12 +54,9 @@ export class Manager extends EventEmitter {
       }
       // The BlueZ backend polls the radio and reports what it says. Squelch
       // and RSSI drive the indicator; the run markers still own segmentation.
-      case 'radio-status': {
-        const prev = this.state.get(e.mac) ?? {};
-        this.state.set(e.mac, { ...prev, rssi: e.rssi });
-        this.setActivity(e.mac, { rx: !!e.in_rx, tx: !!e.in_tx });
+      case 'radio-status':
+        this.setActivity(e.mac, { rx: !!e.in_rx, tx: !!e.in_tx, rssi: e.rssi });
         break;
-      }
       case 'audio-start':
         this.segmenterFor(e.mac).begin({ transmit: !!e.transmit });
         this.setActivity(e.mac, { rx: !e.transmit, tx: !!e.transmit });
@@ -97,9 +94,14 @@ export class Manager extends EventEmitter {
    */
   setActivity(mac, a) {
     const prev = this.state.get(mac) ?? {};
-    if (prev.rx === a.rx && prev.tx === a.tx) return;
-    this.state.set(mac, { ...prev, ...a });
-    this.emit('update', { type: 'activity', mac, ...a });
+    const next = { ...prev, ...a };
+    // Emitted on change only, so a radio polled once a second does not put a
+    // message per second on the event stream. RSSI counts as a change: it is
+    // how anyone watching can tell the radio is being polled at all, and
+    // whether it is hearing anything.
+    if (prev.rx === next.rx && prev.tx === next.tx && prev.rssi === next.rssi) return;
+    this.state.set(mac, next);
+    this.emit('update', { type: 'activity', mac, rx: next.rx, tx: next.tx, rssi: next.rssi });
   }
 
   /**
