@@ -22,7 +22,7 @@ if (flag('--simulate')) {
 
 assertSafeToListen(config.host, config.auth);
 
-const store = new Store(join(config.dataDir, 'htradio.sqlite'));
+const store = new Store(join(config.dataDir, 'airscribe.sqlite'));
 const sidecar = new Sidecar(config.sidecar);
 const engine = createEngine(config.stt);
 const manager = new Manager({
@@ -37,7 +37,7 @@ sidecar.start();
 const server = createApp({ manager, store, sidecar, auth: config.auth, dataDir: config.dataDir }).listen(
   config.port,
   config.host,
-  () => console.log(`htradioweb on http://${config.host}:${config.port} (${config.sidecar.backend})`),
+  () => console.log(`airscribe on http://${config.host}:${config.port} (${config.sidecar.backend})`),
 );
 
 const shutdown = () => {

@@ -1,11 +1,11 @@
 {
-  "name": "htradioweb",
+  "name": "airscribe",
   "version": "0.1.0",
-  "description": "Web front end for Bluetooth handheld radios: manage radios, capture each transmission, transcribe it on the server, and download the audio and text",
+  "description": "Writes down what is on the air: connects to Bluetooth handheld radios, splits each transmission into its own clip, transcribes it, and serves the log over the web",
   "type": "module",
   "main": "src/index.js",
   "bin": {
-    "htradioweb": "src/index.js"
+    "airscribe": "src/index.js"
   },
   "scripts": {
     "start": "node src/index.js",
@@ -13,11 +13,33 @@
     "test": "node --test test/*.test.js",
     "test:py": "python3 -m unittest discover -s sidecar -p \"test_*.py\""
   },
+  "keywords": [
+    "ham-radio",
+    "amateur-radio",
+    "bluetooth",
+    "speech-to-text",
+    "transcription",
+    "aprs",
+    "uv-pro",
+    "scanner"
+  ],
+  "license": "Apache-2.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/TechIdiots-LLC/airscribe.git"
+  },
+  "bugs": {
+    "url": "https://github.com/TechIdiots-LLC/airscribe/issues"
+  },
+  "homepage": "https://github.com/TechIdiots-LLC/airscribe#readme",
   "engines": {
     "node": "^22.13.0 || 24"
   },
   "dependencies": {
+    "airscribe": "file:",
     "express": "^5.2.1"
   },
-  "private": true
+  "publishConfig": {
+    "access": "public"
+  }
 }

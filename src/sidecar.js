@@ -3,7 +3,7 @@ import { createInterface } from 'node:readline';
 import { EventEmitter } from 'node:events';
 import { fileURLToPath } from 'node:url';
 
-const SCRIPT = fileURLToPath(new URL('../sidecar/htradio_sidecar.py', import.meta.url));
+const SCRIPT = fileURLToPath(new URL('../sidecar/airscribe_sidecar.py', import.meta.url));
 
 /**
  * The Python process that owns the Bluetooth stack.

@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Bluetooth helper for htradioweb.
+"""Bluetooth helper for airscribe.
 
 Speaks JSON lines on stdio (see src/sidecar.js). Requests: {"id", "cmd", ...}.
 Replies: {"id", "ok", "result" | "error"}. Pushed events: {"event", ...}.

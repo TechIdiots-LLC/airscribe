@@ -22,7 +22,7 @@ class FakeStore {
 }
 
 test('simulated radio -> one clip -> transcript, end to end through the Python sidecar', { timeout: 40000 }, async () => {
-  const dataDir = mkdtempSync(join(tmpdir(), 'htradio-'));
+  const dataDir = mkdtempSync(join(tmpdir(), 'airscribe-'));
   const store = new FakeStore();
   const sidecar = new Sidecar({ python: process.env.PYTHON ?? 'python3', backend: 'sim' });
   const manager = new Manager({

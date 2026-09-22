@@ -1,5 +1,5 @@
 node_modules/
 data/
-htradio.config.json
+airscribe.config.json
 __pycache__/
 *.pyc

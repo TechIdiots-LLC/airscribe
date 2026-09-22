@@ -1,11 +1,13 @@
-# HTRadioWeb
+# AirScribe
+
+*Writes down what is on the air.*
 
 A web front end for Bluetooth handheld radios. A server pairs with the radios,
 listens to each one, splits the audio into one clip per transmission using the
 radio's own start/end-of-audio markers, transcribes every clip, and shows the
 text with audio and text downloads in a browser.
 
-Rebuilt from the web/voice work in the HTCommander fork as a server-side
+Rebuilt from the web/voice work in an HTCommander fork as a server-side
 application, because browsers can only reach a radio's Bluetooth LE control
 channel, not the Classic Bluetooth audio channel that transcription needs.
 
@@ -52,7 +54,7 @@ on older Node. Neither suite needs a radio or a speech model.
 
 ## Configuration
 
-Copy [htradio.config.json.sample](htradio.config.json.sample) and pass it with
+Copy [airscribe.config.json.sample](airscribe.config.json.sample) and pass it with
 `--config`. The server binds to `127.0.0.1`; binding anywhere reachable is
 refused unless `auth.tokens` is set (send `Authorization: Bearer <token>`, or
 open the page with `?token=<token>`).
