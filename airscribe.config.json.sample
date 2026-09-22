@@ -9,7 +9,9 @@
 
   "sidecar": {
     "python": "python3",
-    "backend": "bluez"
+    "backend": "bluez",
+    "controlChannel": null,
+    "audioChannel": null
   },
 
   "audio": {

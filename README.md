@@ -26,7 +26,7 @@ npm run simulate        # fake radio + mock transcriber, no hardware needed
 | Pluggable transcription: sherpa-onnx, whisper.cpp, any command, mock | working; not yet run against a real model |
 | Radio registry, keyed by MAC, HTCommander model table | working |
 | Python sidecar protocol + simulator | working, tested end to end |
-| **Real radio link (BlueZ RFCOMM control + SBC audio)** | **not written yet**, see [docs/bluetooth.md](docs/bluetooth.md) |
+| Real radio link (BlueZ RFCOMM control + SBC audio) | **written, not yet run against a radio** — see [docs/bluetooth.md](docs/bluetooth.md) |
 | Protocol assumptions (service UUID, GAIA framing, status bits, SBC parameters) | confirmed against a real UV-Pro — see [docs/bluetooth.md](docs/bluetooth.md#verified-against-a-real-uv-pro) |
 | Audio frame codec (`sidecar/htframe.py`) | parses a real 248 kB / 799-frame capture, end markers included |
 | Digital modes (AFSK/IRC/file transfer) | design only, see [docs/digital-modes.md](docs/digital-modes.md) |
@@ -48,6 +48,7 @@ on older Node. Neither suite needs a radio or a speech model.
 - Python 3 on the same host as the radios
 - Ubuntu 22.04 / 24.04 with BlueZ for real radios (Windows can run the
   simulator; the Windows Bluetooth backend is not planned yet)
+- `ffmpeg` with the SBC decoder, to turn the radio's audio into PCM
 - For transcription: `pip install sherpa-onnx` and a model — see
   [docs/transcription.md](docs/transcription.md). whisper.cpp and any
   transcript-printing command also work.

@@ -26,7 +26,9 @@ import sys
 import threading
 import time
 
+import sbc
 from btinfo import is_radio, parse_devices
+from bluez import RadioLink
 
 RATE = 32000  # radio audio: 32 kHz, 16-bit, mono
 CHUNK_MS = 100
@@ -107,6 +109,17 @@ class SimBackend:
 
 
 class BluezBackend:
+    """Linux/BlueZ. Holds one RadioLink per connected radio."""
+
+    def __init__(self, control_ch=None, audio_ch=None):
+        self.links = {}
+        self.control_ch = control_ch
+        self.audio_ch = audio_ch
+        self.decoder = sbc.find_decoder()
+        if not self.decoder:
+            emit({"event": "sidecar-error",
+                  "error": "no SBC-capable ffmpeg found; audio cannot be decoded"})
+
     def scan(self):
         # BlueZ's known devices (pair the radio once first). Each is checked
         # for the radio service UUID, so headphones and phones are flagged
@@ -120,12 +133,26 @@ class BluezBackend:
         return sorted(devices, key=lambda d: not d["radio"])
 
     def connect(self, mac):
-        raise RuntimeError(
-            "bluez RFCOMM audio link not implemented yet (needs testing against a real radio)"
-        )
+        if mac in self.links:
+            return
+        # BlueZ's Connect() hands each service to a profile driver and nothing
+        # claims a vendor UUID, so it reports
+        # br-connection-profile-unavailable even though the link came up.
+        # Bringing the link up is all we need, so its failure is not fatal.
+        try:
+            _bluetoothctl("connect", mac)
+        except (OSError, subprocess.SubprocessError):
+            pass
+        link = RadioLink(mac, emit, decoder=self.decoder,
+                         control_ch=self.control_ch, audio_ch=self.audio_ch)
+        link.open()
+        self.links[mac] = link
 
     def disconnect(self, mac):
-        pass
+        link = self.links.pop(mac, None)
+        if link:
+            link.close()
+            emit({"event": "status", "mac": mac, "state": "disconnected"})
 
 
 BACKENDS = {"sim": SimBackend, "bluez": BluezBackend}
@@ -134,7 +161,15 @@ BACKENDS = {"sim": SimBackend, "bluez": BluezBackend}
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("--backend", choices=BACKENDS, default="bluez")
-    backend = BACKENDS[ap.parse_args().backend]()
+    # Probing for channels costs the radio sessions it frees slowly, so a
+    # known-good pair can be given to skip it. See docs/bluetooth.md.
+    ap.add_argument("--control-channel", type=int)
+    ap.add_argument("--audio-channel", type=int)
+    args = ap.parse_args()
+    if args.backend == "bluez":
+        backend = BluezBackend(args.control_channel, args.audio_channel)
+    else:
+        backend = BACKENDS[args.backend]()
 
     for line in sys.stdin:
         try:

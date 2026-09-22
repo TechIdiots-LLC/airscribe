@@ -52,6 +52,14 @@ export class Manager extends EventEmitter {
         this.emit('update', { type: 'status', mac: e.mac, ...s });
         break;
       }
+      // The BlueZ backend polls the radio and reports what it says. Squelch
+      // and RSSI drive the indicator; the run markers still own segmentation.
+      case 'radio-status': {
+        const prev = this.state.get(e.mac) ?? {};
+        this.state.set(e.mac, { ...prev, rssi: e.rssi });
+        this.setActivity(e.mac, { rx: !!e.in_rx, tx: !!e.in_tx });
+        break;
+      }
       case 'audio-start':
         this.segmenterFor(e.mac).begin({ transmit: !!e.transmit });
         this.setActivity(e.mac, { rx: !e.transmit, tx: !!e.transmit });

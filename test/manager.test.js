@@ -112,3 +112,20 @@ test('each radio is segmented on its own', () => {
   assert.equal(store.rows.size, 2);
   assert.deepEqual([...store.rows.values()].map((r) => r.mac).sort(), [MAC, other].sort());
 });
+
+test('radio-status from the BlueZ backend drives the indicator', () => {
+  const { updates, fire } = make();
+  fire({ event: 'radio-status', mac: MAC, rssi: 9, in_rx: true, squelch: true, in_tx: false });
+  fire({ event: 'radio-status', mac: MAC, rssi: 9, in_rx: true, squelch: true, in_tx: false });
+  fire({ event: 'radio-status', mac: MAC, rssi: 0, in_rx: false, squelch: false, in_tx: false });
+  const activity = updates.filter((u) => u.type === 'activity');
+  // Polled once a second, so only the changes may be emitted.
+  assert.deepEqual(activity.map((a) => [a.rx, a.tx]), [[true, false], [false, false]]);
+});
+
+test('a transmitting radio is shown as transmitting, not receiving', () => {
+  const { updates, fire } = make();
+  fire({ event: 'radio-status', mac: MAC, rssi: 0, in_rx: false, in_tx: true });
+  const last = updates.filter((u) => u.type === 'activity').at(-1);
+  assert.deepEqual([last.rx, last.tx], [false, true]);
+});

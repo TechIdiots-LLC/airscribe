@@ -300,11 +300,33 @@ seeing it confirms the pairing the audio channel depends on. `sdptool browse
 programmatically. The radio may present more than one bond; pair whatever
 `scan on` actually shows rather than deriving an address.
 
-## What is not written yet
+## The backend
 
-`BluezBackend.connect()` still raises "not implemented". Remaining:
+[`sidecar/bluez.py`](../sidecar/bluez.py) implements the above. It is written
+but has **not yet been run against a radio**, so treat the first connection as
+a test rather than a formality.
 
-1. SDP lookup of the two channel numbers.
+Each rule it follows came from something observed here:
+
+| It does | Because |
+| --- | --- |
+| holds both channels for the life of the connection | reopening the control channel is refused, and repeating that wedges the radio |
+| ignores a failed `bluetoothctl connect` | it reports `br-connection-profile-unavailable` while the link comes up regardless |
+| probes for channels, and skips probing when told them | channel numbers differ per radio and are not stable, but each probe costs a session |
+| decodes SBC once per transmission | the radio delimits transmissions, so a run can be decoded whole, with no long-lived decoder |
+| treats one missed status poll as normal, three as a lost link | polls do miss while audio is flowing |
+
+Audio is decoded with ffmpeg, which must be built with the SBC decoder;
+[`sidecar/sbc.py`](../sidecar/sbc.py) checks for it at startup rather than
+letting the first transmission fail.
+
+## Superseded
+
+`BluezBackend.connect()` previously raised "not implemented". What remained
+then, and how it was resolved:
+
+1. ~~SDP lookup of the two channel numbers.~~ Replaced by probing; SDP does
+   not work reliably against these radios.
 2. Open both sockets, run `FrameReader`, decode SBC to PCM (`libsbc1` through
    `ctypes` is the likely route; upstream has a pure-Dart SBC decoder in
    `src/lib/sbc/` to check against).

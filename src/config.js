@@ -5,7 +5,7 @@ const DEFAULTS = {
   port: 8100,
   dataDir: './data',
   auth: { tokens: [] },
-  sidecar: { python: 'python3', backend: 'bluez' },
+  sidecar: { python: 'python3', backend: 'bluez', controlChannel: null, audioChannel: null },
   audio: {
     sampleRate: 32000,
     preRollMs: 300,
