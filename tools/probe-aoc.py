@@ -1,27 +1,23 @@
 #!/usr/bin/env python3
 """Find a radio's RFCOMM channels and capture its BS AOC audio stream.
 
-Written for Windows, where a paired radio's channels can be reached with
-Python's AF_BLUETOOTH sockets but there is no SDP lookup to name them. On
-Linux the sidecar resolves channels through SDP instead, so this is a
-diagnostic rather than something the project depends on.
+Works on Linux and Windows, because it needs nothing but stdlib sockets.
 
-Two things it establishes, both confirmed against a UV-Pro:
+Channel numbers differ per radio and SDP is the documented way to resolve
+them, but `sdptool browse` is unreliable against these radios and BlueZ's own
+Connect() fails outright with br-connection-profile-unavailable, since there
+is no profile driver for a vendor service. So this probes instead, which turns
+out to need no SDP at all:
 
-  * The Bluetooth link must already be up before a raw RFCOMM connect will
-    succeed; from cold it fails with "destination host was down" or times out.
-    Opening the radio's SPP COM port first is enough to bring it up. This is
-    why the Linux backend must call BlueZ's Connect() before opening sockets.
+  * the control channel answers a GAIA query and the others stay silent;
+  * the audio channel identifies itself, because opening it flips
+    `is_aoc_connected` in the radio's own HT status.
 
-  * The audio channel identifies itself: the radio reports `is_aoc_connected`
-    in its HT status, so opening each candidate channel and re-reading the
-    status shows which one flips the bit.
+Read-only. It sends GET_HT_STATUS and nothing else, and never keys the
+transmitter.
 
-Everything here is read-only. It sends GET_HT_STATUS and nothing else, and
-never keys the transmitter.
-
-    python tools/probe-aoc.py <MAC> --control 4 --scan 1,2,3
-    python tools/probe-aoc.py <MAC> --control 4 --audio 2 --capture 30
+    python3 tools/probe-aoc.py <MAC> --discover
+    python3 tools/probe-aoc.py <MAC> --control 4 --audio 2 --capture 30
 """
 import argparse
 import os
@@ -37,7 +33,7 @@ CMD_NAMES = {0x00: "audio (odd)", 0x01: "AUDIO END", 0x02: "ack",
              0x03: "audio", 0x09: "transmit audio"}
 
 
-def rfcomm(mac, channel, timeout=8):
+def rfcomm(mac, channel, timeout=6):
     s = socket.socket(socket.AF_BLUETOOTH, socket.SOCK_STREAM, socket.BTPROTO_RFCOMM)
     s.settimeout(timeout)
     s.connect((mac, channel))
@@ -45,8 +41,11 @@ def rfcomm(mac, channel, timeout=8):
 
 
 def ht_status(ctrl):
-    """Return (is_aoc_connected, is_in_rx, is_sq, rssi) or None."""
-    ctrl.sendall(GET_HT_STATUS)
+    """Return (is_aoc_connected, is_in_rx, is_sq, rssi), or None if no reply."""
+    try:
+        ctrl.sendall(GET_HT_STATUS)
+    except OSError:
+        return None
     ctrl.settimeout(3)
     buf = b""
     try:
@@ -55,7 +54,7 @@ def ht_status(ctrl):
             if not chunk:
                 break
             buf += chunk
-    except (TimeoutError, socket.timeout):
+    except (TimeoutError, socket.timeout, OSError):
         pass
     if len(buf) < 13 or buf[0] != 0xFF:
         return None
@@ -63,76 +62,118 @@ def ht_status(ctrl):
     return bool(m[6] & 0x02), bool(m[5] & 0x10), bool(m[5] & 0x20), m[7] >> 4
 
 
+def discover(mac, last):
+    """Work out which channel is control and which is BS AOC audio."""
+    print(f"probing channels 1-{last} on {mac} ...")
+    open_channels = []
+    for ch in range(1, last + 1):
+        try:
+            s = rfcomm(mac, ch, timeout=4)
+        except OSError as e:
+            print(f"  channel {ch:2d}: {e.strerror or e}")
+            continue
+        open_channels.append(ch)
+        print(f"  channel {ch:2d}: open")
+        s.close()
+        time.sleep(0.2)
+    if not open_channels:
+        raise SystemExit("\nNo channel accepted a connection. Is the radio on and in range?")
+
+    print(f"\nopen channels: {open_channels}\nlooking for the control channel ...")
+    control, ctrl_sock = None, None
+    for ch in open_channels:
+        try:
+            s = rfcomm(mac, ch)
+        except OSError:
+            continue
+        if ht_status(s):
+            control, ctrl_sock = ch, s
+            print(f"  channel {ch}: answered GAIA  <== CONTROL")
+            break
+        s.close()
+        time.sleep(0.3)
+    if control is None:
+        raise SystemExit("No channel answered a GAIA query; cannot identify the rest.")
+
+    print("\nlooking for the audio channel (watching is_aoc_connected) ...")
+    audio = None
+    for ch in open_channels:
+        if ch == control:
+            continue
+        try:
+            cand = rfcomm(mac, ch)
+        except OSError as e:
+            print(f"  channel {ch}: {e.strerror or e}")
+            continue
+        time.sleep(1.0)
+        st = ht_status(ctrl_sock)
+        if st and st[0]:
+            audio = ch
+            print(f"  channel {ch}: is_aoc_connected=True  <== BS AOC AUDIO")
+            cand.close()
+            break
+        print(f"  channel {ch}: is_aoc_connected={st[0] if st else '?'}")
+        cand.close()
+        time.sleep(1.0)
+    ctrl_sock.close()
+
+    print(f"\n  control channel : {control}")
+    print(f"  audio channel   : {audio if audio else 'not found'}")
+    if audio:
+        print(f"\nCapture with:\n  python3 tools/probe-aoc.py {mac} "
+              f"--control {control} --audio {audio} --capture 45")
+
+
+def capture(mac, control, audio_ch, seconds, out):
+    ctrl = rfcomm(mac, control)
+    audio = rfcomm(mac, audio_ch)
+    audio.setblocking(False)
+    print(f"control ch{control} + audio ch{audio_ch} connected; capturing {seconds}s")
+    reader, raw, counts, polls, last = FrameReader(), bytearray(), {}, [], 0.0
+    end = time.time() + seconds
+    while time.time() < end:
+        try:
+            data = audio.recv(8192)
+            if data:
+                raw += data
+                for cmd, _payload in reader.feed(data):
+                    counts[cmd] = counts.get(cmd, 0) + 1
+        except (BlockingIOError, OSError):
+            time.sleep(0.02)
+        if time.time() - last > 2.0:
+            last = time.time()
+            st = ht_status(ctrl)
+            if st:
+                polls.append(st[1:])
+    audio.close()
+    ctrl.close()
+    with open(out, "wb") as fh:
+        fh.write(raw)
+    print(f"\n{len(raw)} bytes -> {out}")
+    print("status polls (is_in_rx, is_sq, rssi):", polls)
+    if counts:
+        print("frames decoded by sidecar/htframe.py:")
+        for cmd in sorted(counts):
+            print(f"  cmd 0x{cmd:02X} {CMD_NAMES.get(cmd, '?'):<15} x{counts[cmd]}")
+    else:
+        print("no frames - the radio produced no audio during the window")
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("mac", help="radio MAC, e.g. 38:D2:00:01:56:51")
-    ap.add_argument("--control", type=int, default=4, help="SPP/control RFCOMM channel")
-    ap.add_argument("--scan", help="comma-separated channels to test for BS AOC")
+    ap.add_argument("--discover", action="store_true", help="find the control and audio channels")
+    ap.add_argument("--last", type=int, default=30, help="highest channel to probe")
+    ap.add_argument("--control", type=int, help="known control channel")
     ap.add_argument("--audio", type=int, help="known BS AOC channel, to capture from")
-    ap.add_argument("--capture", type=float, default=20.0, help="capture seconds")
+    ap.add_argument("--capture", type=float, default=30.0, help="capture seconds")
     ap.add_argument("--out", default="aoc_capture.bin")
     args = ap.parse_args()
 
-    try:
-        ctrl = rfcomm(args.mac, args.control)
-    except OSError as e:
-        raise SystemExit(
-            f"control channel {args.control} failed: {e}\n"
-            "The link is probably cold - open the radio's SPP COM port once, then retry."
-        )
-    print(f"control channel {args.control}: connected")
-    print(f"baseline status: {ht_status(ctrl)}")
-
-    if args.scan:
-        for ch in [int(c) for c in args.scan.split(",")]:
-            try:
-                cand = rfcomm(args.mac, ch, timeout=6)
-            except OSError as e:
-                print(f"channel {ch}: {e}")
-                continue
-            time.sleep(1.0)
-            st = ht_status(ctrl)
-            aoc = st[0] if st else None
-            print(f"channel {ch}: open -> is_aoc_connected={aoc}"
-                  f"{'   <== BS AOC audio channel' if aoc else ''}")
-            cand.close()
-            time.sleep(1.0)
-
-    if args.audio:
-        audio = rfcomm(args.mac, args.audio)
-        audio.setblocking(False)
-        print(f"capturing {args.capture}s from channel {args.audio} ...")
-        reader, raw, counts = FrameReader(), bytearray(), {}
-        polls, last = [], 0.0
-        end = time.time() + args.capture
-        while time.time() < end:
-            try:
-                data = audio.recv(8192)
-                if data:
-                    raw += data
-                    for cmd, _payload in reader.feed(data):
-                        counts[cmd] = counts.get(cmd, 0) + 1
-            except BlockingIOError:
-                time.sleep(0.02)
-            except OSError:
-                time.sleep(0.02)
-            if time.time() - last > 2.0:
-                last = time.time()
-                st = ht_status(ctrl)
-                if st:
-                    polls.append(st[1:])
-        audio.close()
-        with open(args.out, "wb") as fh:
-            fh.write(raw)
-        print(f"\n{len(raw)} bytes -> {args.out}")
-        print("status polls (is_in_rx, is_sq, rssi):", polls)
-        if counts:
-            print("frames decoded by sidecar/htframe.py:")
-            for cmd in sorted(counts):
-                print(f"  cmd 0x{cmd:02X} {CMD_NAMES.get(cmd, '?'):<15} x{counts[cmd]}")
-        else:
-            print("no frames - the radio produced no audio during the window")
-    ctrl.close()
+    if args.discover or not (args.control and args.audio):
+        discover(args.mac, args.last)
+    else:
+        capture(args.mac, args.control, args.audio, args.capture, args.out)
 
 
 if __name__ == "__main__":

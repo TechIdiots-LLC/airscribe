@@ -186,6 +186,25 @@ as a plain headset.
 Dropping the link immediately after pairing (`disconnected with reason 3`) is
 normal — the bond is stored, and the link is re-established on demand.
 
+**`bluetoothctl connect` fails on purpose, and that is fine.** It reports
+`org.bluez.Error.NotAvailable: br-connection-profile-unavailable` — but look
+at what precedes it: the ACL link comes up and `ServicesResolved: yes`.
+BlueZ's `Device1.Connect()` tries to hand every known service to a profile
+driver, and nothing on the system claims SPP or a vendor UUID, so it reports
+having nothing to connect. The baseband link is established regardless, which
+is all this project needs, because the RFCOMM sockets are opened directly.
+
+Two consequences. The backend must not treat a failed `Connect()` as fatal.
+And `sdptool browse` cannot be relied on here: it wants a live link that
+`Connect()` refuses to leave standing.
+
+**So channel resolution does not use SDP at all.**
+[tools/probe-aoc.py](../tools/probe-aoc.py) finds both channels with nothing
+but stdlib sockets, using the two facts above: the control channel answers a
+GAIA query while the others stay silent, and the audio channel announces
+itself by flipping `is_aoc_connected`. That is more dependable than `sdptool`,
+needs no D-Bus profile registration, and works identically on both platforms.
+
 ## The UV-Pro
 
 This project is developed against a **BTech UV-Pro**, the radio BenLink was
