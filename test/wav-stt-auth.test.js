@@ -41,3 +41,23 @@ test('refuses a reachable bind with no tokens, allows loopback or tokens', () =>
   assertSafeToListen('127.0.0.1', { tokens: [] });
   assertSafeToListen('0.0.0.0', { tokens: ['t'] });
 });
+
+test('a flag with no value does not swallow the next argument', async () => {
+  const { flagValue } = await import('../src/config.js');
+  // The bug this replaces: indexOf returns -1 when absent, and argv[-1 + 1]
+  // is argv[0] — so `--simulate` was passed to loadConfig as a file path.
+  assert.equal(flagValue(['--simulate'], '--config'), undefined);
+  assert.equal(flagValue([], '--config'), undefined);
+  assert.equal(flagValue(['--simulate', '--config', 'a.json'], '--config'), 'a.json');
+  assert.equal(flagValue(['--config', 'a.json', '--simulate'], '--config'), 'a.json');
+  assert.equal(flagValue(['--config'], '--config'), undefined, 'trailing flag has no value');
+});
+
+test('loadConfig with no path returns usable defaults', async () => {
+  const { loadConfig } = await import('../src/config.js');
+  const c = loadConfig(undefined);
+  assert.equal(c.port, 8100);
+  assert.equal(c.host, '127.0.0.1');
+  assert.equal(c.audio.sampleRate, 32000);
+  assert.equal(c.sidecar.backend, 'bluez');
+});

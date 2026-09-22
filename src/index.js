@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { join } from 'node:path';
-import { loadConfig } from './config.js';
+import { flagValue, loadConfig } from './config.js';
 import { assertSafeToListen } from './auth.js';
 import { Store } from './store.js';
 import { Sidecar } from './sidecar.js';
@@ -10,9 +10,8 @@ import { createApp } from './api.js';
 
 const args = process.argv.slice(2);
 const flag = (n) => args.includes(n);
-const value = (n) => args[args.indexOf(n) + 1];
 
-const config = loadConfig(value('--config'));
+const config = loadConfig(flagValue(args, '--config'));
 // --simulate swaps in the fake radio and the mock transcriber, so the whole
 // pipeline can be exercised on a machine with no Bluetooth or Whisper model.
 if (flag('--simulate')) {

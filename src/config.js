@@ -34,6 +34,19 @@ export function merge(base, over) {
 }
 
 /**
+ * Read a flag's value out of argv.
+ * @param {string[]} argv - The arguments, without the node and script entries.
+ * @param {string} name - The flag, e.g. '--config'.
+ * @returns {string | undefined} Its value, or undefined when the flag is absent.
+ */
+export function flagValue(argv, name) {
+  const i = argv.indexOf(name);
+  // indexOf gives -1 when the flag is missing, and argv[-1 + 1] is argv[0] —
+  // so the naive form silently takes the first argument as this flag's value.
+  return i === -1 ? undefined : argv[i + 1];
+}
+
+/**
  * Load the config file (if any) over the defaults.
  * @param {string | undefined} path - Path to a JSON config file.
  * @returns {object} The effective config.
