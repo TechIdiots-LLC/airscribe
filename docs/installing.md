@@ -14,12 +14,25 @@ file; it checks each of those separately and says which one refused.
 ## Packages
 
 ```sh
-sudo apt install bluez bluez-tools python3
+sudo apt install bluez bluez-tools ffmpeg python3
 ```
 
-`bluez-tools` is for `sdptool`, which resolves the radio's RFCOMM channel
-numbers. They differ per device and must not be hardcoded — see
-[bluetooth.md](bluetooth.md).
+`bluez-tools` is for `sdptool`. It is a diagnostic only: channel numbers are
+found by probing, because SDP browsing does not work reliably against these
+radios — see [bluetooth.md](bluetooth.md).
+
+**ffmpeg decodes the radio's audio.** The radio sends SBC and everything
+downstream wants PCM, so without it a radio connects, receives, and produces
+no transcripts at all. Installing the package is not quite enough, because a
+build can omit the codec:
+
+```sh
+ffmpeg -hide_banner -decoders | grep -w sbc
+```
+
+That must print a line. If it does not, the sidecar reports `no SBC-capable
+ffmpeg found` at startup rather than failing on the first transmission, and
+the server logs it — but it is easier to check here.
 
 Node from NodeSource, because the distribution's is too old:
 
