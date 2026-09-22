@@ -56,13 +56,29 @@ All under `audio` in the config.
 | `holdMs` | 1200 | Quiet time before a clip closes **when no end marker arrives**. Raise it if messages with long pauses are being cut in two. |
 | `preRollMs` | 300 | Audio kept from before the clip opened, so a clipped first syllable is recovered. |
 | `minMs` | 400 | Clips with less speech than this are dropped as noise or a squelch tail. |
-| `maxMs` | 120000 | A clip this long is split. Guards against a stuck transmitter producing an unbounded file. |
+| `maxMs` | 120000 | A clip this long is split. Guards against a stuck transmitter producing an unbounded file. Checked after each chunk is appended, so a clip may overrun it by up to one chunk (~28 ms on a real UV-Pro stream). |
 | `overlapMs` | 300 | Audio carried across a split. Clamped to half of `maxMs`. |
 | `energyThreshold` | 0.02 | RMS level (0..1) counted as voice by the fallback path. Raise it on a noisy channel where hiss is opening clips. |
 
 Timing comes from the audio itself — chunk lengths, not the wall clock — so
 behaviour is identical live and in tests, and a stalled Bluetooth link cannot
 make a clip appear longer than the audio in it.
+
+## Confirmed against a real radio
+
+A 45-second capture from a UV-Pro scanning an emergency group caught three
+stations transmitting. The radio delimited all three with its own
+end-of-audio frames, and replaying that structure through the segmenter
+produces exactly three clips of 2.0 s, 5.7 s and 14.5 s.
+
+The same audio fed in *without* the markers — which is all the earlier
+squelch-only approach had — collapses into **one** clip, because the stations
+answered each other with no silence between them. That is the failure this
+design exists to fix, and both cases are locked down in
+[test/capture-replay.test.js](../test/capture-replay.test.js).
+
+The fixture stores only frame sizes. The audio was other operators' voices
+and is deliberately not kept.
 
 ## Testing it
 

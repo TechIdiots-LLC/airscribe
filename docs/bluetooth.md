@@ -42,9 +42,12 @@ this. Commands received: `0x00`/`0x03` audio, `0x01` end of audio, `0x02` ack,
 `0x09` the radio echoing audio it is itself transmitting. To transmit, send
 `escape(0x00, sbc_frame)`; to stop, send `7E 01 00 01 00 00 00 00 00 00 7E`.
 
-**Codec.** SBC, 32 kHz, mono, 16 blocks, 8 subbands, loudness allocation. The
-sender uses bitpool 40; one upstream analysis document assumes bitpool 18
-(44-byte frames), so read the bitpool from the stream rather than assuming.
+**Codec.** SBC, 32 kHz, mono, 16 blocks, 8 subbands, loudness allocation —
+all four read straight out of a real stream's SBC header and confirmed.
+**Received audio is bitpool 18**, giving 44-byte frames of 128 samples, which
+is 4 ms each. Upstream's encoder uses bitpool 40 when transmitting, so the two
+directions differ; read the bitpool from the stream rather than assuming
+either.
 
 **Pairing.** Do it once with `bluetoothctl` or the desktop UI. Upstream's
 [Paring.md](https://github.com/Ylianst/HTCommander/blob/main/docs/Paring.md)
@@ -126,6 +129,18 @@ is no SDP lookup, which is the real gap.
 scanning, the AOC channel stays completely silent: 0 bytes over a 20 s
 capture, with every status poll reporting `is_in_rx=False, is_sq=False,
 rssi=0`. The channel being open is not enough; the squelch has to open.
+
+**The audio stream parses, and the run markers are real.** A 45 s capture of
+a scanned emergency group returned 248 kB and 799 frames, which
+`sidecar/htframe.py` decoded without complaint: 796 audio frames (`0x00`) and
+**three `0x01` end-of-audio markers**, one per transmission, carrying 2.0 s,
+5.7 s and 14.5 s of audio. Status polls taken during the capture tracked it,
+reporting `is_in_rx` and `is_sq` true with RSSI 6-10 while each station was
+on the air and zero between them.
+
+That is the segmentation design confirmed on the air rather than in theory:
+the radio does bracket each transmission, and this project's own codec reads
+those brackets. See [segmentation.md](segmentation.md#confirmed-against-a-real-radio).
 
 **A note on the transport used.** These queries went over the SPP service as
 a Windows COM port, not a raw RFCOMM socket, which is a convenient shortcut on

@@ -20,12 +20,13 @@ npm run simulate        # fake radio + mock transcriber, no hardware needed
 | Piece | State |
 | --- | --- |
 | Web UI: radios, live status, transcript feed, search, downloads | working (against the simulator) |
-| Segmenting audio into one clip per transmission | working, driven by the radio's own run markers, unit-tested |
+| Segmenting audio into one clip per transmission | working; replaying a real 3-transmission capture yields 3 clips |
 | Pluggable transcription: sherpa-onnx, whisper.cpp, any command, mock | working; not yet run against a real model |
 | Radio registry, keyed by MAC, HTCommander model table | working |
 | Python sidecar protocol + simulator | working, tested end to end |
 | **Real radio link (BlueZ RFCOMM control + SBC audio)** | **not written yet**, see [docs/bluetooth.md](docs/bluetooth.md) |
-| Protocol assumptions (service UUID, GAIA framing, status bits) | confirmed against a real UV-Pro — see [docs/bluetooth.md](docs/bluetooth.md#verified-against-a-real-uv-pro) |
+| Protocol assumptions (service UUID, GAIA framing, status bits, SBC parameters) | confirmed against a real UV-Pro — see [docs/bluetooth.md](docs/bluetooth.md#verified-against-a-real-uv-pro) |
+| Audio frame codec (`sidecar/htframe.py`) | parses a real 248 kB / 799-frame capture, end markers included |
 | Digital modes (AFSK/IRC/file transfer) | design only, see [docs/digital-modes.md](docs/digital-modes.md) |
 
 Documentation: [segmentation](docs/segmentation.md) ·
