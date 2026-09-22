@@ -1,0 +1,89 @@
+name: CI
+
+on:
+  push:
+    branches: [main, master]
+  pull_request:
+
+jobs:
+  test:
+    name: Node ${{ matrix.node }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # package.json asks for ^22.13.0 || 24. node:sqlite arrived in 22.5,
+        # and the store and migration tests skip below it rather than fail,
+        # so a matrix that dropped to 20 would go green while testing less.
+        node: [22, 24, latest]
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: ${{ matrix.node }}
+          check-latest: true
+      - run: npm ci --prefer-offline --no-audit
+      # The suite needs no radio and no speech model: the sidecar has a
+      # simulator backend and the sherpa engine is tested against a fake
+      # worker. That is deliberate, and it is what makes CI possible at all.
+      - run: npm test
+
+  python:
+    name: Sidecar on Python ${{ matrix.python }}
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        # 3.10 is Ubuntu 22.04's, 3.12 is 24.04's. Both are deployment
+        # targets, and the sidecar has to run on whatever the box already has.
+        python: ['3.10', '3.12']
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-python@v6
+        with:
+          python-version: ${{ matrix.python }}
+      - run: python -m compileall -q sidecar tools
+      - run: python -m unittest discover -s sidecar -p "test_*.py" -v
+
+  protocol:
+    name: Sidecar protocol
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/setup-node@v6
+        with:
+          node-version: '24'
+          check-latest: true
+      - uses: actions/setup-python@v6
+        with:
+          python-version: '3.12'
+      - run: npm ci --prefer-offline --no-audit
+
+      # src/sidecar.js speaks JSON lines to this script. A rename or a dropped
+      # command would otherwise only surface when a radio was connected.
+      - name: Commands src/sidecar.js calls must still exist
+        run: |
+          for cmd in scan connect disconnect ping; do
+            grep -q "\"$cmd\"" sidecar/airscribe_sidecar.py \
+              || { echo "sidecar handles no '$cmd' command"; exit 1; }
+          done
+          echo "all commands present"
+
+      - name: Events the Manager handles must still be emitted
+        run: |
+          for ev in status audio audio-start audio-end; do
+            grep -q "\"event\": \"$ev\"" sidecar/airscribe_sidecar.py \
+              || { echo "sidecar never emits '$ev'"; exit 1; }
+          done
+          echo "all events present"
+
+      - name: Smoke test the request/response protocol
+        run: |
+          echo '{"id":1,"cmd":"ping"}' \
+            | python sidecar/airscribe_sidecar.py --backend sim \
+            | tee /dev/stderr \
+            | grep -q '"ok": *true'
+
+      # The end-to-end test drives the real Python sidecar from Node, so a
+      # protocol break fails here rather than in the field.
+      - run: node --test test/pipeline.test.js

@@ -31,7 +31,7 @@ npm run simulate        # fake radio + mock transcriber, no hardware needed
 | Audio frame codec (`sidecar/htframe.py`) | parses a real 248 kB / 799-frame capture, end markers included |
 | Digital modes (AFSK/IRC/file transfer) | design only, see [docs/digital-modes.md](docs/digital-modes.md) |
 
-Documentation: [segmentation](docs/segmentation.md) ·
+Documentation: [installing](docs/installing.md) · [segmentation](docs/segmentation.md) ·
 [transcription](docs/transcription.md) · [Bluetooth link](docs/bluetooth.md) ·
 [digital modes](docs/digital-modes.md)
 
@@ -67,9 +67,10 @@ open the page with `?token=<token>`).
 - `sidecar/` Python helpers (JSON lines on stdio): the Bluetooth backend, the
   sherpa-onnx transcription worker, the audio frame codec, and their tests
 - `public/` the web UI (no build step)
-- `tools/` diagnostics — `probe-radio.ps1` sends read-only GAIA queries to a
-  radio over Bluetooth SPP; `probe-aoc.py` finds the BS AOC audio channel and
-  captures its frames through the project's own codec
+- `tools/` diagnostics — `bringup-linux.sh` checks an Ubuntu host is ready and
+  browses a radio's SDP; `probe-radio.ps1` sends read-only GAIA queries over
+  Bluetooth SPP; `probe-aoc.py` finds the BS AOC audio channel and captures its
+  frames through the project's own codec
 
 ## License
 
