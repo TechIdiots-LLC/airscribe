@@ -198,6 +198,21 @@ Two consequences. The backend must not treat a failed `Connect()` as fatal.
 And `sdptool browse` cannot be relied on here: it wants a live link that
 `Connect()` refuses to leave standing.
 
+### What the probe found
+
+On the UV-Pro tested, channels 1-4 accept connections and 5-30 refuse.
+
+| | Linux (BlueZ) | Windows |
+| --- | --- | --- |
+| control (answers GAIA) | **1** | **4** |
+| BS AOC audio | **2** | **2** |
+
+**Audio was channel 2 on both hosts**, which is the number that matters most.
+Control differs, and the likely reason is that more than one channel speaks
+GAIA: the Windows run was told to use 4 and it worked, while the Linux probe
+stopped at the first channel that answered, which was 1. Either way it
+confirms the rule — **probe, never hardcode**, for control as much as audio.
+
 **So channel resolution does not use SDP at all.**
 [tools/probe-aoc.py](../tools/probe-aoc.py) finds both channels with nothing
 but stdlib sockets, using the two facts above: the control channel answers a
