@@ -31,7 +31,8 @@ npm run simulate        # fake radio + mock transcriber, no hardware needed
 | Audio frame codec (`sidecar/htframe.py`) | parses a real 248 kB / 799-frame capture, end markers included |
 | Digital modes (AFSK/IRC/file transfer) | design only, see [docs/digital-modes.md](docs/digital-modes.md) |
 
-Documentation: [installing](docs/installing.md) · [segmentation](docs/segmentation.md) ·
+Documentation: [installing](docs/installing.md) · [testing](docs/testing.md) ·
+[segmentation](docs/segmentation.md) ·
 [transcription](docs/transcription.md) · [Bluetooth link](docs/bluetooth.md) ·
 [digital modes](docs/digital-modes.md)
 

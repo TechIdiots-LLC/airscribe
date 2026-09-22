@@ -60,3 +60,39 @@ class PcmSizeTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class ShutdownTests(unittest.TestCase):
+    """A sidecar that exits without releasing leaves the radio wedged."""
+
+    def test_both_backends_expose_shutdown(self):
+        import airscribe_sidecar as a
+        for cls in (a.SimBackend, a.BluezBackend):
+            self.assertTrue(callable(getattr(cls, "shutdown", None)),
+                            f"{cls.__name__} has no shutdown()")
+
+    def test_sim_shutdown_stops_every_radio(self):
+        import airscribe_sidecar as a
+        b = a.SimBackend()
+        b.connect("00:11:22:33:44:55")
+        b.connect("00:11:22:33:44:66")
+        self.assertEqual(len(b.active), 2)
+        b.shutdown()
+        self.assertEqual(b.active, {})
+
+    def test_bluez_shutdown_disconnects_and_empties(self):
+        import airscribe_sidecar as a
+
+        class FakeLink:
+            def __init__(self):
+                self.closed = False
+
+            def close(self):
+                self.closed = True
+
+        b = a.BluezBackend.__new__(a.BluezBackend)   # no ffmpeg probe
+        b.links = {"AA": FakeLink(), "BB": FakeLink()}
+        held = list(b.links.values())
+        b.shutdown()
+        self.assertEqual(b.links, {})
+        self.assertTrue(all(link.closed for link in held), "every link must be closed")

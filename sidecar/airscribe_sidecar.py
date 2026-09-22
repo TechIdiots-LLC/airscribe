@@ -18,6 +18,7 @@ Backends:
 import argparse
 import base64
 import json
+import signal
 import math
 import random
 import struct
@@ -69,6 +70,10 @@ class SimBackend:
         stop = self.active.pop(mac, None)
         if stop:
             stop.set()
+
+    def shutdown(self):
+        for mac in list(self.active):
+            self.disconnect(mac)
 
     def _run(self, mac, stop):
         emit({"event": "status", "mac": mac, "state": "connected", "rssi": 9})
@@ -154,6 +159,16 @@ class BluezBackend:
             link.close()
             emit({"event": "status", "mac": mac, "state": "disconnected"})
 
+    def shutdown(self):
+        """Release every radio before exiting.
+
+        Not optional: a socket the process merely abandons leaves the radio
+        holding the session, and it will refuse that channel next time. A
+        server restart would otherwise wedge every radio it had open.
+        """
+        for mac in list(self.links):
+            self.disconnect(mac)
+
 
 BACKENDS = {"sim": SimBackend, "bluez": BluezBackend}
 
@@ -170,6 +185,18 @@ def main():
         backend = BluezBackend(args.control_channel, args.audio_channel)
     else:
         backend = BACKENDS[args.backend]()
+
+    # The parent kills this process on shutdown, so releasing the radios has
+    # to happen on a signal as well as on end-of-input.
+    def _on_signal(_signum, _frame):
+        backend.shutdown()
+        sys.exit(0)
+
+    for _sig in (signal.SIGTERM, signal.SIGINT):
+        try:
+            signal.signal(_sig, _on_signal)
+        except (ValueError, AttributeError, OSError):
+            pass
 
     for line in sys.stdin:
         try:
@@ -188,6 +215,9 @@ def main():
             emit({"id": req["id"], "ok": True, "result": result})
         except Exception as e:  # report to the caller; never kill the loop
             emit({"id": req.get("id") if isinstance(req, dict) else None, "ok": False, "error": str(e)})
+
+    # stdin closed: the parent has gone away.
+    backend.shutdown()
 
 
 if __name__ == "__main__":
