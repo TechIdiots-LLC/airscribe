@@ -47,6 +47,21 @@ deliberate `/EDIT-ME/` placeholder.** Leaving it produces
 transmission. The server warns about a non-existent directory at startup, so
 check the first lines of its log after a config change.
 
+### Bigger is not better here
+
+The usual advice — take the largest model your CPU allows — is wrong for radio.
+A larger model is more willing to produce confident text from noise, so on
+squelch tails, weak signals and the dead air around a transmission it invents
+plausible speech where a smaller model returns nothing or an honest
+`(static)`. On a scanner feed, where a good fraction of every clip is not
+speech at all, that trades a little accuracy on the clear parts for
+fabrications on the rest.
+
+Observed on this project's own traffic, not theory. Start small, listen to
+what each model does with your channel's noise, and judge by how often it
+invents rather than by how well it does on the clips you can already
+understand.
+
 `model` picks the family and is one of:
 
 | id | family | size | notes |
