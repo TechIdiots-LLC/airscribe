@@ -103,20 +103,79 @@ them. If the radio refuses the control channel, power-cycle its Bluetooth; see
 
 ## 4. The server, against a real radio
 
-```sh
-cp airscribe.config.json.sample airscribe.config.json
+Two steps, because a radio that never produces a clip and a transcriber that
+never produces text look identical in the UI — an empty feed.
+
+### 4a. Real radio, mock transcriber
+
+Leave the speech model out of it at first. In `airscribe.config.json`:
+
+```json
+{
+  "host": "0.0.0.0",
+  "auth": { "tokens": ["<your token>"] },
+  "sidecar": {
+    "python": "python3",
+    "backend": "bluez",
+    "controlChannel": 1,
+    "audioChannel": 2
+  },
+  "stt": { "engine": "mock" }
+}
 ```
 
-Set `sidecar.controlChannel` and `sidecar.audioChannel` to the known numbers,
-point `stt` at a model (see [transcription.md](transcription.md)), then:
+`stt.engine: "mock"` stands in for a speech model, and **`--simulate` is not
+passed** — that would replace the radio too. The channel numbers skip probing,
+which spares the radio sessions it frees slowly.
 
 ```sh
 node src/index.js --config airscribe.config.json
 ```
 
-In the web UI: **Scan**, **Add** the radio, **Connect**. The indicator turns
-amber while the radio is receiving, and each transmission should appear in the
-feed as a clip with audio and, once the engine has run, text.
+In the UI: **Scan** (the radio appears by name, recognised by its BS AOC
+service), **Add**, then **Connect**. The dot should go green, and the pill in
+the terminal-side log should start reporting status each second.
+
+Key up on another radio, or let real traffic in. Each transmission should
+appear in the feed within a second or two of ending, with a playable clip and
+a `[mock transcript of …]` placeholder.
+
+**If clips appear, the radio path works end to end.** Only transcription is
+left.
+
+### 4b. Add the speech model
+
+```sh
+pip install sherpa-onnx --break-system-packages
+cd /var/lib/airscribe && mkdir -p models && cd models
+curl -LO https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-whisper-base.en.tar.bz2
+tar xf sherpa-onnx-whisper-base.en.tar.bz2
+```
+
+Then swap the `stt` block for the real engine and restart:
+
+```json
+"stt": {
+  "engine": "sherpa-onnx",
+  "sherpa-onnx": {
+    "python": "python3",
+    "model": "whisper-base.en",
+    "modelDir": "/var/lib/airscribe/models/sherpa-onnx-whisper-base.en",
+    "language": "en"
+  }
+}
+```
+
+The worker loads on the first clip, not at startup, so a wrong `modelDir`
+shows up as a failed transcription rather than a server that will not boot.
+The reason appears in the feed and in the log.
+
+### Squelch matters here
+
+Set it around 3–5 rather than 0–1. A permissive squelch opens on noise, and
+each opening becomes a clip — and speech models tend to invent text from
+hiss rather than returning nothing, so a low squelch fills the log with
+fabrications.
 
 ## When something fails
 
