@@ -61,3 +61,12 @@ test('loadConfig with no path returns usable defaults', async () => {
   assert.equal(c.audio.sampleRate, 32000);
   assert.equal(c.sidecar.backend, 'bluez');
 });
+
+test('a public bind is refused without a token however it was asked for', async () => {
+  const { assertSafeToListen } = await import('../src/auth.js');
+  // --host is a convenience for headless testing, not a way around the guard.
+  for (const host of ['0.0.0.0', '192.168.1.10', '::']) {
+    assert.throws(() => assertSafeToListen(host, { tokens: [] }), /refusing/);
+    assertSafeToListen(host, { tokens: ['a-long-token'] });
+  }
+});

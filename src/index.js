@@ -12,6 +12,13 @@ const args = process.argv.slice(2);
 const flag = (n) => args.includes(n);
 
 const config = loadConfig(flagValue(args, '--config'));
+// Overrides for a headless box, where editing a config file just to look at
+// the UI is friction. assertSafeToListen still applies, so binding somewhere
+// reachable without a token is refused exactly as it would be from the file.
+const host = flagValue(args, '--host');
+const port = flagValue(args, '--port');
+if (host) config.host = host;
+if (port) config.port = Number(port);
 // --simulate swaps in the fake radio and the mock transcriber, so the whole
 // pipeline can be exercised on a machine with no Bluetooth or Whisper model.
 if (flag('--simulate')) {

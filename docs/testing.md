@@ -31,6 +31,36 @@ radio sends, and the mock transcriber stands in for a speech model.
 This exercises the server, the segmenter, the store, the event stream and the
 web UI. If something is wrong here it is not the radio.
 
+### Looking at it from another machine
+
+The server binds to `127.0.0.1`, and binding anywhere reachable is refused
+without a token — so on a headless box, forward the port rather than opening
+it:
+
+```sh
+ssh -L 8100:127.0.0.1:8100 you@the-server
+```
+
+Then browse `http://127.0.0.1:8100` on your own machine. Nothing is exposed
+and no configuration changes.
+
+To reach it directly instead, it needs a token, because that is what the guard
+is asking for:
+
+```sh
+node -e "console.log(require('crypto').randomBytes(32).toString('base64url'))"
+```
+
+Put it in a config file under `auth.tokens`, then:
+
+```sh
+node src/index.js --config airscribe.config.json --simulate --host 0.0.0.0
+```
+
+and open `http://<server>:8100/?token=<the token>`. The page is served without
+a token — it has to be, or the sign-in could never load — but every API call
+it makes carries one.
+
 ## 3. The sidecar alone, against a real radio
 
 Worth doing before the full server, because it shows the raw event stream with
