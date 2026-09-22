@@ -37,6 +37,7 @@ const manager = new Manager({
   engine,
   audio: config.audio,
   dataDir: config.dataDir,
+  reconnect: config.reconnect,
 });
 sidecar.start();
 
@@ -47,6 +48,7 @@ const server = createApp({ manager, store, sidecar, auth: config.auth, dataDir: 
 );
 
 const shutdown = () => {
+  manager.stopRetrying();
   sidecar.stop();
   engine.stop?.(); // engines that hold a worker process (sherpa-onnx) release it
 

@@ -67,8 +67,10 @@ function renderRadios() {
   list.replaceChildren(
     ...radios.map((r) => {
       const connected = r.state === 'connected';
-      const dot = r.tx ? 'tx' : r.rx ? 'rx' : connected ? 'connected' : '';
-      const activity = r.tx ? 'transmitting' : r.rx ? 'receiving' : (r.state ?? 'disconnected');
+      const retrying = r.state === 'connecting';
+      const dot = r.tx ? 'tx' : r.rx ? 'rx' : connected ? 'connected' : retrying ? 'retry' : '';
+      const activity = r.tx ? 'transmitting' : r.rx ? 'receiving'
+        : retrying ? 'reconnecting…' : (r.state ?? 'disconnected');
       return el(
         'li', {},
         el('div', { className: 'radio-head' },

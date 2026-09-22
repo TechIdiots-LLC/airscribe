@@ -257,6 +257,15 @@ same goes for the audio channel. Discovery has to hand back live sockets, not
 channel numbers, because a channel number you have to reconnect to is worth
 nothing. This is a hard requirement on the backend, not a tooling detail.
 
+**The server retries a dropped radio rather than giving up**, with the wait
+doubling from 5 s to 5 minutes. Retrying hard would achieve nothing: the radio
+refuses a reconnect until it has settled, and each refused attempt costs it a
+session it frees slowly. Upstream HTCommander reaches the same conclusion from
+the other direction — its auto-reconnect scans first and only connects to
+radios that actually appear, rather than attempting blind.
+
+An explicit disconnect is never retried, so "stop" means stop.
+
 **When the radio gets into that state, power-cycle its Bluetooth.** Nothing on
 the host side recovers it, because the stuck state is the radio's.
 

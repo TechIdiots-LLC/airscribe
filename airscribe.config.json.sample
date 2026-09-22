@@ -14,6 +14,11 @@
     "audioChannel": null
   },
 
+  "reconnect": {
+    "baseMs": 5000,
+    "maxMs": 300000
+  },
+
   "audio": {
     "sampleRate": 32000,
     "preRollMs": 300,

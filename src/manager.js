@@ -23,13 +23,15 @@ export class Manager extends EventEmitter {
    * @param {object} o.audio - The `audio` config section.
    * @param {string} o.dataDir - Where clips are written.
    */
-  constructor({ sidecar, store, engine, audio, dataDir }) {
+  constructor({ sidecar, store, engine, audio, dataDir, reconnect }) {
     super();
     Object.assign(this, { sidecar, store, engine, audio, dataDir });
+    this.reconnect = { baseMs: 5000, maxMs: 300000, ...reconnect };
     this.state = new Map(); // mac -> {state, rx, tx, rssi}
     this.segmenters = new Map();
     this.queue = Promise.resolve();
-    this.wanted = new Set(); // radios to re-connect after a sidecar restart
+    this.wanted = new Set(); // radios that should be connected
+    this.retries = new Map(); // mac -> {timer, delay}
     sidecar.on('event', (e) => this.onEvent(e));
     sidecar.on('restart', () => this.reconnectAll());
   }
@@ -43,11 +45,17 @@ export class Manager extends EventEmitter {
       case 'status': {
         const s = { ...this.state.get(e.mac), state: e.state, rssi: e.rssi, detail: e.detail };
         this.state.set(e.mac, s);
-        // A radio that drops mid-transmission still owes us the clip so far.
-        if (e.state !== 'connected') {
+        if (e.state === 'connected') {
+          this.clearRetry(e.mac);
+        } else {
+          // A radio that drops mid-transmission still owes us the clip so far.
           this.segmenters.get(e.mac)?.flush();
           s.rx = false;
           s.tx = false;
+          // Dropping is normal — a radio goes out of range, its battery dies,
+          // someone turns it off. Only an explicit disconnect takes it out of
+          // `wanted`, so anything else is worth waiting for.
+          if (this.wanted.has(e.mac)) this.scheduleRetry(e.mac);
         }
         this.emit('update', { type: 'status', mac: e.mac, ...s });
         break;
@@ -171,6 +179,7 @@ export class Manager extends EventEmitter {
    */
   async connect(mac) {
     this.wanted.add(mac);
+    this.clearRetry(mac);
     await this.sidecar.call('connect', { mac });
   }
 
@@ -179,8 +188,56 @@ export class Manager extends EventEmitter {
    * @returns {Promise<void>}
    */
   async disconnect(mac) {
+    // Out of `wanted` first, so the disconnect this causes is not mistaken
+    // for a drop and retried.
     this.wanted.delete(mac);
+    this.clearRetry(mac);
     await this.sidecar.call('disconnect', { mac });
+  }
+
+  /** @returns {void} Stop every pending retry, for shutdown. */
+  stopRetrying() {
+    for (const mac of [...this.retries.keys()]) this.clearRetry(mac);
+  }
+
+  /**
+   * Try a radio again later, with the wait doubling each time.
+   *
+   * These radios refuse a reconnect until they have settled, and sometimes
+   * until they are power-cycled, so retrying hard achieves nothing and costs
+   * the radio sessions it is slow to free. The delay doubles to `maxMs` and
+   * stays there, so a radio switched off overnight is picked up within a few
+   * minutes of coming back without being hammered meanwhile.
+   * @param {string} mac - Radio to retry.
+   * @returns {void}
+   */
+  scheduleRetry(mac) {
+    const prev = this.retries.get(mac);
+    if (prev?.timer) return; // one in flight already
+    const delay = Math.min(prev ? prev.delay * 2 : this.reconnect.baseMs, this.reconnect.maxMs);
+    const timer = setTimeout(() => {
+      this.retries.set(mac, { delay });
+      if (!this.wanted.has(mac)) return;
+      this.emit('update', { type: 'status', mac, state: 'connecting', detail: 'retrying' });
+      this.sidecar.call('connect', { mac }).catch((err) => {
+        // Still unreachable. Say so once, and wait longer next time.
+        this.emit('update', { type: 'status', mac, state: 'disconnected', detail: err.message });
+        if (this.wanted.has(mac)) this.scheduleRetry(mac);
+      });
+    }, delay);
+    // Never hold the process open: a pending retry must not stop a shutdown.
+    timer.unref?.();
+    this.retries.set(mac, { timer, delay });
+  }
+
+  /**
+   * @param {string} mac - Radio that is connected, or no longer wanted.
+   * @returns {void}
+   */
+  clearRetry(mac) {
+    const r = this.retries.get(mac);
+    if (r?.timer) clearTimeout(r.timer);
+    this.retries.delete(mac);
   }
 
   /** @returns {void} */

@@ -15,6 +15,8 @@ const DEFAULTS = {
     overlapMs: 300,
     energyThreshold: 0.02,
   },
+  // A dropped radio is retried, the wait doubling to this ceiling.
+  reconnect: { baseMs: 5000, maxMs: 300000 },
   stt: { engine: 'mock' },
 };
 

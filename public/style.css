@@ -29,6 +29,8 @@ input[type=search] { flex: 1; min-width: 0; }
 .dot.connected { background: var(--ok); }
 .dot.rx { background: var(--warn); box-shadow: 0 0 6px var(--warn); }
 .dot.tx { background: var(--bad); box-shadow: 0 0 6px var(--bad); }
+.dot.retry { background: var(--warn); animation: pulse 1.4s ease-in-out infinite; }
+@keyframes pulse { 0%,100% { opacity: .25; } 50% { opacity: 1; } }
 .tag { font-size: 11px; text-transform: uppercase; letter-spacing: .04em; padding: 1px 6px; border-radius: 4px; border: 1px solid var(--line); }
 .tag.sent { color: var(--bad); }
 .tag.heard { color: var(--ok); }
