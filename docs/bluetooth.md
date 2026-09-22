@@ -153,6 +153,39 @@ a Windows COM port, not a raw RFCOMM socket, which is a convenient shortcut on
 Windows but not what the Linux backend will do. The GAIA bytes on the wire are
 the same either way, which is why the result transfers.
 
+## Confirmed again on Linux
+
+Pairing a UV-Pro to Ubuntu 24.04 with BlueZ (adapter `E0:D3:62:64:43:1D`)
+resolved these services on `38:D2:00:01:56:51`:
+
+| UUID | What |
+| --- | --- |
+| `00001101-…` | Serial Port (SPP) — the control channel |
+| `0000111f-…` | Handsfree Audio Gateway |
+| `00001200-…` | PnP Information |
+| `000088a1-…` | vendor, purpose unknown |
+| `39144315-32fa-40db-85ed-fbfeba2d86e6` | **BS AOC** — the audio channel |
+
+Two details that matter for detection:
+
+**Before pairing, the advertisement carries only `000088a1` and `0000111f`.**
+BS AOC appears only once SDP has been resolved, which happens at pairing. So
+keying on BS AOC — which is what `sidecar/btinfo.py` does — identifies
+*paired* radios, and that is the right scope, because `bluetoothctl devices`
+lists known devices. An unpaired radio would have to be recognised by
+`000088a1` instead, if discovery of strangers is ever wanted.
+
+**`Modalias: bluetooth:v000Ap0002d0003`** names Bluetooth SIG vendor `0x000A`
+— CSR — which is why the control protocol is GAIA, CSR's own. It matches the
+`VID&0001000A_PID&0002` seen on Windows, so both hosts agree.
+
+The device class is `0x00200404`, an audio/video wearable headset, so BlueZ
+shows it with a headset icon. That is cosmetic, not a sign it is being treated
+as a plain headset.
+
+Dropping the link immediately after pairing (`disconnected with reason 3`) is
+normal — the bond is stored, and the link is re-established on demand.
+
 ## The UV-Pro
 
 This project is developed against a **BTech UV-Pro**, the radio BenLink was

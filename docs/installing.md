@@ -65,11 +65,16 @@ tested the services were not evenly distributed between them.
 Confirm it took:
 
 ```sh
+bluetoothctl connect 38:D2:00:01:56:51    # SDP browsing needs a live link
 ./tools/bringup-linux.sh 38:D2:00:01:56:51
 ```
 
 That should report the **BS AOC service** present. If it does not, the radio is
 either unpaired, powered off, out of range, or not a supported model.
+
+The connect matters: a paired-but-disconnected radio still reports its cached
+UUIDs, so the BS AOC check passes, but `sdptool browse` returns nothing and the
+RFCOMM channel numbers stay unknown.
 
 ## The code
 

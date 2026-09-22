@@ -60,7 +60,7 @@ head2 "Python RFCOMM support"
 python3 - <<'PY'
 import socket
 have = all(hasattr(socket, n) for n in ("AF_BLUETOOTH", "BTPROTO_RFCOMM"))
-print(f"  [{'ok' if have else 'FAIL'}] AF_BLUETOOTH / BTPROTO_RFCOMM")
+print(f"  [{' ok ' if have else 'FAIL'}] AF_BLUETOOTH / BTPROTO_RFCOMM")
 try:
     socket.socket(socket.AF_BLUETOOTH, socket.SOCK_STREAM, socket.BTPROTO_RFCOMM).close()
     print("  [ ok ] an RFCOMM socket can be created")
