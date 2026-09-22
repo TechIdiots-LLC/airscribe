@@ -73,6 +73,18 @@ export class Manager extends EventEmitter {
         // A backend that sends no run markers still drives the indicator.
         this.setActivity(e.mac, { rx: !!e.rx, tx: !!e.transmit });
         break;
+      // What one transmission's audio actually amounted to. Logged rather
+      // than shown, because it answers a question about the capture, not
+      // about the traffic: a clip shorter than the transmission it came from
+      // shows up here as PCM falling short of what the SBC should yield.
+      case 'run-stats':
+        console.log(
+          `[audio] ${e.mac} ${e.frames} SBC frames -> ${e.seconds}s` +
+            (e.pcm_bytes === e.expected_pcm_bytes
+              ? ''
+              : ` (expected ${e.expected_pcm_bytes} bytes of PCM, got ${e.pcm_bytes})`),
+        );
+        break;
       // Something the sidecar could not do — a missing SBC decoder, a radio
       // that stopped answering. Logged as well as forwarded, because these
       // explain an otherwise silent absence of transcripts.

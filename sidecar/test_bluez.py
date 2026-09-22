@@ -96,3 +96,25 @@ class ShutdownTests(unittest.TestCase):
         b.shutdown()
         self.assertEqual(b.links, {})
         self.assertTrue(all(link.closed for link in held), "every link must be closed")
+
+
+class ShortDecodeTests(unittest.TestCase):
+    """A clip shorter than its transmission is otherwise invisible."""
+
+    def test_expected_pcm_matches_the_real_capture(self):
+        # 159852 bytes of SBC came to 14.5 s on a real UV-Pro.
+        self.assertAlmostEqual(expected_pcm_bytes(159852) / 2 / 32000, 14.5, delta=0.1)
+
+    def test_a_short_clip_implies_a_short_run(self):
+        # A 0.76 s clip needs only ~8 kB of SBC. If a run carried far more
+        # than that, the decode dropped audio rather than the transmission
+        # being brief - which is the distinction the check exists to draw.
+        pcm = 24192 * 2
+        self.assertEqual(expected_pcm_bytes(8316), pcm)
+
+    def test_shortfall_detection_threshold(self):
+        want = expected_pcm_bytes(159852)
+        over_2_percent = int(want * 0.97)
+        within_2_percent = int(want * 0.995)
+        self.assertGreater(abs(over_2_percent - want), want * 0.02)
+        self.assertLessEqual(abs(within_2_percent - want), want * 0.02)

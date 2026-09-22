@@ -269,6 +269,27 @@ class RadioLink:
         except RuntimeError as e:
             self.emit({"event": "sidecar-error", "mac": self.mac, "error": str(e)})
             return
+
+        # How much PCM this SBC should have produced. A shortfall means the
+        # decoder dropped part of the run, which is invisible otherwise: the
+        # clip simply arrives shorter than the transmission was, and sounds
+        # like its tail.
+        want = sbc_codec.expected_pcm_bytes(len(sbc_bytes))
+        self.emit({
+            "event": "run-stats", "mac": self.mac,
+            "sbc_bytes": len(sbc_bytes),
+            "frames": len(sbc_bytes) // sbc_codec.FRAME_BYTES,
+            "pcm_bytes": len(pcm),
+            "expected_pcm_bytes": want,
+            "seconds": round(len(pcm) / 2 / sbc_codec.SAMPLE_RATE, 2),
+        })
+        if want and abs(len(pcm) - want) > want * 0.02:
+            self.emit({
+                "event": "sidecar-error", "mac": self.mac,
+                "error": (f"SBC decode is short: {len(sbc_bytes)} bytes of SBC "
+                          f"should give {want} bytes of PCM, got {len(pcm)} "
+                          f"({len(pcm) / want:.0%})"),
+            })
         import base64
         # Handed over in chunks so the segmenter sees the same shape of stream
         # it would from any other backend.
