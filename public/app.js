@@ -132,9 +132,13 @@ function renderTx(t) {
       el('span', { className: `tag ${dir}` }, dir), ' ',
       `${new Date(t.started_at).toLocaleString()} · ${radio?.name ?? t.mac} · ${(t.duration_ms / 1000).toFixed(1)}s`),
     el('div', { className: `tx-text ${t.status === 'done' ? '' : t.status}` }, text),
-    el('audio', { controls: true, preload: 'none', src: url(`/api/transmissions/${t.id}/audio`) }),
+    // 'metadata' rather than 'none' so the player shows the clip's length
+    // instead of 0:00 until it is played. A transmission is seconds long, so
+    // the headers this costs are cheap; the audio itself is still not fetched.
+    el('audio', { controls: true, preload: 'metadata',
+                  src: url(`/api/transmissions/${t.id}/audio`) }),
     el('div', { className: 'links' },
-      el('a', { href: url(`/api/transmissions/${t.id}/audio`) }, 'Download audio'),
+      el('a', { href: url(`/api/transmissions/${t.id}/audio?download`) }, 'Download audio'),
       t.text ? el('a', { href: url(`/api/transmissions/${t.id}/text`) }, 'Download text') : ''),
   );
 }

@@ -1,6 +1,6 @@
 import express from 'express';
-import { createReadStream, existsSync } from 'node:fs';
-import { join } from 'node:path';
+import { existsSync } from 'node:fs';
+import { join, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { MODELS, guessModel, normalizeMac } from './models.js';
 import { requireToken } from './auth.js';
@@ -96,12 +96,23 @@ export function createApp({ manager, store, sidecar, auth, dataDir }) {
   api.get('/transmissions/:id/audio', (req, res) => {
     const t = store.transmission(Number(req.params.id));
     // audio_file is written by this server, but resolve it under clips/ anyway.
-    const file = t && join(dataDir, 'clips', t.audio_file);
-    if (!t || !file.startsWith(join(dataDir, 'clips')) || !existsSync(file)) {
+    const root = resolve(dataDir, 'clips');
+    const file = t && resolve(root, t.audio_file);
+    if (!t || !file.startsWith(root + sep) || !existsSync(file)) {
       return res.status(404).json({ error: 'not found' });
     }
-    res.type('audio/wav').attachment(`${t.mac.replaceAll(':', '')}-${t.started_at}.wav`);
-    createReadStream(file).pipe(res);
+    const headers = { 'Content-Type': 'audio/wav' };
+    // Only the download link says attachment. An <audio> element playing the
+    // clip inline wants it served as a media file.
+    if (req.query.download !== undefined) {
+      headers['Content-Disposition'] =
+        `attachment; filename="${t.mac.replaceAll(':', '')}-${t.started_at}.wav"`;
+    }
+    // sendFile sets Content-Length and honours Range requests; piping a read
+    // stream did neither, so players could not show a duration or seek.
+    res.sendFile(file, { headers, acceptRanges: true }, (err) => {
+      if (err && !res.headersSent) res.status(404).json({ error: 'not found' });
+    });
   });
 
   api.get('/transmissions/:id/text', (req, res) => {
