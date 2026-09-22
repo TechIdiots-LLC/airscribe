@@ -61,6 +61,11 @@ and open `http://<server>:8100/?token=<the token>`. The page is served without
 a token — it has to be, or the sign-in could never load — but every API call
 it makes carries one.
 
+Opening it without the `?token=` is fine too: the page asks for one. A token
+given either way is kept in the browser, so later visits need no query string,
+and one supplied in the URL is stripped from the address bar rather than left
+in history and bookmarks.
+
 ## 3. The sidecar alone, against a real radio
 
 Worth doing before the full server, because it shows the raw event stream with

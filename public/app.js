@@ -1,6 +1,40 @@
-// A `?token=` on the page URL is carried onto API calls, the event stream and
-// download links, none of which can all send a header.
-const token = new URLSearchParams(location.search).get('token');
+// The token rides on the query string rather than a header, because the event
+// stream and the audio and text download links cannot set one.
+//
+// It arrives either in the page URL or from a previous visit. A token in the
+// URL is moved into storage and stripped from the address bar, so it stops
+// appearing in history, bookmarks and screenshots.
+const KEY = 'airscribe.token';
+
+/** @returns {string} The stored token, or '' when there is none. */
+function storedToken() {
+  try {
+    return localStorage.getItem(KEY) ?? '';
+  } catch {
+    return ''; // private windows and blocked site data
+  }
+}
+
+/** @param {string} value - Token to remember, or '' to forget it. */
+function rememberToken(value) {
+  try {
+    if (value) localStorage.setItem(KEY, value);
+    else localStorage.removeItem(KEY);
+  } catch {
+    /* not fatal: the in-memory copy still works for this page load */
+  }
+}
+
+let token = storedToken();
+const fromUrl = new URLSearchParams(location.search).get('token');
+if (fromUrl) {
+  token = fromUrl;
+  rememberToken(fromUrl);
+  const clean = new URL(location.href);
+  clean.searchParams.delete('token');
+  history.replaceState(null, '', clean);
+}
+
 const url = (p) => (token ? `${p}${p.includes('?') ? '&' : '?'}token=${encodeURIComponent(token)}` : p);
 const $ = (id) => document.getElementById(id);
 
@@ -10,7 +44,11 @@ async function api(path, opts = {}) {
     headers: { 'Content-Type': 'application/json' },
     body: opts.body && JSON.stringify(opts.body),
   });
-  if (!res.ok) throw new Error((await res.json().catch(() => ({}))).error || res.statusText);
+  if (!res.ok) {
+    const err = new Error((await res.json().catch(() => ({}))).error || res.statusText);
+    err.status = res.status;
+    throw err;
+  }
   return res.status === 204 ? null : res.json();
 }
 
@@ -132,7 +170,58 @@ function listen() {
   };
 }
 
-for (const m of await api('/models')) models.set(m.id, m);
-await loadRadios();
-await loadFeed();
-listen();
+/**
+ * Ask for a token instead of failing silently.
+ *
+ * The page itself is served without one — it has to be, or this could never
+ * be reached — so a 401 means the API wants a credential and nothing has
+ * offered it yet.
+ * @param {string} [message] - Why the last attempt failed.
+ * @returns {void}
+ */
+function showSignIn(message) {
+  const input = el('input', { type: 'password', id: 'token-input', placeholder: 'API token',
+                              autocomplete: 'current-password' });
+  const submit = () => {
+    const value = input.value.trim();
+    if (!value) return;
+    token = value;
+    rememberToken(value);
+    boot();
+  };
+  input.onkeydown = (e) => { if (e.key === 'Enter') submit(); };
+  $('signin-body').replaceChildren(
+    el('p', { className: 'meta' },
+      message || 'This server requires a token. It is the one set in auth.tokens in its config.'),
+    el('div', { className: 'row' }, input, el('button', { onclick: submit }, 'Sign in')),
+  );
+  $('signin').hidden = false;
+  $('main').hidden = true;
+  input.focus();
+}
+
+/** @returns {Promise<void>} Loads everything, or asks for a token. */
+async function boot() {
+  try {
+    for (const m of await api('/models')) models.set(m.id, m);
+    await loadRadios();
+    await loadFeed();
+  } catch (e) {
+    if (e.status === 401) {
+      rememberToken('');   // a stored token that no longer works is worse than none
+      showSignIn(token ? 'That token was not accepted. Try another.' : undefined);
+      return;
+    }
+    $('conn').textContent = 'error';
+    $('conn').className = 'pill bad';
+    $('signin-body').replaceChildren(el('p', { className: 'tx-text error' }, e.message));
+    $('signin').hidden = false;
+    $('main').hidden = true;
+    return;
+  }
+  $('signin').hidden = true;
+  $('main').hidden = false;
+  listen();
+}
+
+boot();
