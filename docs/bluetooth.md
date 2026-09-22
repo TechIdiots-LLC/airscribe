@@ -215,12 +215,24 @@ bookkeeping, not a link problem — most often right after an earlier session on
 that channel closed. **The backend must rediscover channels on each connect,
 and retry a refusal rather than treat it as fatal.**
 
-It gets worse with use. After a few probe runs the radio refused channel 1
-outright and *no* channel answered GAIA, while 2, 3 and 4 still accepted
-connections — the control service had become unreachable while the rest of the
-RFCOMM server kept working. Closing a socket is evidently not enough for the
-radio to free the session; `shutdown()` before `close()`, and a pause
-afterwards, is what the tooling now does.
+### The control channel is opened once and held
+
+This is the rule that matters most, and it took several wrong guesses to see.
+
+On a freshly reset radio, discovery works: channel 1 answers GAIA, channel 2
+flips `is_aoc_connected`. **Close the control channel and reopen it, and the
+radio refuses it** — immediately, with `ECONNREFUSED`. Repeat that a few times
+and it refuses permanently: no channel answers GAIA any more, while 2, 3 and 4
+still accept connections. The control service is wedged until the radio's
+Bluetooth is power-cycled, and nothing host-side recovers it.
+
+`shutdown()` before `close()` and a settling pause help a channel that was
+merely probed and rejected. They do **not** make a control channel reopenable.
+
+So: **open control once, and hold it for as long as the radio is in use.** The
+same goes for the audio channel. Discovery has to hand back live sockets, not
+channel numbers, because a channel number you have to reconnect to is worth
+nothing. This is a hard requirement on the backend, not a tooling detail.
 
 **When the radio gets into that state, power-cycle its Bluetooth.** Nothing on
 the host side recovers it, because the stuck state is the radio's.

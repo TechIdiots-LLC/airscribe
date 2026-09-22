@@ -5,19 +5,24 @@ Works on Linux and Windows, because it needs nothing but stdlib sockets.
 
 Channel numbers differ per radio and SDP is the documented way to resolve
 them, but `sdptool browse` is unreliable against these radios and BlueZ's own
-Connect() fails outright with br-connection-profile-unavailable, since there
-is no profile driver for a vendor service. So this probes instead, which turns
-out to need no SDP at all:
+Connect() fails with br-connection-profile-unavailable, since no profile
+driver claims a vendor service. So this probes instead, which needs no SDP:
 
   * the control channel answers a GAIA query and the others stay silent;
   * the audio channel identifies itself, because opening it flips
     `is_aoc_connected` in the radio's own HT status.
 
+**The channels are opened once and held.** Closing the control channel and
+reopening it does not work: the radio then refuses it, and after a few such
+cycles refuses it permanently until its Bluetooth is power-cycled. So
+discovery hands back live sockets rather than channel numbers, and the caller
+keeps them for as long as it needs the radio. The backend has to do the same.
+
 Read-only. It sends GET_HT_STATUS and nothing else, and never keys the
 transmitter.
 
-    python3 tools/probe-aoc.py <MAC> --discover
-    python3 tools/probe-aoc.py <MAC> --control 4 --audio 2 --capture 30
+    python3 tools/probe-aoc.py <MAC>                 # find channels, then capture
+    python3 tools/probe-aoc.py <MAC> --discover      # find channels only
 """
 import argparse
 import os
@@ -35,10 +40,11 @@ CMD_NAMES = {0x00: "audio (odd)", 0x01: "AUDIO END", 0x02: "ack",
 
 
 def release(sock):
-    """Close a channel so the radio frees it.
+    """Hand a channel back to the radio.
 
-    A bare close() leaves the radio refusing that channel on the next attempt,
-    so the session is shut down explicitly and given a moment to settle.
+    A bare close() is not enough for it to free the session, so the socket is
+    shut down explicitly and given a moment to settle. Only for channels being
+    rejected during probing — the ones that are kept are never released.
     """
     try:
         sock.shutdown(socket.SHUT_RDWR)
@@ -48,25 +54,15 @@ def release(sock):
     time.sleep(SETTLE)
 
 
-def rfcomm(mac, channel, timeout=6, tries=1):
-    """Open one RFCOMM channel.
-
-    Retries because these radios refuse a channel that worked moments earlier,
-    typically right after another session on it closed.
-    """
-    last = None
-    for attempt in range(tries):
-        s = socket.socket(socket.AF_BLUETOOTH, socket.SOCK_STREAM, socket.BTPROTO_RFCOMM)
-        s.settimeout(timeout)
-        try:
-            s.connect((mac, channel))
-            return s
-        except OSError as e:
-            s.close()
-            last = e
-            if attempt + 1 < tries:
-                time.sleep(1.5)
-    raise last
+def rfcomm(mac, channel, timeout=6):
+    s = socket.socket(socket.AF_BLUETOOTH, socket.SOCK_STREAM, socket.BTPROTO_RFCOMM)
+    s.settimeout(timeout)
+    try:
+        s.connect((mac, channel))
+    except OSError:
+        s.close()
+        raise
+    return s
 
 
 def ht_status(ctrl):
@@ -91,80 +87,53 @@ def ht_status(ctrl):
     return bool(m[6] & 0x02), bool(m[5] & 0x10), bool(m[5] & 0x20), m[7] >> 4
 
 
-def discover(mac, last):
-    """Work out which channel is control and which is BS AOC audio."""
-    print(f"probing channels 1-{last} on {mac} ...")
-    open_channels = []
+def find_control(mac, last):
+    """Open channels until one answers GAIA. Returns (channel, live socket)."""
+    print(f"looking for the control channel on {mac} ...")
     for ch in range(1, last + 1):
         try:
             s = rfcomm(mac, ch, timeout=4)
         except OSError as e:
             print(f"  channel {ch:2d}: {e.strerror or e}")
             continue
-        open_channels.append(ch)
-        print(f"  channel {ch:2d}: open")
-        release(s)
-    if not open_channels:
-        raise SystemExit("\nNo channel accepted a connection. Is the radio on and in range?")
-
-    print(f"\nopen channels: {open_channels}\nlooking for the control channel ...")
-    control, ctrl_sock = None, None
-    for ch in open_channels:
-        try:
-            s = rfcomm(mac, ch)
-        except OSError:
-            continue
         if ht_status(s):
-            control, ctrl_sock = ch, s
-            print(f"  channel {ch}: answered GAIA  <== CONTROL")
-            break
+            print(f"  channel {ch:2d}: answered GAIA  <== CONTROL (held open)")
+            return ch, s
+        print(f"  channel {ch:2d}: open, but silent")
         release(s)
-    if control is None:
-        raise SystemExit("No channel answered a GAIA query; cannot identify the rest.")
+    raise SystemExit(
+        "\nNo channel answered a GAIA query.\n"
+        "If channels opened but none answered, the radio's control service is\n"
+        "wedged - power-cycle its Bluetooth. Also check no other host has it\n"
+        "paired, since these radios serve one at a time."
+    )
 
+
+def find_audio(mac, ctrl, control_ch, last):
+    """Open channels until is_aoc_connected flips. Returns (channel, socket)."""
     print("\nlooking for the audio channel (watching is_aoc_connected) ...")
-    audio = None
-    for ch in open_channels:
-        if ch == control:
+    for ch in range(1, last + 1):
+        if ch == control_ch:
             continue
         try:
-            cand = rfcomm(mac, ch)
+            cand = rfcomm(mac, ch, timeout=4)
         except OSError as e:
-            print(f"  channel {ch}: {e.strerror or e}")
+            print(f"  channel {ch:2d}: {e.strerror or e}")
             continue
         time.sleep(1.0)
-        st = ht_status(ctrl_sock)
+        st = ht_status(ctrl)
         if st and st[0]:
-            audio = ch
-            print(f"  channel {ch}: is_aoc_connected=True  <== BS AOC AUDIO")
-            release(cand)
-            break
-        print(f"  channel {ch}: is_aoc_connected={st[0] if st else '?'}")
+            print(f"  channel {ch:2d}: is_aoc_connected=True  <== BS AOC AUDIO (held open)")
+            return ch, cand
+        print(f"  channel {ch:2d}: is_aoc_connected={st[0] if st else '?'}")
         release(cand)
-    release(ctrl_sock)
-
-    print(f"\n  control channel : {control}")
-    print(f"  audio channel   : {audio if audio else 'not found'}")
-    return control, audio
+    return None, None
 
 
-def capture(mac, control, audio_ch, seconds, out):
-    # A channel that worked a minute ago can refuse now, so fall back to
-    # probing again rather than failing. This is why the backend must
-    # rediscover channels per connection instead of caching them.
-    try:
-        ctrl = rfcomm(mac, control, tries=3)
-        audio = rfcomm(mac, audio_ch, tries=3)
-    except OSError as e:
-        print(f"channel {control}/{audio_ch} refused ({e.strerror or e}); re-probing ...")
-        control, audio_ch = discover(mac, 10)
-        if not (control and audio_ch):
-            raise SystemExit("could not find both channels")
-        print()
-        ctrl = rfcomm(mac, control, tries=3)
-        audio = rfcomm(mac, audio_ch, tries=3)
+def capture(ctrl, audio, audio_ch, seconds, out):
+    """Read the audio channel through the project's own frame codec."""
     audio.setblocking(False)
-    print(f"control ch{control} + audio ch{audio_ch} connected; capturing {seconds}s")
+    print(f"\ncapturing {seconds}s from channel {audio_ch} ...")
     reader, raw, counts, polls, last = FrameReader(), bytearray(), {}, [], 0.0
     end = time.time() + seconds
     while time.time() < end:
@@ -181,8 +150,6 @@ def capture(mac, control, audio_ch, seconds, out):
             st = ht_status(ctrl)
             if st:
                 polls.append(st[1:])
-    release(audio)
-    release(ctrl)
     with open(out, "wb") as fh:
         fh.write(raw)
     print(f"\n{len(raw)} bytes -> {out}")
@@ -198,26 +165,27 @@ def capture(mac, control, audio_ch, seconds, out):
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("mac", help="radio MAC, e.g. 38:D2:00:01:56:51")
-    ap.add_argument("--discover", action="store_true", help="find the control and audio channels")
-    ap.add_argument("--last", type=int, default=30, help="highest channel to probe")
-    ap.add_argument("--control", type=int, help="known control channel")
-    ap.add_argument("--audio", type=int, help="known BS AOC channel, to capture from")
-    ap.add_argument("--capture", type=float, default=30.0, help="capture seconds")
+    ap.add_argument("--discover", action="store_true",
+                    help="find the channels and stop, instead of capturing")
+    ap.add_argument("--last", type=int, default=10, help="highest channel to probe")
+    ap.add_argument("--capture", type=float, default=45.0, help="capture seconds")
     ap.add_argument("--out", default="aoc_capture.bin")
     args = ap.parse_args()
 
-    if args.discover or not (args.control and args.audio):
-        control, audio = discover(args.mac, args.last)
-        if control and audio and not args.discover:
-            print()
-            capture(args.mac, control, audio, args.capture, args.out)
-        elif control and audio:
-            print()
-            print("Capture with:")
-            print(f"  python3 tools/probe-aoc.py {args.mac} "
-                  f"--control {control} --audio {audio} --capture 45")
-    else:
-        capture(args.mac, args.control, args.audio, args.capture, args.out)
+    control_ch, ctrl = find_control(args.mac, args.last)
+    audio_ch, audio = None, None
+    try:
+        audio_ch, audio = find_audio(args.mac, ctrl, control_ch, args.last)
+        print(f"\n  control channel : {control_ch}")
+        print(f"  audio channel   : {audio_ch if audio_ch else 'not found'}")
+        if audio and not args.discover:
+            capture(ctrl, audio, audio_ch, args.capture, args.out)
+    finally:
+        # Released only on the way out, once the radio is genuinely finished
+        # with. Anything earlier and the channel will not reopen.
+        if audio:
+            release(audio)
+        release(ctrl)
 
 
 if __name__ == "__main__":
