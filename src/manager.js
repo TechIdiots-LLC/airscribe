@@ -69,7 +69,10 @@ export class Manager extends EventEmitter {
       // The BlueZ backend polls the radio and reports what it says. Squelch
       // and RSSI drive the indicator; the run markers still own segmentation.
       case 'radio-status':
-        this.setActivity(e.mac, { rx: !!e.in_rx, tx: !!e.in_tx, rssi: e.rssi });
+        this.setActivity(e.mac, {
+          rx: !!e.in_rx, tx: !!e.in_tx, rssi: e.rssi,
+          ...(e.battery === undefined || e.battery === null ? {} : { battery: e.battery }),
+        });
         break;
       case 'audio-start':
         this.segmenterFor(e.mac).begin({ transmit: !!e.transmit });
@@ -125,9 +128,23 @@ export class Manager extends EventEmitter {
     // message per second on the event stream. RSSI counts as a change: it is
     // how anyone watching can tell the radio is being polled at all, and
     // whether it is hearing anything.
-    if (prev.rx === next.rx && prev.tx === next.tx && prev.rssi === next.rssi) return;
+    if (prev.rx === next.rx && prev.tx === next.tx && prev.rssi === next.rssi
+        && prev.battery === next.battery) return;
     this.state.set(mac, next);
-    this.emit('update', { type: 'activity', mac, rx: next.rx, tx: next.tx, rssi: next.rssi });
+    // A radio going flat is the one failure nothing on this side can recover
+    // from, so it is said out loud once per threshold crossed rather than
+    // left to whoever is watching the page.
+    for (const level of [20, 10, 5]) {
+      if (next.battery !== undefined && next.battery <= level
+          && (prev.battery === undefined || prev.battery > level)) {
+        console.warn(`[radio] ${mac} battery at ${next.battery}% - it will stop when this runs out`);
+        break;
+      }
+    }
+    this.emit('update', {
+      type: 'activity', mac, rx: next.rx, tx: next.tx,
+      rssi: next.rssi, battery: next.battery,
+    });
   }
 
   /**

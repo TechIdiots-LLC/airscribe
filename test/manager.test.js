@@ -177,3 +177,37 @@ test('an unchanged poll emits nothing', () => {
   assert.equal(updates.filter((u) => u.type === 'activity').length, 1,
     'a radio polled every second must not emit every second');
 });
+
+test('battery reaches the UI and is warned about once per threshold', () => {
+  const { updates, fire } = make();
+  const warned = [];
+  const real = console.warn;
+  console.warn = (m) => warned.push(m);
+  try {
+    for (const battery of [80, 25, 18, 15, 9, 4]) {
+      fire({ event: 'radio-status', mac: MAC, rssi: 5, in_rx: false, in_tx: false, battery });
+    }
+  } finally {
+    console.warn = real;
+  }
+  const seen = updates.filter((u) => u.type === 'activity').map((u) => u.battery);
+  assert.deepEqual(seen, [80, 25, 18, 15, 9, 4], 'every change is reported');
+  // Crossing 20, then 10, then 5 - not once per poll below them.
+  assert.equal(warned.length, 3, `expected three warnings, got: ${warned.join(' | ')}`);
+  assert.match(warned[0], /18%/);
+});
+
+test('a radio that reports no battery is not warned about', () => {
+  const { updates, fire } = make();
+  const warned = [];
+  const real = console.warn;
+  console.warn = (m) => warned.push(m);
+  try {
+    fire({ event: 'radio-status', mac: MAC, rssi: 5, in_rx: false, in_tx: false });
+    fire({ event: 'radio-status', mac: MAC, rssi: 6, in_rx: false, in_tx: false, battery: null });
+  } finally {
+    console.warn = real;
+  }
+  assert.deepEqual(warned, []);
+  assert.ok(updates.some((u) => u.type === 'activity'));
+});

@@ -84,6 +84,12 @@ function renderRadios() {
           connected && r.rssi !== undefined
             ? el('span', { className: 'signal', title: `RSSI ${r.rssi} of 15` },
                 ` · ${'█'.repeat(Math.min(5, Math.round(r.rssi / 3)))}${'░'.repeat(5 - Math.min(5, Math.round(r.rssi / 3)))} ${r.rssi}`)
+            : '',
+          // A flat battery ends a session and nothing here can reconnect to a
+          // radio that is off, so it is worth seeing before it happens.
+          connected && r.battery !== undefined && r.battery !== null
+            ? el('span', { className: `battery ${r.battery <= 20 ? 'low' : ''}` },
+                ` · ${r.battery}%`)
             : ''),
         el('div', { className: 'actions' },
           el('button', { onclick: () => act(r.mac, connected ? 'disconnect' : 'connect') }, connected ? 'Disconnect' : 'Connect'),

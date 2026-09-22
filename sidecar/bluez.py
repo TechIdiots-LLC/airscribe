@@ -28,6 +28,11 @@ import sbc as sbc_codec
 
 # GAIA: FF 01 <flags> <payload len> <group hi/lo> <command hi/lo> <payload>
 GET_HT_STATUS = bytes([0xFF, 0x01, 0x00, 0x00, 0x00, 0x02, 0x00, 0x14])
+# READ_STATUS (5) with power-status type 4, "battery level as a percentage".
+# The two-byte argument is the type as a big-endian short.
+GET_BATTERY = bytes([0xFF, 0x01, 0x00, 0x02, 0x00, 0x02, 0x00, 0x05, 0x00, 0x04])
+
+BATTERY_EVERY = 60  # seconds; a percentage does not move fast
 
 AUDIO_CMDS = {0x00, 0x03}   # received audio
 TRANSMIT_CMD = 0x09         # audio the radio is itself sending
@@ -59,6 +64,22 @@ def _rfcomm(mac, channel, timeout=8):
         s.close()
         raise
     return s
+
+
+def parse_battery(buf):
+    """Percentage from a READ_STATUS reply, or None if it is not one.
+
+    Reply payload is: status byte, the power-status type as a big-endian
+    short, then the value. Only type 4 is a percentage.
+    """
+    if len(buf) < 12 or buf[0] != 0xFF:
+        return None
+    m = buf[4:4 + 4 + buf[3]]
+    if len(m) < 8 or (m[4] != 0x00):
+        return None
+    if ((m[5] << 8) | m[6]) != 4:
+        return None
+    return m[7]
 
 
 def parse_ht_status(buf):
@@ -104,21 +125,43 @@ class RadioLink:
 
     # -- control channel ---------------------------------------------------
 
-    def status(self):
-        """Ask the radio its state. None when it does not answer."""
+    def request(self, frame):
+        """Send one GAIA command and return its reply frame, or b"".
+
+        Reads the length out of the header rather than assuming one, because
+        replies differ per command - a status reply and a battery reply are
+        not the same size, and reading a fixed count leaves the rest of one
+        in the socket to corrupt the next.
+        """
         with self.lock:
             try:
                 self.ctrl.settimeout(3)
-                self.ctrl.sendall(GET_HT_STATUS)
-                buf = b""
-                while len(buf) < 13:
-                    chunk = self.ctrl.recv(64)
-                    if not chunk:
-                        break
-                    buf += chunk
+                self.ctrl.sendall(frame)
+                head = self._recv_exactly(4)
+                if len(head) < 4 or head[0] != 0xFF:
+                    return b""
+                # header(4) + group/command(4) + payload + optional checksum
+                rest = 4 + head[3] + (head[2] & 1)
+                return head + self._recv_exactly(rest)
             except OSError:
-                return None
-        return parse_ht_status(buf)
+                return b""
+
+    def _recv_exactly(self, n):
+        buf = b""
+        while len(buf) < n:
+            chunk = self.ctrl.recv(n - len(buf))
+            if not chunk:
+                break
+            buf += chunk
+        return buf
+
+    def status(self):
+        """Ask the radio its state. None when it does not answer."""
+        return parse_ht_status(self.request(GET_HT_STATUS))
+
+    def battery(self):
+        """Battery percentage, or None when the radio does not say."""
+        return parse_battery(self.request(GET_BATTERY))
 
     # -- finding the channels ---------------------------------------------
 
@@ -195,10 +238,17 @@ class RadioLink:
     # -- the two loops -----------------------------------------------------
 
     def _poll_status(self):
-        """Report squelch, RSSI and loss of the radio."""
+        """Report squelch, RSSI, battery, and loss of the radio."""
         misses = 0
+        battery = None
+        last_battery = 0.0
         while not self.stop.is_set():
             st = self.status()
+            # Polled far less often than status: a percentage does not move
+            # fast, and every extra request competes with the audio channel.
+            if st is not None and time.time() - last_battery > BATTERY_EVERY:
+                last_battery = time.time()
+                battery = self.battery()
             if st is None:
                 misses += 1
                 # One missed poll is normal while audio is flowing; several in
@@ -212,7 +262,8 @@ class RadioLink:
                 misses = 0
                 self.emit({"event": "radio-status", "mac": self.mac, "rssi": st["rssi"],
                            "in_rx": st["in_rx"], "squelch": st["squelch"],
-                           "in_tx": st["in_tx"], "scanning": st["scanning"]})
+                           "in_tx": st["in_tx"], "scanning": st["scanning"],
+                           "battery": battery})
             self.stop.wait(STATUS_PERIOD)
 
     def _read_audio(self):

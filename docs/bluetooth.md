@@ -257,8 +257,17 @@ same goes for the audio channel. Discovery has to hand back live sockets, not
 channel numbers, because a channel number you have to reconnect to is worth
 nothing. This is a hard requirement on the backend, not a tooling detail.
 
+**The server reports the radio's battery**, polled once a minute via
+READ_STATUS with power-status type 4, and warns as it crosses 20%, 10% and
+5%. This is not a nicety: a flat battery is the one failure nothing on this
+side can recover from, and it is what ended the first long capture — the
+radio was not plugged in. Reconnection cannot help a radio that is off, so
+the only defence is noticing beforehand.
+
 **The server retries a dropped radio rather than giving up**, with the wait
-doubling from 5 s to 5 minutes. Retrying hard would achieve nothing: the radio
+doubling from 5 s to 5 minutes. That does not rescue a flat battery, but it
+does mean a radio put back on charge and switched on is picked up within a
+few minutes without anyone touching the server. Retrying hard would achieve nothing: the radio
 refuses a reconnect until it has settled, and each refused attempt costs it a
 session it frees slowly. Upstream HTCommander reaches the same conclusion from
 the other direction — its auto-reconnect scans first and only connects to

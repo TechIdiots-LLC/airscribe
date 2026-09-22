@@ -118,3 +118,50 @@ class ShortDecodeTests(unittest.TestCase):
         within_2_percent = int(want * 0.995)
         self.assertGreater(abs(over_2_percent - want), want * 0.02)
         self.assertLessEqual(abs(within_2_percent - want), want * 0.02)
+
+
+class BatteryTests(unittest.TestCase):
+    """The radio reports its own battery; a flat one is what ends a session."""
+
+    def build(self, status_type, value, ok=0x00):
+        from bluez import parse_battery
+        # FF 01 flags len | group cmd | status, type(hi,lo), value
+        payload = bytes([ok, (status_type >> 8) & 0xFF, status_type & 0xFF, value])
+        body = bytes([0x00, 0x02, 0x80, 0x05]) + payload
+        return bytes([0xFF, 0x01, 0x00, len(payload)]) + body
+
+    def test_reads_a_percentage(self):
+        from bluez import parse_battery
+        self.assertEqual(parse_battery(self.build(4, 87)), 87)
+        self.assertEqual(parse_battery(self.build(4, 0)), 0)
+        self.assertEqual(parse_battery(self.build(4, 100)), 100)
+
+    def test_ignores_the_other_power_status_types(self):
+        from bluez import parse_battery
+        # 1 = raw level, 2 = voltage, 3 = the remote's battery. None are a
+        # percentage, and treating them as one would report nonsense.
+        for t in (1, 2, 3):
+            self.assertIsNone(parse_battery(self.build(t, 50)))
+
+    def test_rejects_malformed_replies(self):
+        from bluez import parse_battery
+        for bad in (b"", b"\x00" * 12, self.build(4, 50)[:8]):
+            self.assertIsNone(parse_battery(bad))
+
+    def test_the_request_frame_matches_upstream(self):
+        from bluez import GET_BATTERY
+        # READ_STATUS is command 5 in group 2, argument = type 4 as a
+        # big-endian short, which is what HTCommander sends.
+        self.assertEqual(GET_BATTERY.hex(), "ff01000200020005" + "0004")
+        self.assertEqual(GET_BATTERY[3], 2, "payload length is two bytes")
+
+
+class FrameReadingTests(unittest.TestCase):
+    def test_reply_length_comes_from_the_header(self):
+        # A status reply and a battery reply differ in length; reading a fixed
+        # count would leave the rest of one behind to corrupt the next.
+        status = bytes.fromhex("FF01000500028014008201 0080".replace(" ", ""))
+        battery = bytes.fromhex("FF010004000280050004005A")
+        for frame in (status, battery):
+            declared = 4 + 4 + frame[3] + (frame[2] & 1)
+            self.assertEqual(declared, len(frame), f"header describes {frame.hex()}")
