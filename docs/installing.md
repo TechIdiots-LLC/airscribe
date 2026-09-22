@@ -37,17 +37,30 @@ the module itself rather than parsing a version string.
 Pair as yourself, once, before any of the service setup. The daemon keeps the
 bond in `/var/lib/bluetooth`, so the service never needs to pair anything.
 
+Put the radio into pairing mode first, then:
+
 ```sh
 bluetoothctl
+  power on
+  agent on
+  default-agent
   scan on
+  # wait for a line naming the radio, e.g.
+  #   [NEW] Device 38:D2:00:01:56:51 UV-PRO
   pair 38:D2:00:01:56:51
   trust 38:D2:00:01:56:51
+  scan off
   quit
 ```
 
-**These radios pair as two devices with MACs one apart, in quick succession.**
-Pair both. Missing the second is a good way to end up with a radio that
-answers control commands but never produces audio.
+`agent on` and `default-agent` matter: without an agent registered there is
+nothing to answer the pairing request, and `pair` fails in a way that looks
+like the radio ignored it.
+
+**Do not assume the address.** Let `scan on` show you what the radio actually
+advertises — it appears by name (`UV-PRO`). These radios can present more than
+one bond, in quick succession; pair each one that appears, since on the unit
+tested the services were not evenly distributed between them.
 
 Confirm it took:
 

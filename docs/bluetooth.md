@@ -77,10 +77,16 @@ observed, not read from someone else's source.
 record. This is what `sidecar/btinfo.py` keys on to tell a radio from a
 headset.
 
-**The radio pairs as two Bluetooth devices**, with MACs one apart
-(`38:D2:00:01:56:21` and `...:51` on the unit tested). Each exposes its own
-copy of the services. This is the "pair two devices in quick succession"
-quirk upstream documents.
+**The radio can appear as more than one Bluetooth device.** The unit tested
+had two bonds, `38:D2:00:01:56:21` and `38:D2:00:01:56:51` — 0x30 apart, not
+adjacent — each exposing its own copy of the services. This is presumably the
+"pair two devices in quick succession" quirk upstream documents.
+
+Worth knowing before you rely on it: when that host was later re-paired from
+scratch, **only `...:51` came back**, and it alone carried the control and
+audio services this project needs. So treat the second bond as something that
+may appear rather than something to require, and do not compute one address
+from the other.
 
 **Services exposed per device:** SPP `0x1101` (control), HFP `0x111F`, and
 the BS AOC vendor service (audio). Windows binds the first two to inbox
@@ -166,7 +172,8 @@ The `info` output should list `39144315-32fa-40db-85ed-fbfeba2d86e6` (see
 above — confirmed present on real hardware). That is what `scan` keys on, and
 seeing it confirms the pairing the audio channel depends on. `sdptool browse
 <MAC>` then shows the RFCOMM channel numbers the next step has to resolve
-programmatically. Expect **two** paired MACs, one apart.
+programmatically. The radio may present more than one bond; pair whatever
+`scan on` actually shows rather than deriving an address.
 
 ## What is not written yet
 
