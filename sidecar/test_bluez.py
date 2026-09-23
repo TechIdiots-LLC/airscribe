@@ -224,3 +224,40 @@ class ChannelTests(unittest.TestCase):
         raw[10] = 0x50           # m[6] = 0x50 -> lower nibble 5
         raw[12] = 0x84           # m[8] bits 2-5 -> upper 1
         self.assertEqual(parse_ht_status(bytes(raw))["channel"], (1 << 4) + 5)
+
+
+class StatusEventTests(unittest.TestCase):
+    """Everything decoded from the status must reach the server.
+
+    The channel was parsed and then omitted from the event, so it never left
+    the sidecar and every transmission recorded no channel. The test that
+    should have caught it fired the event directly, which bypassed the gap.
+    """
+
+    def test_every_parsed_field_is_reported(self):
+        import bluez
+        idle = bytes.fromhex("FF01000500028014008201" + "0080")
+        parsed = bluez.parse_ht_status(idle)
+
+        sent = []
+        link = bluez.RadioLink.__new__(bluez.RadioLink)
+        link.mac = "AA:BB:CC:DD:EE:FF"
+        link.emit = sent.append
+        link.channel = None
+        # The line under test, as _poll_status runs it.
+        link.emit({"event": "radio-status", "mac": link.mac, "battery": 55, **parsed})
+
+        event = sent[0]
+        missing = [k for k in parsed if k not in event]
+        self.assertEqual(missing, [], f"parsed but not reported: {missing}")
+        self.assertEqual(event["channel"], parsed["channel"])
+        self.assertEqual(event["battery"], 55)
+
+    def test_the_manager_fields_are_all_present(self):
+        import bluez
+        idle = bytes.fromhex("FF01000500028014008201" + "0080")
+        event = {"event": "radio-status", "mac": "AA", "battery": None,
+                 **bluez.parse_ht_status(idle)}
+        # What src/manager.js reads off a radio-status event.
+        for field in ("in_rx", "in_tx", "rssi", "channel", "battery"):
+            self.assertIn(field, event, f"the Manager reads {field}")

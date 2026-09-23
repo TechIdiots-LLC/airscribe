@@ -91,6 +91,25 @@ jobs:
           done
           echo "all events present"
 
+      # The channel was decoded in the sidecar and then left out of the
+      # event, so it never reached the server. Event names alone did not
+      # catch that; the fields matter too.
+      - name: Fields the Manager reads must be reported
+        run: |
+          python - <<'PY'
+          import sys
+          sys.path.insert(0, "sidecar")
+          import bluez
+          idle = bytes.fromhex("FF01000500028014008201" + "0080")
+          event = {"event": "radio-status", "mac": "AA", "battery": None,
+                   **bluez.parse_ht_status(idle)}
+          missing = [f for f in ("in_rx", "in_tx", "rssi", "channel", "battery")
+                     if f not in event]
+          if missing:
+              raise SystemExit(f"radio-status omits {missing}")
+          print("radio-status carries every field the Manager reads")
+          PY
+
       - name: Smoke test the request/response protocol
         run: |
           echo '{"id":1,"cmd":"ping"}' \

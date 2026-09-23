@@ -333,10 +333,13 @@ class RadioLink:
                     return
             else:
                 misses = 0
-                self.emit({"event": "radio-status", "mac": self.mac, "rssi": st["rssi"],
-                           "in_rx": st["in_rx"], "squelch": st["squelch"],
-                           "in_tx": st["in_tx"], "scanning": st["scanning"],
-                           "battery": battery})
+                self.channel = st["channel"]
+                # Spread rather than listed field by field: the channel was
+                # decoded here and then left out of the event, so it never
+                # reached the server and every clip recorded no channel.
+                # Reporting whatever was parsed makes that omission impossible.
+                self.emit({"event": "radio-status", "mac": self.mac,
+                           "battery": battery, **st})
             self.stop.wait(STATUS_PERIOD)
 
     def _read_audio(self):
