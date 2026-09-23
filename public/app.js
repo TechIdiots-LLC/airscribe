@@ -243,11 +243,29 @@ function listen() {
  * @returns {void}
  */
 function showSignIn(message) {
-  const input = el('input', { type: 'password', id: 'token-input', placeholder: 'API token',
+  const input = el('input', { type: 'password', id: 'token-input',
+                              placeholder: 'Password or API token',
                               autocomplete: 'current-password' });
-  const submit = () => {
+  const submit = async () => {
     const value = input.value.trim();
     if (!value) return;
+    // Try a session first: a password is not a token, and where only tokens
+    // are configured the server accepts one in the same field. A session
+    // means nothing is kept in this browser's storage.
+    try {
+      const res = await fetch(url('/api/login'), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ password: value }),
+      });
+      if (res.ok) {
+        token = '';
+        rememberToken('');
+        return boot();
+      }
+    } catch {
+      /* fall through to using it as a token */
+    }
     token = value;
     rememberToken(value);
     boot();

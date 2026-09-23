@@ -33,7 +33,7 @@ if (flag('--simulate')) {
   config.stt = { engine: 'mock' };
 }
 
-assertSafeToListen(config.host, config.auth);
+assertSafeToListen(config);
 
 const { engines, primary, extra } = createEngines(config.stt);
 // Which model is running should never be a guess.
@@ -55,21 +55,38 @@ const manager = new Manager({
 });
 sidecar.start();
 
-const server = createApp({ manager, store, sidecar, auth: config.auth, dataDir: config.dataDir }).listen(
-  config.port,
-  config.host,
-  () => console.log(`airscribe on http://${config.host}:${config.port} (${config.sidecar.backend})`),
-);
+const app = createApp({ manager, store, sidecar, config, dataDir: config.dataDir });
+
+// Two listeners in front of one app when adminPort is set: the public one
+// serves only the public surface, and the admin one everything. Binding the
+// admin listener to loopback makes the settings surface unreachable rather
+// than merely guarded, which is what a firewall can enforce.
+const servers = [];
+if (config.adminPort) {
+  const adminHost = config.adminHost ?? config.host;
+  servers.push(app.listen(config.adminPort, adminHost, () =>
+    console.log(`airscribe admin on http://${adminHost}:${config.adminPort}`)));
+}
+servers.push(app.listen(config.port, config.host, () =>
+  console.log(
+    `airscribe ${config.adminPort ? 'public surface' : ''} on ` +
+      `http://${config.host}:${config.port} (${config.sidecar.backend})`,
+  )));
 
 const shutdown = () => {
   manager.stopRetrying();
   sidecar.stop();
   for (const e of engines.values()) e.stop?.(); // release any held workers
 
-  server.close(() => {
-    store.close();
-    process.exit(0);
-  });
+  let left = servers.length;
+  for (const s of servers) {
+    s.close(() => {
+      if (--left === 0) {
+        store.close();
+        process.exit(0);
+      }
+    });
+  }
   setTimeout(() => process.exit(0), 3000).unref();
 };
 process.on('SIGINT', shutdown);

@@ -3,7 +3,13 @@
   "port": 8100,
   "dataDir": "./data",
 
+  "_adminPort": "Set this and the public surface moves to `port` while radios, settings and downloads stay on adminPort. Bind adminHost to 127.0.0.1 and the admin surface is unreachable rather than merely guarded.",
+  "adminPort": null,
+  "adminHost": "127.0.0.1",
+
   "auth": {
+    "username": null,
+    "passwordHash": null,
     "tokens": []
   },
 

@@ -3,7 +3,7 @@ import { existsSync } from 'node:fs';
 import { join, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { MODELS, guessModel, normalizeMac } from './models.js';
-import { requireToken } from './auth.js';
+import { createAuth } from './auth.js';
 
 const PUBLIC = fileURLToPath(new URL('../public', import.meta.url));
 
@@ -47,24 +47,49 @@ function csvCell(v) {
   return /[",\n]/.test(str) ? `"${str.replaceAll('"', '""')}"` : str;
 }
 
+/** Paths a public listener may serve. Everything else is 404 there. */
+const PUBLIC_API = new Set(['/session', '/login', '/logout']);
+
 /**
  * Build the HTTP app: static UI, JSON API, and a server-sent event stream.
+ *
+ * One app, and where `adminPort` is set, two listeners in front of it. The
+ * public one serves only what `PUBLIC_API` allows and answers **404** for the
+ * rest: a refusal confirms there is something behind it, an absence does not.
+ * The gate is keyed on the port the request arrived on rather than a header,
+ * because a header is something the caller controls.
  * @param {object} o - Dependencies.
  * @param {import('./manager.js').Manager} o.manager - Radio orchestration.
  * @param {import('./store.js').Store} o.store - Persistence.
  * @param {import('./sidecar.js').Sidecar} o.sidecar - Bluetooth helper.
- * @param {{tokens: string[]}} o.auth - Auth config.
+ * @param {object} o.config - The whole config, for auth and the port split.
  * @param {string} o.dataDir - Data directory (clips live under it).
  * @returns {import('express').Express} The app.
  */
-export function createApp({ manager, store, sidecar, auth, dataDir }) {
+export function createApp({ manager, store, sidecar, config, dataDir }) {
   const app = express();
+  const auth = createAuth(config);
   app.use(express.json({ limit: '32kb' }));
   app.get('/healthz', (req, res) => res.json({ ok: true }));
+
+  const onAdminPort = (req) =>
+    !config.adminPort || req.socket?.localPort === Number(config.adminPort);
+
+  if (config.adminPort) {
+    app.use('/api', (req, res, next) => {
+      if (onAdminPort(req) || PUBLIC_API.has(req.path)) return next();
+      res.status(404).json({ error: 'not found' });
+    });
+  }
   app.use(express.static(PUBLIC));
 
   const api = express.Router();
-  api.use(requireToken(auth));
+  // Signing in has to be reachable before one is signed in.
+  api.post('/login', (req, res) => auth.login(req, res));
+  api.post('/logout', (req, res) => auth.logout(req, res));
+  api.get('/session', (req, res) => auth.session(req, res));
+  // Everything past here needs at least a viewer.
+  api.use(auth.requireRole('viewer'));
 
   api.get('/models', (req, res) => res.json(MODELS));
   api.get('/radios', (req, res) => res.json(manager.radios()));
@@ -73,6 +98,7 @@ export function createApp({ manager, store, sidecar, auth, dataDir }) {
   // it is already saved, so the UI can offer a one-click add.
   api.get(
     '/scan',
+    auth.requireRole('admin'),
     wrap(async (req, res) => {
       const found = await sidecar.call('scan');
       res.json(
@@ -86,7 +112,7 @@ export function createApp({ manager, store, sidecar, auth, dataDir }) {
     }),
   );
 
-  api.post('/radios', (req, res) => {
+  api.post('/radios', auth.requireRole('admin'), (req, res) => {
     const mac = normalizeMac(req.body?.mac);
     if (!mac) return res.status(400).json({ error: 'mac must be 12 hex digits' });
     const model = req.body.model ?? null;
@@ -100,6 +126,7 @@ export function createApp({ manager, store, sidecar, auth, dataDir }) {
 
   api.delete(
     '/radios/:mac',
+    auth.requireRole('admin'),
     wrap(async (req, res) => {
       const mac = normalizeMac(req.params.mac);
       if (!mac) return res.status(400).json({ error: 'bad mac' });
@@ -112,6 +139,7 @@ export function createApp({ manager, store, sidecar, auth, dataDir }) {
   for (const action of ['connect', 'disconnect']) {
     api.post(
       `/radios/:mac/${action}`,
+      auth.requireRole('admin'),
       wrap(async (req, res) => {
         const mac = normalizeMac(req.params.mac);
         if (!mac || !store.radio(mac)) return res.status(404).json({ error: 'unknown radio' });
@@ -134,7 +162,7 @@ export function createApp({ manager, store, sidecar, auth, dataDir }) {
 
   // Catch up clips an engine has not managed. The audio outlives a failed
   // transcription, so a backlog from a missing module is recoverable.
-  api.post('/transcribe-missing', (req, res) => {
+  api.post('/transcribe-missing', auth.requireRole('admin'), (req, res) => {
     const engine = req.query.engine ? String(req.query.engine) : undefined;
     try {
       const queued = manager.retranscribe(engine, Number(req.query.limit) || 500);
@@ -144,7 +172,7 @@ export function createApp({ manager, store, sidecar, auth, dataDir }) {
     }
   });
 
-  api.post('/transmissions/:id/transcribe', (req, res) => {
+  api.post('/transmissions/:id/transcribe', auth.requireRole('admin'), (req, res) => {
     const t = store.transmission(Number(req.params.id));
     if (!t) return res.status(404).json({ error: 'unknown transmission' });
     const engineName = req.query.engine ? String(req.query.engine) : manager.primary;

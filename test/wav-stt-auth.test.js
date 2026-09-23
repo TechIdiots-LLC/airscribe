@@ -36,10 +36,10 @@ test('unknown engine is rejected with the choices', () => {
   assert.throws(() => createEngine({ engine: 'nope' }), /have: mock, sherpa-onnx, whisper-cpp, command/);
 });
 
-test('refuses a reachable bind with no tokens, allows loopback or tokens', () => {
-  assert.throws(() => assertSafeToListen('0.0.0.0', { tokens: [] }), /refusing/);
-  assertSafeToListen('127.0.0.1', { tokens: [] });
-  assertSafeToListen('0.0.0.0', { tokens: ['t'] });
+test('refuses a reachable bind with no credential, allows loopback or a token', () => {
+  assert.throws(() => assertSafeToListen({ host: '0.0.0.0', auth: { tokens: [] } }), /refusing/);
+  assertSafeToListen({ host: '127.0.0.1', auth: { tokens: [] } });
+  assertSafeToListen({ host: '0.0.0.0', auth: { tokens: ['t'] } });
 });
 
 test('a flag with no value does not swallow the next argument', async () => {
@@ -62,12 +62,12 @@ test('loadConfig with no path returns usable defaults', async () => {
   assert.equal(c.sidecar.backend, 'bluez');
 });
 
-test('a public bind is refused without a token however it was asked for', async () => {
+test('a public bind is refused without a credential however it was asked for', async () => {
   const { assertSafeToListen } = await import('../src/auth.js');
   // --host is a convenience for headless testing, not a way around the guard.
   for (const host of ['0.0.0.0', '192.168.1.10', '::']) {
-    assert.throws(() => assertSafeToListen(host, { tokens: [] }), /refusing/);
-    assertSafeToListen(host, { tokens: ['a-long-token'] });
+    assert.throws(() => assertSafeToListen({ host, auth: { tokens: [] } }), /refusing/);
+    assertSafeToListen({ host, auth: { tokens: ['a-long-token'] } });
   }
 });
 

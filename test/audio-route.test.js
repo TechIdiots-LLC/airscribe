@@ -17,7 +17,7 @@ const row = { id: 1, mac: 'AA:BB:CC:DD:EE:FF', started_at: 123,
               status: 'done', text: 'hello' };
 const store = { transmission: (id) => (id === 1 ? row : undefined), radios: () => [] };
 const manager = Object.assign(new EventEmitter(), { radios: () => [] });
-const app = createApp({ manager, store, sidecar: {}, auth: { tokens: [] }, dataDir });
+const app = createApp({ manager, store, sidecar: {}, config: { host: '127.0.0.1', auth: {} }, dataDir });
 const server = app.listen(0, '127.0.0.1');
 await new Promise((r) => server.once('listening', r));
 const base = `http://127.0.0.1:${server.address().port}/api`;

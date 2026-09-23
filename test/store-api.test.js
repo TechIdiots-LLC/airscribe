@@ -56,7 +56,7 @@ test('API adds a radio, rejects bad input, and enforces tokens', { skip: !sqlite
   const { EventEmitter } = await import('node:events');
   const store = new Store(':memory:');
   const manager = Object.assign(new EventEmitter(), { radios: () => store.radios() });
-  const app = createApp({ manager, store, sidecar: {}, auth: { tokens: ['secret'] }, dataDir: '.' });
+  const app = createApp({ manager, store, sidecar: {}, config: { host: '127.0.0.1', auth: { tokens: ['secret'] } }, dataDir: '.' });
   const server = app.listen(0, '127.0.0.1');
   await new Promise((r) => server.once('listening', r));
   const base = `http://127.0.0.1:${server.address().port}/api`;

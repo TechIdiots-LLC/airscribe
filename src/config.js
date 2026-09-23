@@ -3,8 +3,12 @@ import { readFileSync } from 'node:fs';
 const DEFAULTS = {
   host: '127.0.0.1',
   port: 8100,
+  // Unset means one listener serving everything. Set it and the public
+  // surface moves to `port` while everything else stays on `adminPort`.
+  adminPort: null,
+  adminHost: null,
   dataDir: './data',
-  auth: { tokens: [] },
+  auth: { username: null, password: null, passwordHash: null, apiKey: null, tokens: [] },
   sidecar: { python: 'python3', backend: 'bluez', controlChannel: null, audioChannel: null },
   audio: {
     sampleRate: 32000,
