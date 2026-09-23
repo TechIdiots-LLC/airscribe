@@ -65,7 +65,7 @@ def main():
 
     print(f"{len(rows)} transmissions, engines: {', '.join(engines)}\n")
     print(f"{'engine':<16} {'clips':>6} {'words':>7} {'empty':>7} {'annot':>7} "
-          f"{'stock':>7} {'wds/sec':>8}")
+          f"{'stock':>7} {'trunc':>6} {'wds/sec':>8}")
     for e in engines:
         got = [(r["duration_ms"] / 1000, t["text"])
                for r in rows for t in r.get("transcripts", [])
@@ -75,9 +75,12 @@ def main():
         kinds = [classify(txt) for _, txt in got]
         spoken = [(d, txt) for (d, txt), k in zip(got, kinds) if k == "words"]
         wps = sorted(len(txt.split()) / d for d, txt in spoken if d > 0)
+        # A long clip reduced to a couple of words: the model stopped early.
+        # This is the opposite of hallucinating, and it loses more.
+        trunc = sum(1 for d, txt in got if d >= 5 and len((txt or "").split()) <= 3)
         print(f"{e:<16} {len(got):>6} {kinds.count('words'):>7} "
               f"{kinds.count('empty'):>7} {kinds.count('annotation'):>7} "
-              f"{kinds.count('stock phrase'):>7} "
+              f"{kinds.count('stock phrase'):>7} {trunc:>6} "
               f"{(wps[len(wps)//2] if wps else 0):>8.2f}")
 
     print("\n'annot' and 'stock' are the model declining to guess, or guessing")

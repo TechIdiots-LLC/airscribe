@@ -62,6 +62,24 @@ what each model does with your channel's noise, and judge by how often it
 invents rather than by how well it does on the clips you can already
 understand.
 
+**The failure that costs most is not invention, it is stopping early.** Run
+side by side on 27 dispatch transmissions, tiny, base and small each
+transcribed some clips better than the others — but base and small both
+produced cases where a long transmission came back as a fragment:
+
+| clip | tiny | base | small |
+| --- | --- | --- | --- |
+| 14.8 s | partial | full sentence | `Starla.` |
+| 9.4 s | full callsign readback | `the` | full callsign readback |
+
+A hallucinated line is wrong and obvious. A 15-second transmission reduced to
+one word is silently lost, and nothing in the feed says so. `trunc` in the
+comparison tool counts these — a clip of 5 s or more reduced to three words
+or fewer — and it is the column to watch, more than `words`.
+
+Neither model was reliably better. That is the argument for running more than
+one and keeping both transcripts, rather than choosing a winner.
+
 `model` picks the family and is one of:
 
 | id | family | size | notes |
