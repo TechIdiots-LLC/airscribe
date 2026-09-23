@@ -211,3 +211,33 @@ test('a radio that reports no battery is not warned about', () => {
   assert.deepEqual(warned, []);
   assert.ok(updates.some((u) => u.type === 'activity'));
 });
+
+test('a clip records the channel the run started on', () => {
+  const { store, fire, audio } = make();
+  fire({ event: 'channels', mac: MAC, channels: [
+    { id: 3, name: 'FIRE DISP', rx_hz: 154265000 },
+    { id: 4, name: 'PD1', rx_hz: 155475000 },
+  ] });
+  fire({ event: 'radio-status', mac: MAC, rssi: 8, in_rx: false, in_tx: false, channel: 3 });
+  fire({ event: 'audio-start', mac: MAC, transmit: false });
+  audio(10, 0.3, { rx: true });
+  // The radio scans on while the clip is still being written; the channel it
+  // started on is the one that matters.
+  fire({ event: 'radio-status', mac: MAC, rssi: 2, in_rx: false, in_tx: false, channel: 4 });
+  fire({ event: 'audio-end', mac: MAC });
+  const row = store.transmission(1);
+  assert.equal(row.channel, 3);
+  assert.equal(row.channelName, 'FIRE DISP');
+  assert.equal(row.channelHz, 154265000);
+});
+
+test('an unknown channel index is recorded without a name', () => {
+  const { store, fire, audio } = make();
+  fire({ event: 'radio-status', mac: MAC, rssi: 8, in_rx: false, in_tx: false, channel: 9 });
+  fire({ event: 'audio-start', mac: MAC, transmit: false });
+  audio(10, 0.3, { rx: true });
+  fire({ event: 'audio-end', mac: MAC });
+  const row = store.transmission(1);
+  assert.equal(row.channel, 9);
+  assert.equal(row.channelName, null, 'no invented name for a channel we never read');
+});

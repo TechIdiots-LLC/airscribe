@@ -38,6 +38,8 @@ export class Manager extends EventEmitter {
     this.segmenters = new Map();
     this.wanted = new Set(); // radios that should be connected
     this.retries = new Map(); // mac -> {timer, delay}
+    this.channels = new Map(); // mac -> Map(index -> {name, rx_hz})
+    this.onAir = new Map();    // mac -> the channel a run started on
     sidecar.on('event', (e) => this.onEvent(e));
     sidecar.on('restart', () => this.reconnectAll());
   }
@@ -68,14 +70,22 @@ export class Manager extends EventEmitter {
       }
       // The BlueZ backend polls the radio and reports what it says. Squelch
       // and RSSI drive the indicator; the run markers still own segmentation.
+      // The radio's channel table, read once at connect.
+      case 'channels':
+        this.channels.set(e.mac, new Map((e.channels ?? []).map((c) => [c.id, c])));
+        this.emit('update', { type: 'channels', mac: e.mac, channels: e.channels });
+        break;
       case 'radio-status':
         this.setActivity(e.mac, {
-          rx: !!e.in_rx, tx: !!e.in_tx, rssi: e.rssi,
+          rx: !!e.in_rx, tx: !!e.in_tx, rssi: e.rssi, channel: e.channel,
           ...(e.battery === undefined || e.battery === null ? {} : { battery: e.battery }),
         });
         break;
       case 'audio-start':
         this.segmenterFor(e.mac).begin({ transmit: !!e.transmit });
+        // Captured when the run opens rather than when the clip is written:
+        // a scanning radio may have moved on by the time it closes.
+        this.onAir.set(e.mac, this.state.get(e.mac)?.channel);
         this.setActivity(e.mac, { rx: !e.transmit, tx: !!e.transmit });
         break;
       case 'audio-end':
@@ -129,7 +139,7 @@ export class Manager extends EventEmitter {
     // how anyone watching can tell the radio is being polled at all, and
     // whether it is hearing anything.
     if (prev.rx === next.rx && prev.tx === next.tx && prev.rssi === next.rssi
-        && prev.battery === next.battery) return;
+        && prev.battery === next.battery && prev.channel === next.channel) return;
     this.state.set(mac, next);
     // A radio going flat is the one failure nothing on this side can recover
     // from, so it is said out loud once per threshold crossed rather than
@@ -143,7 +153,8 @@ export class Manager extends EventEmitter {
     }
     this.emit('update', {
       type: 'activity', mac, rx: next.rx, tx: next.tx,
-      rssi: next.rssi, battery: next.battery,
+      rssi: next.rssi, battery: next.battery, channel: next.channel,
+      channelName: this.channels.get(mac)?.get(next.channel)?.name ?? null,
     });
   }
 
@@ -176,12 +187,17 @@ export class Manager extends EventEmitter {
     const engineWav = join(dir, name.replace('.wav', '.16k.wav'));
     writeFileSync(engineWav, encodeWav(halveRate(clip.pcm), this.audio.sampleRate / 2));
 
+    const channel = this.onAir.get(mac) ?? this.state.get(mac)?.channel ?? null;
+    const info = this.channels.get(mac)?.get(channel);
     const id = this.store.addTransmission({
       mac,
       startedAt,
       durationMs: clip.durationMs,
       audioFile,
       transmit: clip.transmit,
+      channel: channel ?? null,
+      channelName: info?.name ?? null,
+      channelHz: info?.rx_hz ?? null,
     });
     this.emit('update', { type: 'transmission', ...this.store.transmission(id) });
 

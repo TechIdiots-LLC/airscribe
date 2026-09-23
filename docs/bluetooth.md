@@ -257,6 +257,13 @@ same goes for the audio channel. Discovery has to hand back live sockets, not
 channel numbers, because a channel number you have to reconnect to is worth
 nothing. This is a hard requirement on the backend, not a tooling detail.
 
+**The channel is read from the radio.** The status poll carries the current
+channel index, split across two bytes, and `READ_RF_CH` returns each
+channel's name and frequencies. The table is read once at connect, because it
+rarely changes and every request competes with the audio channel. A
+transmission records the channel its run *started* on: a scanning radio has
+often moved on by the time the clip is written.
+
 **The server reports the radio's battery**, polled once a minute via
 READ_STATUS with power-status type 4, and warns as it crosses 20%, 10% and
 5%. This is not a nicety: a flat battery is the one failure nothing on this

@@ -165,3 +165,62 @@ class FrameReadingTests(unittest.TestCase):
         for frame in (status, battery):
             declared = 4 + 4 + frame[3] + (frame[2] & 1)
             self.assertEqual(declared, len(frame), f"header describes {frame.hex()}")
+
+
+class ChannelTests(unittest.TestCase):
+    """A transcript without its channel is half the story on a scanner."""
+
+    def frame(self, chan_id=3, hz=154265000, name=b"FIRE DISP"):
+        m = bytearray(30)
+        m[0:4] = bytes([0x00, 0x02, 0x80, 0x0D])
+        m[4] = 0x00
+        m[5] = chan_id
+        for at in (6, 10):
+            m[at] = (hz >> 24) & 0x3F
+            m[at + 1] = (hz >> 16) & 0xFF
+            m[at + 2] = (hz >> 8) & 0xFF
+            m[at + 3] = hz & 0xFF
+        m[18] = 0x80          # scan flag
+        m[20:20 + len(name)] = name
+        return bytes([0xFF, 0x01, 0x00, len(m) - 4]) + bytes(m)
+
+    def test_reads_name_and_frequency(self):
+        from bluez import parse_channel
+        ch = parse_channel(self.frame())
+        self.assertEqual(ch["id"], 3)
+        self.assertEqual(ch["name"], "FIRE DISP")
+        self.assertEqual(ch["rx_hz"], 154265000)
+        self.assertEqual(ch["tx_hz"], 154265000)
+        self.assertTrue(ch["scan"])
+
+    def test_name_stops_at_the_padding(self):
+        from bluez import parse_channel
+        # The field is ten bytes, NUL-padded; the padding is not part of it.
+        self.assertEqual(parse_channel(self.frame(name=b"PD1"))["name"], "PD1")
+        self.assertEqual(parse_channel(self.frame(name=b"TENCHARSXX"))["name"], "TENCHARSXX")
+
+    def test_modulation_bits_are_not_part_of_the_frequency(self):
+        from bluez import parse_channel
+        raw = bytearray(self.frame(hz=154265000))
+        raw[4 + 10] |= 0xC0      # set the top two bits of the rx frequency word
+        self.assertEqual(parse_channel(bytes(raw))["rx_hz"], 154265000,
+                         "the top two bits are modulation and must be masked off")
+
+    def test_rejects_short_or_failed_replies(self):
+        from bluez import parse_channel
+        self.assertIsNone(parse_channel(b""))
+        self.assertIsNone(parse_channel(self.frame()[:10]))
+        bad = bytearray(self.frame())
+        bad[8] = 0x01            # non-zero status byte
+        self.assertIsNone(parse_channel(bytes(bad)))
+
+    def test_status_reply_carries_the_current_channel(self):
+        from bluez import parse_ht_status
+        # Channel 0 on the idle reply the real radio sent.
+        idle = bytes.fromhex("FF01000500028014008201" + "0080")
+        self.assertEqual(parse_ht_status(idle)["channel"], 0)
+        # Low nibble in m[6] >> 4, upper bits in m[8].
+        raw = bytearray(idle)
+        raw[10] = 0x50           # m[6] = 0x50 -> lower nibble 5
+        raw[12] = 0x84           # m[8] bits 2-5 -> upper 1
+        self.assertEqual(parse_ht_status(bytes(raw))["channel"], (1 << 4) + 5)

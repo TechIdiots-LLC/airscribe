@@ -34,6 +34,10 @@ GET_BATTERY = bytes([0xFF, 0x01, 0x00, 0x02, 0x00, 0x02, 0x00, 0x05, 0x00, 0x04]
 
 BATTERY_EVERY = 60  # seconds; a percentage does not move fast
 
+# GET_DEV_INFO (4), argument 3 - carries the channel count among much else.
+GET_DEV_INFO = bytes([0xFF, 0x01, 0x00, 0x01, 0x00, 0x02, 0x00, 0x04, 0x03])
+READ_RF_CH = 13     # one channel's name and frequencies, by index
+
 AUDIO_CMDS = {0x00, 0x03}   # received audio
 TRANSMIT_CMD = 0x09         # audio the radio is itself sending
 AUDIO_END = 0x01
@@ -64,6 +68,46 @@ def _rfcomm(mac, channel, timeout=8):
         s.close()
         raise
     return s
+
+
+def read_rf_ch_frame(channel_id):
+    """Build a READ_RF_CH request for one channel index."""
+    return bytes([0xFF, 0x01, 0x00, 0x01, 0x00, 0x02, 0x00, READ_RF_CH, channel_id & 0xFF])
+
+
+def parse_channel(buf):
+    """Name and frequencies of one channel, or None.
+
+    Layout follows the reference parser: after the four GAIA command bytes
+    comes a status byte, the channel id, two 30-bit frequencies, sub-audio
+    tones, two flag bytes, then a ten-byte name.
+    """
+    if len(buf) < 12 or buf[0] != 0xFF:
+        return None
+    m = buf[4:4 + 4 + buf[3]]
+    if len(m) < 30 or m[4] != 0x00:
+        return None
+
+    def freq(at):
+        # The top two bits are the modulation, not part of the frequency.
+        return (((m[at] & 0x3F) << 24) | (m[at + 1] << 16) | (m[at + 2] << 8) | m[at + 3])
+
+    name = bytes(m[20:30]).split(b"\x00")[0].decode("utf-8", "replace").strip()
+    return {
+        "id": m[5],
+        "name": name,
+        "rx_hz": freq(10),
+        "tx_hz": freq(6),
+        "scan": bool(m[18] & 0x80),
+    }
+
+
+def parse_channel_count(buf):
+    """How many channels the radio holds, from a GET_DEV_INFO reply."""
+    if len(buf) < 12 or buf[0] != 0xFF:
+        return None
+    m = buf[4:4 + 4 + buf[3]]
+    return m[13] if len(m) > 13 else None
 
 
 def parse_battery(buf):
@@ -105,6 +149,8 @@ def parse_ht_status(buf):
         "hfp_connected": bool(m[6] & 0x04),
         "aoc_connected": bool(m[6] & 0x02),
         "rssi": m[7] >> 4,
+        # Split across two bytes: the low nibble of m[6] and bits of m[8].
+        "channel": (((m[8] & 0x3C) >> 2) << 4) + (m[6] >> 4),
     }
 
 
@@ -122,6 +168,8 @@ class RadioLink:
         self.stop = threading.Event()
         self.lock = threading.Lock()   # the control socket is shared
         self.threads = []
+        self.channels = {}             # index -> {name, rx_hz, ...}
+        self.channel = None            # the one the radio is on now
 
     # -- control channel ---------------------------------------------------
 
@@ -162,6 +210,27 @@ class RadioLink:
     def battery(self):
         """Battery percentage, or None when the radio does not say."""
         return parse_battery(self.request(GET_BATTERY))
+
+    def read_channels(self):
+        """Read the radio's channel table once, for names and frequencies.
+
+        A transcript without the channel it came from is half the story on a
+        scanning radio, and the status poll reports only an index. Read at
+        connect because the table rarely changes and each read is a request
+        competing with the audio channel.
+        """
+        count = parse_channel_count(self.request(GET_DEV_INFO))
+        if not count:
+            return
+        for i in range(count):
+            if self.stop.is_set():
+                return
+            ch = parse_channel(self.request(read_rf_ch_frame(i)))
+            # Unprogrammed slots come back with no name and no frequency.
+            if ch and (ch["name"] or ch["rx_hz"]):
+                self.channels[ch["id"]] = ch
+        self.emit({"event": "channels", "mac": self.mac,
+                   "channels": list(self.channels.values())})
 
     # -- finding the channels ---------------------------------------------
 
@@ -223,6 +292,10 @@ class RadioLink:
 
         self.emit({"event": "status", "mac": self.mac, "state": "connected",
                    "detail": f"control ch{self.control_ch}, audio ch{self.audio_ch}"})
+        try:
+            self.read_channels()
+        except OSError:
+            pass   # names are a convenience; the radio still works without them
         for target in (self._read_audio, self._poll_status):
             t = threading.Thread(target=target, daemon=True)
             t.start()

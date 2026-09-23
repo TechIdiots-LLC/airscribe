@@ -27,6 +27,7 @@ export class Store {
         mac TEXT NOT NULL, started_at INTEGER NOT NULL, duration_ms INTEGER NOT NULL,
         audio_file TEXT NOT NULL, status TEXT NOT NULL,
         transmit INTEGER NOT NULL DEFAULT 0,
+        channel INTEGER, channel_name TEXT, channel_hz INTEGER,
         text TEXT, engine TEXT, error TEXT);
       CREATE INDEX IF NOT EXISTS tx_time ON transmissions(started_at DESC);
       -- One row per engine per transmission, so a clip can be transcribed by
@@ -52,7 +53,15 @@ export class Store {
    */
   migrate() {
     const columns = this.db.prepare('PRAGMA table_info(transmissions)').all();
-    const added = [['transmit', 'INTEGER NOT NULL DEFAULT 0']];
+    const added = [
+      ['transmit', 'INTEGER NOT NULL DEFAULT 0'],
+      // Which channel the radio was on. Older rows have none; a scanner's
+      // transcript is far less useful without it, but it cannot be recovered
+      // after the fact.
+      ['channel', 'INTEGER'],
+      ['channel_name', 'TEXT'],
+      ['channel_hz', 'INTEGER'],
+    ];
     for (const [name, decl] of added) {
       if (!columns.some((c) => c.name === name)) {
         this.db.exec(`ALTER TABLE transmissions ADD COLUMN ${name} ${decl}`);
@@ -139,16 +148,21 @@ export class Store {
 
   /**
    * @param {{mac: string, startedAt: number, durationMs: number, audioFile: string,
-   *   transmit?: boolean}} t - A new clip.
+   *   transmit?: boolean, channel?: number, channelName?: string,
+   *   channelHz?: number}} t - A new clip.
    * @returns {number} Its id.
    */
-  addTransmission({ mac, startedAt, durationMs, audioFile, transmit = false }) {
+  addTransmission({ mac, startedAt, durationMs, audioFile, transmit = false,
+                    channel = null, channelName = null, channelHz = null }) {
     const r = this.db
       .prepare(
-        `INSERT INTO transmissions (mac, started_at, duration_ms, audio_file, status, transmit)
-         VALUES (?, ?, ?, ?, 'pending', ?)`,
+        `INSERT INTO transmissions
+           (mac, started_at, duration_ms, audio_file, status, transmit,
+            channel, channel_name, channel_hz)
+         VALUES (?, ?, ?, ?, 'pending', ?, ?, ?, ?)`,
       )
-      .run(mac, startedAt, Math.round(durationMs), audioFile, transmit ? 1 : 0);
+      .run(mac, startedAt, Math.round(durationMs), audioFile, transmit ? 1 : 0,
+           channel, channelName, channelHz);
     return Number(r.lastInsertRowid);
   }
 
@@ -255,10 +269,13 @@ export class Store {
     // Searching now means searching every engine's transcript, so a clip is
     // found if any model heard the words.
     if (q) {
+      // Any engine's transcript, or the channel name — searching for "fire"
+      // should find the fire channel's traffic, not only clips that say it.
       where.push(
-        'id IN (SELECT transmission_id FROM transcripts WHERE text LIKE ?)',
+        '(id IN (SELECT transmission_id FROM transcripts WHERE text LIKE ?)' +
+          ' OR channel_name LIKE ?)',
       );
-      args.push(`%${q}%`);
+      args.push(`%${q}%`, `%${q}%`);
     }
     const sql = `SELECT * FROM transmissions ${where.length ? 'WHERE ' + where.join(' AND ') : ''}
                  ORDER BY started_at DESC LIMIT ?`;

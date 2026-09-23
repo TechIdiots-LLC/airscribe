@@ -90,6 +90,9 @@ function renderRadios() {
           connected && r.battery !== undefined && r.battery !== null
             ? el('span', { className: `battery ${r.battery <= 20 ? 'low' : ''}` },
                 ` · ${r.battery}%`)
+            : '',
+          connected && (r.channelName || r.channel !== undefined)
+            ? el('span', { className: 'chan' }, ` · ${r.channelName || `ch ${r.channel}`}`)
             : ''),
         el('div', { className: 'actions' },
           el('button', { onclick: () => act(r.mac, connected ? 'disconnect' : 'connect') }, connected ? 'Disconnect' : 'Connect'),
@@ -156,7 +159,14 @@ function renderTx(t) {
   return el('li', { id: `tx-${t.id}`, className: t.transmit ? 'sent' : '' },
     el('div', { className: 'meta' },
       el('span', { className: `tag ${dir}` }, dir), ' ',
-      `${new Date(t.started_at).toLocaleString()} · ${radio?.name ?? t.mac} · ${(t.duration_ms / 1000).toFixed(1)}s`),
+      `${new Date(t.started_at).toLocaleString()} · ${radio?.name ?? t.mac} · ${(t.duration_ms / 1000).toFixed(1)}s`,
+      // Which channel it came in on. On a scanner this is most of the
+      // context: the same words mean different things on fire and on police.
+      t.channel_name || t.channel_hz || t.channel !== null
+        ? el('span', { className: 'chan' },
+            ` · ${t.channel_name || `ch ${t.channel}`}` +
+            (t.channel_hz ? ` ${(t.channel_hz / 1e6).toFixed(4)} MHz` : ''))
+        : ''),
     el('div', { className: `tx-text ${(primaryScript?.status ?? t.status) === 'done' ? '' : (primaryScript?.status ?? t.status)}` },
       others.length ? el('span', { className: 'engine' }, `${primaryScript.engine} `) : '', text),
     ...others.map((s) =>
