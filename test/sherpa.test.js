@@ -40,7 +40,11 @@ test('model ids map to the right family and are unique', () => {
 
 test('config errors are caught before anything is spawned', () => {
   assert.throws(() => new SherpaEngine({}), /modelDir is required/);
-  assert.throws(() => new SherpaEngine({ modelDir: '/x', model: 'nope' }), /have: sense-voice/);
+  // Not order-dependent: the catalogue grows, and which model is listed
+  // first is not what this is checking.
+  assert.throws(() => new SherpaEngine({ modelDir: '/x', model: 'nope' }),
+    (e) => /unknown/.test(e.message) && e.message.includes('sense-voice')
+      && e.message.includes('whisper-base.en') && /or set family/.test(e.message));
   assert.equal(new SherpaEngine({ modelDir: '/x', model: 'nope', family: 'whisper' }).family, 'whisper');
 });
 
