@@ -39,6 +39,8 @@ li.sent { border-left: 3px solid var(--bad); }
 .signal { font-family: ui-monospace, monospace; letter-spacing: -1px; }
 .battery.low { color: var(--bad); font-weight: 600; }
 .chan { color: var(--accent); }
+.meta.live { display: flex; flex-wrap: wrap; align-items: baseline; gap: 0; margin-top: 3px; }
+.meta.live > span { white-space: nowrap; }
 .tx-text { margin: 6px 0; white-space: pre-wrap; }
 .tx-text.pending { color: var(--muted); font-style: italic; }
 .tx-text.error { color: var(--bad); }

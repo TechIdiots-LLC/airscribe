@@ -77,23 +77,30 @@ function renderRadios() {
           el('span', { className: `dot ${dot}` }),
           el('strong', {}, r.name),
           el('span', { className: 'pill' }, activity)),
+        // Identity on one line, live state on another: together they wrap
+        // badly and leave a channel name broken across lines.
         el('div', { className: 'meta' },
-          `${models.get(r.model)?.name ?? 'unknown model'} · ${r.mac}`,
-          // Signal is the only visible sign the radio is being polled, and
-          // the difference between "hearing nothing" and "not connected".
-          connected && r.rssi !== undefined
-            ? el('span', { className: 'signal', title: `RSSI ${r.rssi} of 15` },
-                ` · ${'█'.repeat(Math.min(5, Math.round(r.rssi / 3)))}${'░'.repeat(5 - Math.min(5, Math.round(r.rssi / 3)))} ${r.rssi}`)
-            : '',
-          // A flat battery ends a session and nothing here can reconnect to a
-          // radio that is off, so it is worth seeing before it happens.
-          connected && r.battery !== undefined && r.battery !== null
-            ? el('span', { className: `battery ${r.battery <= 20 ? 'low' : ''}` },
-                ` · ${r.battery}%`)
-            : '',
-          connected && (r.channelName || r.channel !== undefined)
-            ? el('span', { className: 'chan' }, ` · ${r.channelName || `ch ${r.channel}`}`)
-            : ''),
+          `${models.get(r.model)?.name ?? 'unknown model'} · ${r.mac}`),
+        connected
+          ? el('div', { className: 'meta live' },
+              // Signal is the only visible sign the radio is being polled,
+              // and the difference between hearing nothing and not connected.
+              r.rssi !== undefined
+                ? el('span', { className: 'signal', title: `RSSI ${r.rssi} of 15` },
+                    `${'█'.repeat(Math.min(5, Math.round(r.rssi / 3)))}` +
+                    `${'░'.repeat(5 - Math.min(5, Math.round(r.rssi / 3)))} ${r.rssi}`)
+                : '',
+              // A flat battery ends a session and nothing here can reconnect
+              // to a radio that is off, so it is worth seeing beforehand.
+              r.battery !== undefined && r.battery !== null
+                ? el('span', { className: `battery ${r.battery <= 20 ? 'low' : ''}` },
+                    ` · ${r.battery}%`)
+                : '',
+              r.channelName || r.channel !== undefined
+                ? el('span', { className: 'chan' },
+                    ` · ${r.channelName || `ch ${r.channel}`}`)
+                : '')
+          : '',
         el('div', { className: 'actions' },
           el('button', { onclick: () => act(r.mac, connected ? 'disconnect' : 'connect') }, connected ? 'Disconnect' : 'Connect'),
           el('button', { onclick: () => remove(r) }, 'Remove')),
