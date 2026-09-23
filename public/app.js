@@ -197,6 +197,7 @@ function renderFeed() {
     .filter((t) => (!mac || t.mac === mac) && (!q || (t.text ?? '').toLowerCase().includes(q)))
     .sort((a, b) => b.started_at - a.started_at);
   $('feed').replaceChildren(...rows.map(renderTx));
+  refreshExport();
 }
 
 async function loadFeed() {
@@ -204,8 +205,19 @@ async function loadFeed() {
   renderFeed();
 }
 
-$('filter-radio').onchange = renderFeed;
-$('search').oninput = renderFeed;
+/** Point the export link at whatever the feed is currently showing. */
+function refreshExport() {
+  const mac = $('filter-radio').value;
+  const q = $('search').value.trim();
+  const params = new URLSearchParams({ format: 'csv', limit: '500' });
+  if (mac) params.set('mac', mac);
+  if (q) params.set('q', q);
+  $('export').href = url(`/api/transmissions/export?${params}`);
+  $('export').title = 'Every engine’s transcript for these clips, as CSV';
+}
+
+$('filter-radio').onchange = () => { renderFeed(); refreshExport(); };
+$('search').oninput = () => { renderFeed(); refreshExport(); };
 
 function listen() {
   const es = new EventSource(url('/api/events'));

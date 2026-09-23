@@ -15,6 +15,39 @@ const PUBLIC = fileURLToPath(new URL('../public', import.meta.url));
 const wrap = (fn) => (req, res, next) => fn(req, res, next).catch((e) => res.status(502).json({ error: e.message }));
 
 /**
+ * One transmission as readable text: its context, then each engine's version.
+ * @param {object} t - A transmission row.
+ * @param {object[]} scripts - Its transcripts.
+ * @returns {string} The file's contents.
+ */
+function describe(t, scripts) {
+  const where = t.channel_name || (t.channel === null || t.channel === undefined ? null : `channel ${t.channel}`);
+  const hz = t.channel_hz ? `${(t.channel_hz / 1e6).toFixed(4)} MHz` : null;
+  const width = Math.max(1, ...scripts.map((s) => s.engine.length));
+  return [
+    `${new Date(t.started_at).toISOString()}  ${t.mac}`,
+    [where, hz].filter(Boolean).join(' · ') || 'channel unknown',
+    `${(t.duration_ms / 1000).toFixed(1)}s · ${t.transmit ? 'sent' : 'heard'}`,
+    '',
+    ...scripts.map((s) => {
+      const body = s.status === 'done' ? (s.text || '').trim() : `<${s.status}: ${s.error ?? ''}>`;
+      return `${s.engine.padEnd(width)}  ${body}`;
+    }),
+    '',
+  ].join('\n');
+}
+
+/**
+ * Escape one CSV cell.
+ * @param {unknown} v - The value.
+ * @returns {string} A quoted cell where the content needs it.
+ */
+function csvCell(v) {
+  const str = v === null || v === undefined ? '' : String(v);
+  return /[",\n]/.test(str) ? `"${str.replaceAll('"', '""')}"` : str;
+}
+
+/**
  * Build the HTTP app: static UI, JSON API, and a server-sent event stream.
  * @param {object} o - Dependencies.
  * @param {import('./manager.js').Manager} o.manager - Radio orchestration.
@@ -124,6 +157,43 @@ export function createApp({ manager, store, sidecar, auth, dataDir }) {
     res.status(202).json({ ok: true, engine: engineName });
   });
 
+  // The whole feed at once. Comparing models over hundreds of clips is the
+  // reason to run several, and that is not a per-clip download.
+  api.get('/transmissions/export', (req, res) => {
+    const mac = req.query.mac ? normalizeMac(String(req.query.mac)) : undefined;
+    const rows = store.transmissions({
+      mac,
+      q: req.query.q && String(req.query.q),
+      limit: req.query.limit ?? 500,
+    });
+    const stamp = new Date().toISOString().slice(0, 10);
+
+    if (req.query.format === 'csv') {
+      // A row per transcript rather than per transmission: engines differ
+      // between clips, so a column each would be mostly empty.
+      const head = ['id', 'started_at', 'iso', 'mac', 'channel', 'channel_name',
+        'channel_hz', 'duration_ms', 'transmit', 'engine', 'status', 'text'];
+      const lines = [head.join(',')];
+      for (const t of rows) {
+        for (const s of t.transcripts ?? []) {
+          lines.push([t.id, t.started_at, new Date(t.started_at).toISOString(), t.mac,
+            t.channel, t.channel_name, t.channel_hz, t.duration_ms, t.transmit,
+            s.engine, s.status, s.text].map(csvCell).join(','));
+        }
+      }
+      return res.type('text/csv').attachment(`airscribe-${stamp}.csv`).send(`${lines.join('\n')}\n`);
+    }
+
+    if (req.query.format === 'txt') {
+      return res
+        .type('text/plain')
+        .attachment(`airscribe-${stamp}.txt`)
+        .send(rows.map((t) => describe(t, t.transcripts ?? [])).join('\n'));
+    }
+
+    res.attachment(`airscribe-${stamp}.json`).json(rows);
+  });
+
   api.get('/transmissions/:id/audio', (req, res) => {
     const t = store.transmission(Number(req.params.id));
     // audio_file is written by this server, but resolve it under clips/ anyway.
@@ -148,8 +218,14 @@ export function createApp({ manager, store, sidecar, auth, dataDir }) {
 
   api.get('/transmissions/:id/text', (req, res) => {
     const t = store.transmission(Number(req.params.id));
-    if (!t?.text) return res.status(404).json({ error: 'no transcript' });
-    res.type('text/plain').attachment(`${t.mac.replaceAll(':', '')}-${t.started_at}.txt`).send(t.text + '\n');
+    const scripts = t?.transcripts ?? [];
+    if (!t || !scripts.length) return res.status(404).json({ error: 'no transcript' });
+    const stem = `${t.mac.replaceAll(':', '')}-${t.started_at}`;
+    if (req.query.format === 'json') return res.attachment(`${stem}.json`).json(t);
+    // Every engine, not just the default: where they disagree the
+    // disagreement is the useful part, and a download that quietly picks one
+    // hides it.
+    res.type('text/plain').attachment(`${stem}.txt`).send(describe(t, scripts));
   });
 
   api.get('/events', (req, res) => {

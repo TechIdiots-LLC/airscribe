@@ -185,6 +185,30 @@ waits for at most one other run, never for a whole backlog.
 Each transcript is stored separately, so re-running one model leaves the
 others alone.
 
+### Getting the transcripts out
+
+The **Export** link beside the search box downloads whatever the feed is
+currently showing — the same radio and search filters — as CSV, one row per
+transcript rather than per transmission, since engines differ between clips
+and a column each would be mostly empty.
+
+```sh
+curl -H 'authorization: Bearer <token>'   'http://localhost:8100/api/transmissions/export?format=csv&q=fire' -o fire.csv
+```
+
+`format` takes `csv`, `txt` or `json`. A single clip's download carries every
+engine's version too, with the channel and frequency above it:
+
+```
+2026-09-22T21:31:34.000Z  38:D2:00:01:56:51
+Holden PD · 460.3875 MHz
+6.3s · heard
+
+base   The
+tiny   over Montregg, he low-lity, nettle, 3, 1, 4, set, K, W.
+small  Welcome on red
+```
+
 ### Judging them
 
 ```sh
