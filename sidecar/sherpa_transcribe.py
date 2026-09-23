@@ -21,7 +21,30 @@ import sys
 import wave
 
 
-FAMILIES = ("sense-voice", "whisper")
+FAMILIES = ("sense-voice", "whisper", "transducer", "moonshine", "nemo-ctc")
+
+
+def _one(directory, pattern):
+    """The single file matching a pattern, or a clear complaint.
+
+    Model archives name their files after the model, so the exact names are
+    not predictable; the shape is. An ambiguous match is reported rather than
+    guessed at, because the wrong encoder produces gibberish, not an error.
+    """
+    import glob
+
+    hits = sorted(glob.glob(f"{directory}/{pattern}"))
+    # An uncached decoder also matches "*decode*", so prefer an exact-ish one.
+    if len(hits) > 1 and pattern == "*encode*.onnx":
+        hits = [h for h in hits if "uncached" not in h and "cached" not in h] or hits
+    if not hits:
+        raise RuntimeError(f"no file matching {pattern} in {directory}")
+    if len(hits) > 1 and pattern != "*.onnx":
+        raise RuntimeError(
+            f"{pattern} matches {len(hits)} files in {directory}: "
+            f"{', '.join(h.rsplit('/', 1)[-1] for h in hits)}"
+        )
+    return hits[0]
 
 
 def load_recognizer(family, model_dir, language, threads):
@@ -58,6 +81,33 @@ def load_recognizer(family, model_dir, language, threads):
             num_threads=threads,
             language="" if language in (None, "auto") else language,
         )
+
+    # The families below emit tokens aligned to the audio rather than
+    # generating a sentence, so they cannot stop early and return a fragment
+    # for a long transmission the way an autoregressive model can. On radio
+    # traffic that failure costs more than a wrong word.
+    if family == "transducer":
+        enc, dec, join, tok = (
+            _one(d, "*encoder*.onnx"), _one(d, "*decoder*.onnx"),
+            _one(d, "*joiner*.onnx"), _one(d, "*tokens.txt"),
+        )
+        return sherpa_onnx.OfflineRecognizer.from_transducer(
+            encoder=enc, decoder=dec, joiner=join, tokens=tok, num_threads=threads,
+        )
+    if family == "moonshine":
+        return sherpa_onnx.OfflineRecognizer.from_moonshine(
+            preprocessor=_one(d, "*preprocess*.onnx"),
+            encoder=_one(d, "*encode*.onnx"),
+            uncached_decoder=_one(d, "*uncached_decode*.onnx"),
+            cached_decoder=_one(d, "*cached_decode*.onnx"),
+            tokens=_one(d, "*tokens.txt"),
+            num_threads=threads,
+        )
+    if family == "nemo-ctc":
+        return sherpa_onnx.OfflineRecognizer.from_nemo_ctc(
+            model=_one(d, "*.onnx"), tokens=_one(d, "*tokens.txt"), num_threads=threads,
+        )
+    raise RuntimeError(f"family {family!r} is listed but not handled")
 
 
 def read_wav(path):

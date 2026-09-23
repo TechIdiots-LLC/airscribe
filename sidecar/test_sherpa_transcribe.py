@@ -63,3 +63,49 @@ class FamilyTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+class FileMatchingTests(unittest.TestCase):
+    """Model archives name files after the model; only the shape is known."""
+
+    def setUp(self):
+        self.dir = tempfile.mkdtemp()
+
+    def touch(self, *names):
+        for n in names:
+            open(os.path.join(self.dir, n), "w").close()
+
+    def test_finds_a_file_by_shape(self):
+        from sherpa_transcribe import _one
+        self.touch("encoder-epoch-99-avg-1.int8.onnx", "tokens.txt")
+        self.assertTrue(_one(self.dir, "*encoder*.onnx").endswith("avg-1.int8.onnx"))
+        self.assertTrue(_one(self.dir, "*tokens.txt").endswith("tokens.txt"))
+
+    def test_says_so_when_nothing_matches(self):
+        from sherpa_transcribe import _one
+        with self.assertRaisesRegex(RuntimeError, "no file matching"):
+            _one(self.dir, "*joiner*.onnx")
+
+    def test_refuses_to_guess_between_candidates(self):
+        from sherpa_transcribe import _one
+        # The wrong encoder produces gibberish rather than an error, so an
+        # ambiguous match must be reported, not resolved by luck.
+        self.touch("a-joiner.onnx", "b-joiner.onnx")
+        with self.assertRaisesRegex(RuntimeError, "matches 2 files"):
+            _one(self.dir, "*joiner*.onnx")
+
+    def test_moonshine_encoder_is_not_confused_with_its_decoders(self):
+        from sherpa_transcribe import _one
+        self.touch("preprocess.onnx", "encode.onnx",
+                   "uncached_decode.onnx", "cached_decode.onnx", "tokens.txt")
+        self.assertTrue(_one(self.dir, "*encode*.onnx").endswith("encode.onnx"))
+        self.assertTrue(_one(self.dir, "*uncached_decode*.onnx").endswith("uncached_decode.onnx"))
+
+
+class FamilyTests2(unittest.TestCase):
+    def test_the_non_generative_families_are_available(self):
+        from sherpa_transcribe import FAMILIES
+        # These emit tokens aligned to the audio, so they cannot return a
+        # fragment for a long transmission the way Whisper did.
+        for f in ("transducer", "moonshine", "nemo-ctc"):
+            self.assertIn(f, FAMILIES)

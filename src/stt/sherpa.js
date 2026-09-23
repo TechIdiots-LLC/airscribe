@@ -12,6 +12,29 @@ const SCRIPT = fileURLToPath(new URL('../../sidecar/sherpa_transcribe.py', impor
  * its keep on live audio, and a finished clip is not that.
  */
 export const SHERPA_MODELS = [
+  // Time-aligned families first. These emit tokens against the audio rather
+  // than generating a sentence, so they cannot stop early and hand back a
+  // fragment for a long transmission — the failure that costs most on radio.
+  // Point modelDir at any unpacked sherpa-onnx model of the matching shape;
+  // `family` is what decides how its files are loaded.
+  {
+    id: 'moonshine-base.en',
+    family: 'moonshine',
+    name: 'Moonshine Base English — built for short audio',
+    url: 'https://github.com/k2-fsa/sherpa-onnx/releases/tag/asr-models',
+  },
+  {
+    id: 'parakeet-tdt',
+    family: 'transducer',
+    name: 'NVIDIA Parakeet TDT — transducer, fast and accurate',
+    url: 'https://github.com/k2-fsa/sherpa-onnx/releases/tag/asr-models',
+  },
+  {
+    id: 'zipformer-en',
+    family: 'transducer',
+    name: 'Zipformer English — transducer',
+    url: 'https://github.com/k2-fsa/sherpa-onnx/releases/tag/asr-models',
+  },
   {
     id: 'sense-voice',
     family: 'sense-voice',

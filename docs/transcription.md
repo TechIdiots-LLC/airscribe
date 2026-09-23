@@ -102,6 +102,60 @@ first clip, so a bad model path does not stop the server from booting — the
 first transmission reports the reason instead. If the worker dies, that clip
 fails and the next one starts a fresh worker.
 
+## Models that cannot truncate
+
+Whisper decodes autoregressively: it generates a sentence and decides when to
+stop. That is why a 14.8-second transmission came back as `Starla.` — the
+model ended the sequence early, and nothing about the audio stopped it.
+
+Transducer and CTC models cannot do that. They emit tokens against the audio
+as it passes, so their output length is tied to the input's. They can be
+wrong, but they cannot silently discard ten seconds of speech.
+
+For radio traffic that is the more important property, so these families are
+available alongside Whisper:
+
+| `family` | what it suits |
+| --- | --- |
+| `moonshine` | built for short audio; a median transmission here is 3 s |
+| `transducer` | Zipformer, Parakeet TDT and other encoder/decoder/joiner models |
+| `nemo-ctc` | NeMo CTC models |
+| `sense-voice` | multilingual, autoregressive |
+| `whisper` | the tiny/base/small line, autoregressive |
+
+Take any matching model from the
+[sherpa-onnx model releases](https://github.com/k2-fsa/sherpa-onnx/releases/tag/asr-models),
+unpack it, and point `modelDir` at the directory with the right `family`:
+
+```json
+"moon": {
+  "type": "sherpa-onnx",
+  "family": "moonshine",
+  "modelDir": "/var/lib/airscribe/models/sherpa-onnx-moonshine-base-en-int8"
+}
+```
+
+The files inside are named after the model, so they are matched by shape
+rather than by name. An ambiguous match is reported rather than guessed at,
+because the wrong encoder produces gibberish instead of an error.
+
+## Engines outside sherpa-onnx
+
+The `command` engine runs anything that prints a transcript, so these need no
+code here:
+
+- **faster-whisper** — the same Whisper weights through CTranslate2, several
+  times quicker, and it exposes `vad_filter` and `no_speech_threshold`, which
+  bear directly on the noise problem.
+- **Vosk** — Kaldi-based, small models, and non-generative, so it will not
+  invent a sentence for a squelch tail.
+- **whisper.cpp** — already has its own engine, and takes
+  `--no-speech-thold`.
+
+```json
+"vosk": { "type": "command", "template": ["/srv/bin/vosk.sh", "{wav}"] }
+```
+
 ## Several engines at once
 
 A clip can be read by more than one model, which is the only honest way to
