@@ -21,7 +21,8 @@ export class Store {
     this.db = new DatabaseSync(file);
     this.db.exec(`
       CREATE TABLE IF NOT EXISTS radios (
-        mac TEXT PRIMARY KEY, name TEXT NOT NULL, model TEXT, added_at INTEGER NOT NULL);
+        mac TEXT PRIMARY KEY, name TEXT NOT NULL, model TEXT, added_at INTEGER NOT NULL,
+        public INTEGER NOT NULL DEFAULT 0, "group" TEXT);
       CREATE TABLE IF NOT EXISTS transmissions (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         mac TEXT NOT NULL, started_at INTEGER NOT NULL, duration_ms INTEGER NOT NULL,
@@ -65,6 +66,14 @@ export class Store {
     for (const [name, decl] of added) {
       if (!columns.some((c) => c.name === name)) {
         this.db.exec(`ALTER TABLE transmissions ADD COLUMN ${name} ${decl}`);
+      }
+    }
+    // Publishing is opt-in per radio, so an existing radio stays private
+    // when the feature arrives. That default is the whole point.
+    const radioCols = this.db.prepare('PRAGMA table_info(radios)').all();
+    for (const [name, decl] of [['public', 'INTEGER NOT NULL DEFAULT 0'], ['"group"', 'TEXT']]) {
+      if (!radioCols.some((c) => `"${c.name}"` === name || c.name === name)) {
+        this.db.exec(`ALTER TABLE radios ADD COLUMN ${name} ${decl}`);
       }
     }
     this.migrateTranscripts(columns);
@@ -136,6 +145,37 @@ export class Store {
          ON CONFLICT(mac) DO UPDATE SET name = excluded.name, model = excluded.model`,
       )
       .run(mac, name, model, Date.now());
+  }
+
+  /**
+   * Change what a radio is called, whether it is published, and its group.
+   *
+   * Publishing is deliberately a separate call from saving a radio, so that
+   * adding one can never turn it on by accident.
+   * @param {string} mac - The radio.
+   * @param {{name?: string, public?: boolean, group?: string|null}} patch - Changes.
+   * @returns {object | undefined} The updated row.
+   */
+  updateRadio(mac, patch) {
+    const sets = [];
+    const args = [];
+    if (patch.name !== undefined) (sets.push('name = ?'), args.push(String(patch.name).slice(0, 60)));
+    if (patch.public !== undefined) (sets.push('public = ?'), args.push(patch.public ? 1 : 0));
+    if (patch.group !== undefined) {
+      sets.push('"group" = ?');
+      args.push(patch.group ? String(patch.group).slice(0, 40) : null);
+    }
+    if (sets.length) this.db.prepare(`UPDATE radios SET ${sets.join(', ')} WHERE mac = ?`).run(...args, mac);
+    return this.radio(mac);
+  }
+
+  /** @returns {string[]} The groups in use, for a filter. */
+  groups() {
+    return this.db
+      .prepare(`SELECT DISTINCT "group" AS g FROM radios
+                 WHERE g IS NOT NULL AND g <> '' ORDER BY g`)
+      .all()
+      .map((r) => r.g);
   }
 
   /**
@@ -262,23 +302,31 @@ export class Store {
    * @param {{mac?: string, q?: string, limit?: number}} f - Filters.
    * @returns {object[]} Newest first.
    */
-  transmissions({ mac, q, limit = 100 } = {}) {
-    const where = [];
+  transmissions({ mac, q, limit = 100, group, channel, publicOnly, notAfter } = {}) {
+    const where = ['1 = 1'];
     const args = [];
-    if (mac) (where.push('mac = ?'), args.push(mac));
-    // Searching now means searching every engine's transcript, so a clip is
-    // found if any model heard the words.
+    if (mac) (where.push('t.mac = ?'), args.push(mac));
+    if (group) (where.push('r."group" = ?'), args.push(group));
+    if (channel) (where.push('t.channel_name = ?'), args.push(channel));
+    // The publishing gate applied in the query rather than after it, so the
+    // delay does not depend on every caller remembering to subtract it.
+    if (publicOnly) where.push('r.public = 1');
+    if (notAfter !== undefined) (where.push('t.started_at <= ?'), args.push(notAfter));
     if (q) {
       // Any engine's transcript, or the channel name — searching for "fire"
       // should find the fire channel's traffic, not only clips that say it.
       where.push(
-        '(id IN (SELECT transmission_id FROM transcripts WHERE text LIKE ?)' +
-          ' OR channel_name LIKE ?)',
+        '(t.id IN (SELECT transmission_id FROM transcripts WHERE text LIKE ?)' +
+          ' OR t.channel_name LIKE ?)',
       );
       args.push(`%${q}%`, `%${q}%`);
     }
-    const sql = `SELECT * FROM transmissions ${where.length ? 'WHERE ' + where.join(' AND ') : ''}
-                 ORDER BY started_at DESC LIMIT ?`;
+    // Left join, so a transmission whose radio was removed is still listed
+    // to an operator — but never publicly, since r.public is then null.
+    const sql = `SELECT t.*, r.name AS radio_name, r."group" AS radio_group
+                   FROM transmissions t LEFT JOIN radios r ON r.mac = t.mac
+                  WHERE ${where.join(' AND ')}
+                  ORDER BY t.started_at DESC LIMIT ?`;
     const rows = this.db.prepare(sql).all(...args, Math.min(Number(limit) || 100, 500));
     return this.withTranscripts(rows);
   }

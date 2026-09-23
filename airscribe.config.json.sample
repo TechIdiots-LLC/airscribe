@@ -20,6 +20,15 @@
     "audioChannel": null
   },
 
+  "_publish": "Nothing is published until enabled is true AND a radio is marked public. delayMinutes holds transmissions back from the public surface; the admin port always shows them live.",
+  "publish": {
+    "enabled": false,
+    "transcripts": true,
+    "audio": false,
+    "feed": true,
+    "delayMinutes": 30
+  },
+
   "reconnect": {
     "baseMs": 5000,
     "maxMs": 300000

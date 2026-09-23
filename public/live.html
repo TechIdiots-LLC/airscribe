@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>AirScribe</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<header>
+  <h1>AirScribe</h1>
+  <span id="delay" class="pill"></span>
+</header>
+<main id="public">
+  <section id="off" hidden>
+    <h2>Nothing is published here</h2>
+    <p class="meta">This node is not publishing any transcripts.</p>
+  </section>
+  <section id="feed-panel">
+    <div class="row">
+      <h2>Transmissions</h2>
+      <select id="filter-group"><option value="">All</option></select>
+      <input id="search" type="search" placeholder="Search…">
+    </div>
+    <ul id="feed"></ul>
+    <p id="empty" class="meta" hidden>Nothing to show yet.</p>
+  </section>
+</main>
+<script src="live.js" type="module"></script>
+</body>
+</html>

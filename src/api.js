@@ -4,6 +4,7 @@ import { join, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { MODELS, guessModel, normalizeMac } from './models.js';
 import { createAuth } from './auth.js';
+import { PUBLISH_DEFAULTS, publicCutoff, publishable, publicView } from './publish.js';
 
 const PUBLIC = fileURLToPath(new URL('../public', import.meta.url));
 
@@ -47,8 +48,44 @@ function csvCell(v) {
   return /[",\n]/.test(str) ? `"${str.replaceAll('"', '""')}"` : str;
 }
 
+/**
+ * Serve one clip's WAV.
+ *
+ * Shared by the operator's route and the public one so both resolve the path
+ * the same way. `sendFile` sets Content-Length and honours Range, which a
+ * piped read stream did not, so a player can show a duration and seek.
+ * @param {import('express').Response} res - The response.
+ * @param {object} t - The transmission row.
+ * @param {string} dataDir - Where clips live.
+ * @param {boolean} download - Whether to offer it as a file rather than media.
+ * @param {Function} [onError] - Called if the file cannot be sent.
+ * @returns {void}
+ */
+function sendClip(res, t, dataDir, download, onError) {
+  // audio_file is written by this server, but resolve it under clips/ anyway.
+  const root = resolve(dataDir, 'clips');
+  const file = resolve(root, t.audio_file);
+  if (!file.startsWith(root + sep) || !existsSync(file)) {
+    return res.status(404).json({ error: 'not found' });
+  }
+  const headers = { 'Content-Type': 'audio/wav' };
+  // Only a download link says attachment; an <audio> element playing it
+  // inline wants it served as media.
+  if (download) {
+    headers['Content-Disposition'] =
+      `attachment; filename="${t.mac.replaceAll(':', '')}-${t.started_at}.wav"`;
+  }
+  res.sendFile(file, { headers, acceptRanges: true }, onError ?? (() => {}));
+}
+
 /** Paths a public listener may serve. Everything else is 404 there. */
-const PUBLIC_API = new Set(['/session', '/login', '/logout']);
+const PUBLIC_API = new Set([
+  '/session', '/login', '/logout',
+  '/public/transmissions', '/public/filters',
+]);
+
+/** Whether a path is a public per-clip route, which carry an id. */
+const PUBLIC_CLIP = /^\/public\/transmissions\/\d+\/(audio|text)$/;
 
 /**
  * Build the HTTP app: static UI, JSON API, and a server-sent event stream.
@@ -77,19 +114,95 @@ export function createApp({ manager, store, sidecar, config, dataDir }) {
 
   if (config.adminPort) {
     app.use('/api', (req, res, next) => {
-      if (onAdminPort(req) || PUBLIC_API.has(req.path)) return next();
+      if (onAdminPort(req) || PUBLIC_API.has(req.path) || PUBLIC_CLIP.test(req.path)) {
+        return next();
+      }
       res.status(404).json({ error: 'not found' });
     });
   }
+  // On the public listener, / is the public page rather than the console.
+  // Ahead of the static mount, which would otherwise hand out index.html on
+  // both ports — the console is harmless without a credential, but serving
+  // it publicly invites people to try one.
+  if (config.adminPort) {
+    app.get('/', (req, res, next) => {
+      if (onAdminPort(req)) return next();
+      res.sendFile(join(PUBLIC, 'live.html'));
+    });
+  }
   app.use(express.static(PUBLIC));
+
+  const publish = { ...PUBLISH_DEFAULTS, ...(config.publish ?? {}) };
+
+  /**
+   * The one publishable row, or null.
+   *
+   * Every public per-clip route goes through this, so the delay cannot be
+   * enforced on the listing and forgotten on a download.
+   * @param {string|number} id - Transmission id.
+   * @returns {object | null} The row, if a visitor may see it.
+   */
+  const publicRow = (id) => {
+    const row = store.transmission(Number(id));
+    if (!row) return null;
+    return publishable(row, store.radio(row.mac), publish) ? row : null;
+  };
 
   const api = express.Router();
   // Signing in has to be reachable before one is signed in.
   api.post('/login', (req, res) => auth.login(req, res));
   api.post('/logout', (req, res) => auth.logout(req, res));
   api.get('/session', (req, res) => auth.session(req, res));
+  // ---- the public surface -------------------------------------------
+  // No credential: this is what the node has chosen to publish. Everything
+  // here is filtered by the same predicate, never by the caller's request.
+
+  api.get('/public/filters', (req, res) => {
+    if (!publish.enabled) return res.json({ enabled: false, groups: [], radios: [] });
+    const radios = store.radios().filter((r) => r.public);
+    res.json({
+      enabled: true,
+      delayMinutes: publish.delayMinutes,
+      audio: Boolean(publish.audio),
+      groups: [...new Set(radios.map((r) => r.group).filter(Boolean))],
+      radios: radios.map((r) => ({ name: r.name, group: r.group ?? null })),
+    });
+  });
+
+  api.get('/public/transmissions', (req, res) => {
+    if (!publish.enabled) return res.json([]);
+    const rows = store.transmissions({
+      publicOnly: true,
+      notAfter: publicCutoff(publish),
+      group: req.query.group ? String(req.query.group) : undefined,
+      channel: req.query.channel ? String(req.query.channel) : undefined,
+      q: req.query.q ? String(req.query.q) : undefined,
+      limit: Math.min(Number(req.query.limit) || 100, 200),
+    });
+    res.json(rows.map((r) => publicView(r, publish, manager.primary)));
+  });
+
+  api.get('/public/transmissions/:id/text', (req, res) => {
+    const row = publish.transcripts === false ? null : publicRow(req.params.id);
+    const view = row && publicView(row, publish, manager.primary);
+    if (!view?.text) return res.status(404).json({ error: 'not found' });
+    res.type('text/plain').send(`${view.text}
+`);
+  });
+
+  api.get('/public/transmissions/:id/audio', (req, res) => {
+    // Two gates, not one: clips may be withheld even where transcripts are
+    // published, because a clip is somebody's voice.
+    const row = publish.audio ? publicRow(req.params.id) : null;
+    if (!row) return res.status(404).json({ error: 'not found' });
+    sendClip(res, row, dataDir, false);
+  });
+
+
   // Everything past here needs at least a viewer.
   api.use(auth.requireRole('viewer'));
+
+  // ---- everything past here is the operator's -------------------------
 
   api.get('/models', (req, res) => res.json(MODELS));
   api.get('/radios', (req, res) => res.json(manager.radios()));
@@ -123,6 +236,19 @@ export function createApp({ manager, store, sidecar, config, dataDir }) {
     store.saveRadio({ mac, name, model });
     res.status(201).json(store.radio(mac));
   });
+
+  // Publishing is a deliberate act, separate from adding a radio.
+  api.patch('/radios/:mac', auth.requireRole('admin'), (req, res) => {
+    const mac = normalizeMac(req.params.mac);
+    if (!mac || !store.radio(mac)) return res.status(404).json({ error: 'unknown radio' });
+    res.json(store.updateRadio(mac, {
+      name: req.body?.name,
+      public: req.body?.public,
+      group: req.body?.group,
+    }));
+  });
+
+  api.get('/groups', (req, res) => res.json(store.groups()));
 
   api.delete(
     '/radios/:mac',
@@ -224,22 +350,8 @@ export function createApp({ manager, store, sidecar, config, dataDir }) {
 
   api.get('/transmissions/:id/audio', (req, res) => {
     const t = store.transmission(Number(req.params.id));
-    // audio_file is written by this server, but resolve it under clips/ anyway.
-    const root = resolve(dataDir, 'clips');
-    const file = t && resolve(root, t.audio_file);
-    if (!t || !file.startsWith(root + sep) || !existsSync(file)) {
-      return res.status(404).json({ error: 'not found' });
-    }
-    const headers = { 'Content-Type': 'audio/wav' };
-    // Only the download link says attachment. An <audio> element playing the
-    // clip inline wants it served as a media file.
-    if (req.query.download !== undefined) {
-      headers['Content-Disposition'] =
-        `attachment; filename="${t.mac.replaceAll(':', '')}-${t.started_at}.wav"`;
-    }
-    // sendFile sets Content-Length and honours Range requests; piping a read
-    // stream did neither, so players could not show a duration or seek.
-    res.sendFile(file, { headers, acceptRanges: true }, (err) => {
+    if (!t) return res.status(404).json({ error: 'not found' });
+    sendClip(res, t, dataDir, req.query.download !== undefined, (err) => {
       if (err && !res.headersSent) res.status(404).json({ error: 'not found' });
     });
   });

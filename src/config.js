@@ -19,6 +19,8 @@ const DEFAULTS = {
     overlapMs: 300,
     energyThreshold: 0.02,
   },
+  // Nothing is published until this is turned on, per radio as well.
+  publish: { enabled: false, transcripts: true, audio: false, feed: true, delayMinutes: 30 },
   // A dropped radio is retried, the wait doubling to this ceiling.
   reconnect: { baseMs: 5000, maxMs: 300000 },
   stt: { engine: 'mock' },

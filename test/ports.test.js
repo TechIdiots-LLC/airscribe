@@ -123,3 +123,15 @@ test('with no adminPort everything stays on one listener', async () => {
     assert.equal((await fetch(`${base}/api/radios`)).status, 401, 'still guarded');
   } finally { server.close(); }
 });
+
+test('the public port serves the public page, not the console', async () => {
+  const s = await twoPorts();
+  try {
+    const pub = await (await fetch(`${s.public}/`)).text();
+    assert.match(pub, /live\.js/, 'the public page');
+    assert.ok(!pub.includes('Scan for radios'), 'and not the console');
+
+    const admin = await (await fetch(`${s.admin}/`)).text();
+    assert.match(admin, /Scan for radios/, 'the console is on the admin port');
+  } finally { s.close(); }
+});
