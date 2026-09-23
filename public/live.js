@@ -48,7 +48,17 @@ function render(t) {
       : '');
 }
 
-/** @returns {Promise<void>} Fetch and draw the current view. */
+const nodes = new Map(); // transmission id -> its row
+
+/**
+ * Fetch and draw the current view.
+ *
+ * Rows already drawn are kept rather than rebuilt. A published row cannot
+ * change - it is already past the delay - and rebuilding it would destroy its
+ * <audio> element, which in a browser keeps playing once detached: a clip
+ * started before the poll would carry on underneath the one started after.
+ * @returns {Promise<void>}
+ */
 async function load() {
   const params = new URLSearchParams();
   const group = $('filter-group').value;
@@ -56,7 +66,20 @@ async function load() {
   if (group) params.set('group', group);
   if (q) params.set('q', q);
   const rows = await api(`/public/transmissions?${params}`);
-  $('feed').replaceChildren(...rows.map(render));
+
+  const feed = $('feed');
+  const wanted = new Set(rows.map((r) => r.id));
+  for (const [id, node] of nodes) {
+    if (wanted.has(id)) continue;
+    node.querySelector('audio')?.pause();   // a detached player carries on
+    node.remove();
+    nodes.delete(id);
+  }
+  rows.forEach((t, i) => {
+    let node = nodes.get(t.id);
+    if (!node) nodes.set(t.id, (node = render(t)));
+    if (feed.children[i] !== node) feed.insertBefore(node, feed.children[i] ?? null);
+  });
   $('empty').hidden = rows.length > 0;
 }
 
@@ -83,6 +106,13 @@ async function boot() {
     clearTimeout(typing);
     typing = setTimeout(load, 250);
   };
+  // One clip at a time, as on the console: overlapping radio traffic played
+  // together is unintelligible. 'play' does not bubble, hence the capture.
+  $('feed').addEventListener('play', (e) => {
+    for (const other of $('feed').querySelectorAll('audio')) {
+      if (other !== e.target) other.pause();
+    }
+  }, true);
   await load();
   // Polled rather than streamed. Nothing arrives sooner than the delay, so
   // a minute is frequent enough and costs the server almost nothing.

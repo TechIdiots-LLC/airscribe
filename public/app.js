@@ -148,55 +148,115 @@ async function add(d) {
   try { await api('/radios', { method: 'POST', body: { mac: d.mac, name: d.name, model } }); await loadRadios(); $('scan').click(); } catch (e) { alert(e.message); }
 }
 
-function renderTx(t) {
-  const radio = radios.find((r) => r.mac === t.mac);
+/**
+ * The parts of a transmission that change after it is first drawn.
+ *
+ * Transcripts arrive one engine at a time, so a clip with four engines is
+ * updated four times. Rebuilding the whole row each time destroyed its
+ * <audio> element - and a detached media element keeps playing, so a clip
+ * already started kept sounding while its replacement was started too. Only
+ * these parts are ever replaced.
+ * @param {object} t - A transmission row.
+ * @returns {HTMLElement[]} The transcript lines.
+ */
+function transcriptLines(t) {
   const scripts = t.transcripts ?? [];
-  /** @param {object} s - A transcript row. @returns {string} What to show. */
   const bodyOf = (s) => s.status === 'pending' ? 'transcribing…'
     : s.status === 'error' ? `transcription failed: ${s.error}`
     : (s.text || '').trim() || '(no speech recognised)';
-  const text = scripts.length ? bodyOf(scripts.find((s) => s.engine === t.engine) ?? scripts[0])
-    : t.status === 'pending' ? 'transcribing…'
-    : t.status === 'error' ? `transcription failed: ${t.error}`
-    : t.text || '(no speech recognised)';
-  const primaryScript = scripts.find((s) => s.engine === t.engine) ?? scripts[0];
-  // Only worth labelling once more than one model has had a go at it.
-  const others = scripts.filter((s) => s !== primaryScript);
+  if (!scripts.length) {
+    const body = t.status === 'pending' ? 'transcribing…'
+      : t.status === 'error' ? `transcription failed: ${t.error}`
+      : t.text || '(no speech recognised)';
+    return [el('div', { className: `tx-text ${t.status === 'done' ? '' : t.status}` }, body)];
+  }
+  const primary = scripts.find((s) => s.engine === t.engine) ?? scripts[0];
+  const others = scripts.filter((s) => s !== primary);
+  return [
+    el('div', { className: `tx-text ${primary.status === 'done' ? '' : primary.status}` },
+      // Only worth labelling once more than one model has had a go at it.
+      others.length ? el('span', { className: 'engine' }, `${primary.engine} `) : '',
+      bodyOf(primary)),
+    ...others.map((s) =>
+      el('div', { className: `tx-text alt ${s.status === 'done' ? '' : s.status}` },
+        el('span', { className: 'engine' }, `${s.engine} `), bodyOf(s))),
+  ];
+}
+
+/**
+ * Build a transmission's row once.
+ * @param {object} t - A transmission row.
+ * @returns {HTMLElement} The row, with a `update` method for later changes.
+ */
+function buildTx(t) {
+  const radio = radios.find((r) => r.mac === t.mac);
   const dir = t.transmit ? 'sent' : 'heard';
-  return el('li', { id: `tx-${t.id}`, className: t.transmit ? 'sent' : '' },
+  const body = el('div', { className: 'tx-body' }, ...transcriptLines(t));
+  const links = el('div', { className: 'links' });
+  const li = el('li', { id: `tx-${t.id}`, className: t.transmit ? 'sent' : '' },
     el('div', { className: 'meta' },
       el('span', { className: `tag ${dir}` }, dir), ' ',
       `${new Date(t.started_at).toLocaleString()} · ${radio?.name ?? t.mac} · ${(t.duration_ms / 1000).toFixed(1)}s`,
       // Which channel it came in on. On a scanner this is most of the
       // context: the same words mean different things on fire and on police.
-      t.channel_name || t.channel_hz || t.channel !== null
+      t.channel_name || t.channel_hz || (t.channel !== null && t.channel !== undefined)
         ? el('span', { className: 'chan' },
             ` · ${t.channel_name || `ch ${t.channel}`}` +
             (t.channel_hz ? ` ${(t.channel_hz / 1e6).toFixed(4)} MHz` : ''))
         : ''),
-    el('div', { className: `tx-text ${(primaryScript?.status ?? t.status) === 'done' ? '' : (primaryScript?.status ?? t.status)}` },
-      others.length ? el('span', { className: 'engine' }, `${primaryScript.engine} `) : '', text),
-    ...others.map((s) =>
-      el('div', { className: `tx-text alt ${s.status === 'done' ? '' : s.status}` },
-        el('span', { className: 'engine' }, `${s.engine} `), bodyOf(s))),
+    body,
     // 'metadata' rather than 'none' so the player shows the clip's length
-    // instead of 0:00 until it is played. A transmission is seconds long, so
-    // the headers this costs are cheap; the audio itself is still not fetched.
+    // instead of 0:00 until it is played. Built once and never replaced.
     el('audio', { controls: true, preload: 'metadata',
                   src: url(`/api/transmissions/${t.id}/audio`) }),
-    el('div', { className: 'links' },
-      el('a', { href: url(`/api/transmissions/${t.id}/audio?download`) }, 'Download audio'),
-      t.text ? el('a', { href: url(`/api/transmissions/${t.id}/text`) }, 'Download text') : ''),
-  );
+    links);
+  li.update = (row) => {
+    body.replaceChildren(...transcriptLines(row));
+    links.replaceChildren(
+      el('a', { href: url(`/api/transmissions/${row.id}/audio?download`) }, 'Download audio'),
+      row.transcripts?.length || row.text
+        ? el('a', { href: url(`/api/transmissions/${row.id}/text`) }, 'Download text')
+        : '');
+  };
+  li.update(t);
+  return li;
 }
+
+const nodes = new Map(); // transmission id -> its row
+
+// One clip at a time. Browsers happily play several at once, which on a feed
+// of overlapping radio traffic is unintelligible. 'play' does not bubble, so
+// this listens in the capture phase.
+$('feed').addEventListener('play', (e) => {
+  for (const other of $('feed').querySelectorAll('audio')) {
+    if (other !== e.target) other.pause();
+  }
+}, true);
 
 function renderFeed() {
   const mac = $('filter-radio').value;
   const q = $('search').value.toLowerCase();
   const rows = [...txs.values()]
-    .filter((t) => (!mac || t.mac === mac) && (!q || (t.text ?? '').toLowerCase().includes(q)))
+    .filter((t) => (!mac || t.mac === mac)
+      && (!q || (t.transcripts ?? [{ text: t.text }]).some((s) => (s.text ?? '').toLowerCase().includes(q))))
     .sort((a, b) => b.started_at - a.started_at);
-  $('feed').replaceChildren(...rows.map(renderTx));
+
+  const feed = $('feed');
+  const wanted = new Set(rows.map((t) => t.id));
+  for (const [id, node] of nodes) {
+    if (wanted.has(id)) continue;
+    // Pause before detaching: a removed element that was playing carries on.
+    node.querySelector('audio')?.pause();
+    node.remove();
+    nodes.delete(id);
+  }
+
+  rows.forEach((t, i) => {
+    let node = nodes.get(t.id);
+    if (node) node.update(t);
+    else nodes.set(t.id, (node = buildTx(t)));
+    if (feed.children[i] !== node) feed.insertBefore(node, feed.children[i] ?? null);
+  });
   refreshExport();
 }
 
