@@ -33,7 +33,7 @@ npm run simulate        # fake radio + mock transcriber, no hardware needed
 | Digital modes (AFSK/IRC/file transfer) | design only, see [docs/digital-modes.md](docs/digital-modes.md) |
 
 Documentation: [installing](docs/installing.md) · [testing](docs/testing.md) ·
-[publishing](docs/publishing.md) ·
+[publishing](docs/publishing.md) · [storage](docs/storage.md) ·
 [segmentation](docs/segmentation.md) ·
 [transcription](docs/transcription.md) · [Bluetooth link](docs/bluetooth.md) ·
 [digital modes](docs/digital-modes.md)
