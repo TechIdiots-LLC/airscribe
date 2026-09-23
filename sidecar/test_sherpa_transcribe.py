@@ -109,3 +109,32 @@ class FamilyTests2(unittest.TestCase):
         # fragment for a long transmission the way Whisper did.
         for f in ("transducer", "moonshine", "nemo-ctc"):
             self.assertIn(f, FAMILIES)
+
+
+class MoonshineLayoutTests(unittest.TestCase):
+    """The exact filenames sherpa-onnx ships, not invented ones."""
+
+    REAL = ["cached_decode.int8.onnx", "uncached_decode.int8.onnx", "tokens.txt",
+            "preprocess.onnx", "encode.int8.onnx", "LICENSE", "README.md"]
+
+    def setUp(self):
+        self.dir = tempfile.mkdtemp()
+        for n in self.REAL:
+            open(os.path.join(self.dir, n), "w").close()
+
+    def test_every_moonshine_file_resolves(self):
+        from sherpa_transcribe import _one
+        got = {p: os.path.basename(_one(self.dir, p)) for p in
+               ["*preprocess*.onnx", "*encode*.onnx", "*uncached_decode*.onnx",
+                "*cached_decode*.onnx", "*tokens.txt"]}
+        self.assertEqual(got["*preprocess*.onnx"], "preprocess.onnx")
+        self.assertEqual(got["*encode*.onnx"], "encode.int8.onnx")
+        self.assertEqual(got["*uncached_decode*.onnx"], "uncached_decode.int8.onnx")
+        self.assertEqual(got["*cached_decode*.onnx"], "cached_decode.int8.onnx")
+        self.assertEqual(len(set(got.values())), 5, "each argument gets a different file")
+
+    def test_the_cached_decoder_is_not_the_uncached_one(self):
+        from sherpa_transcribe import _one
+        # "uncached_decode" contains "cached_decode", so the naive pattern
+        # matches both and the model would fail to load.
+        self.assertNotIn("uncached", os.path.basename(_one(self.dir, "*cached_decode*.onnx")))

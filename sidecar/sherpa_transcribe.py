@@ -17,6 +17,7 @@ Models come from the sherpa-onnx release page; see docs/transcription.md.
 
 import argparse
 import json
+import os
 import sys
 import wave
 
@@ -34,9 +35,11 @@ def _one(directory, pattern):
     import glob
 
     hits = sorted(glob.glob(f"{directory}/{pattern}"))
-    # An uncached decoder also matches "*decode*", so prefer an exact-ish one.
-    if len(hits) > 1 and pattern == "*encode*.onnx":
-        hits = [h for h in hits if "uncached" not in h and "cached" not in h] or hits
+    # "uncached_decode" contains "cached_decode", so the cached decoder's
+    # pattern matches both of Moonshine's decoders. Asking for the cached one
+    # means the one that is not uncached.
+    if len(hits) > 1 and pattern.startswith("*cached_decode"):
+        hits = [h for h in hits if "uncached" not in os.path.basename(h)] or hits
     if not hits:
         raise RuntimeError(f"no file matching {pattern} in {directory}")
     if len(hits) > 1 and pattern != "*.onnx":

@@ -20,8 +20,14 @@ export const SHERPA_MODELS = [
   {
     id: 'moonshine-base.en',
     family: 'moonshine',
-    name: 'Moonshine Base English — built for short audio',
-    url: 'https://github.com/k2-fsa/sherpa-onnx/releases/tag/asr-models',
+    name: 'Moonshine Base English (~250 MB) — built for short audio',
+    url: 'https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-moonshine-base-en-int8.tar.bz2',
+  },
+  {
+    id: 'moonshine-tiny.en',
+    family: 'moonshine',
+    name: 'Moonshine Tiny English — smaller, faster',
+    url: 'https://github.com/k2-fsa/sherpa-onnx/releases/download/asr-models/sherpa-onnx-moonshine-tiny-en-int8.tar.bz2',
   },
   {
     id: 'parakeet-tdt',
