@@ -97,17 +97,74 @@ network one does — a failover takes the listener away for a few seconds. A
 transmission whose write fails must not be lost silently: the clip is on disk,
 so the sensible answer is a retry, and a clear log rather than a dropped row.
 
-**Failover is not transparent.** The runbook has failover set to MANUAL and
-`ALLOW_CONNECTIONS = NO` on the secondary, so there is no read scale-out and
-no automatic move. The driver should be configured to retry, and the server
-should survive the listener disappearing rather than exiting.
+**Failover is automatic, so brief outages are normal operation.** The AG runs
+`FAILOVER_MODE = AUTOMATIC` — the runbook still says MANUAL and is out of date
+on that point. The listener moves on its own, taking connections with it for
+the seconds the move takes. That is not an incident to alert on; it is a
+Tuesday.
+
+So the store must **expect to be briefly unreachable** and carry on:
+
+- the driver retries with backoff rather than failing the request
+- the server survives the listener disappearing instead of exiting
+- a failed write is retried, not dropped — the clip is already on disk, so
+  nothing need be lost to a failover
+
+`ALLOW_CONNECTIONS = NO` on the secondary still means no read scale-out;
+everything goes through the listener either way.
+
+**A retried write must not duplicate a transmission.** This is the part
+automatic failover makes real. A write can fail *after* the server committed
+it — the commit succeeded, the acknowledgement did not arrive — and a retry
+would then insert the same transmission twice. Nothing in the current schema
+prevents it, because SQLite never fails that way.
+
+The answer is a natural key. A transmission is already uniquely identified by
+its radio and the instant it started, so a unique constraint on
+`(mac, started_at)` makes the retry safe: the second insert collides instead
+of duplicating. That constraint is worth adding to the SQLite schema at the
+same time, even though it cannot be hit there — a rule the two backends share
+is one fewer thing that differs between them.
 
 **Testing.** CI has no SQL Server. The dialect-specific SQL can be unit
 tested by asserting on generated statements, and the rest with a container
 when one is available — but a backend that cannot be tested in CI will rot
 unless someone runs it regularly.
 
-**Clips stay on local disk.** Only the rows would be shared. Several nodes on
-one database would list each other's transmissions but could not serve each
-other's audio without shared storage or a fetch-from-peer path. That is worth
-deciding before it surprises someone.
+## Where the clips live
+
+Rows in a shared database and clips on local disk is a half-measure: several
+front ends would list each other's transmissions and then fail to play them.
+The earlier HTCommander work put the audio in the database for exactly this
+reason, and that is the right call once more than one server is serving the
+same log.
+
+A separate table rather than a column on `transmissions`, so listing the feed
+never drags the audio along:
+
+```
+clips(transmission_id, format, bytes, audio)
+```
+
+**The size is the thing to plan for.** Raw 32 kHz mono is 64 kB/s, and a busy
+scanner produced 22 minutes of audio in 3.9 hours — about 85 MB, so roughly
+half a gigabyte a day, 15 GB a month. Synchronous-commit replication carries
+all of it to the secondary. That is not alarming on a LAN, but it makes two
+things load-bearing rather than optional:
+
+- **Retention.** The audio rules in [publishing.md](publishing.md) stop being
+  a tidiness feature and become the thing that keeps the database from
+  growing without limit.
+- **Encoding.** ffmpeg is already a dependency for the SBC decode, and Opus
+  at this bandwidth is roughly a tenth the size. Storing clips encoded rather
+  than raw turns 15 GB a month into 1.5 GB, at the cost of decoding again to
+  transcribe — or keeping the WAV only until the engines have read it.
+
+Serving a clip becomes streaming a blob rather than `sendFile`, which means
+handling Range requests by hand. That is not hard, but it is the part that
+`sendFile` was doing for free, and players depend on it.
+
+A reasonable shape is to make clip storage its own choice — `disk` or
+`database` — rather than tying it to the row backend. A single node has no
+reason to pay the blob cost, and a multi-node deployment has no reason to
+accept a shared filesystem.
