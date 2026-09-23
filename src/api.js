@@ -10,10 +10,18 @@ const PUBLIC = fileURLToPath(new URL('../public', import.meta.url));
 
 /**
  * Wrap an async handler so a rejection becomes a 502 instead of a hang.
+ *
+ * Some of these stream a clip, so by the time a store call fails the status
+ * line may be long gone — there is nothing to say then but stop talking.
  * @param {Function} fn - Async route handler.
  * @returns {import('express').RequestHandler} The wrapped handler.
  */
-const wrap = (fn) => (req, res, next) => fn(req, res, next).catch((e) => res.status(502).json({ error: e.message }));
+const wrap = (fn) => (req, res, next) =>
+  fn(req, res, next).catch((e) => {
+    console.error(`[api] ${req.method} ${req.originalUrl}: ${e.message}`);
+    if (res.headersSent) return res.destroy();
+    res.status(502).json({ error: e.message });
+  });
 
 /**
  * One transmission as readable text: its context, then each engine's version.
@@ -142,10 +150,10 @@ export function createApp({ manager, store, sidecar, config, dataDir }) {
    * @param {string|number} id - Transmission id.
    * @returns {object | null} The row, if a visitor may see it.
    */
-  const publicRow = (id) => {
-    const row = store.transmission(Number(id));
+  const publicRow = async (id) => {
+    const row = await store.transmission(Number(id));
     if (!row) return null;
-    return publishable(row, store.radio(row.mac), publish) ? row : null;
+    return publishable(row, await store.radio(row.mac), publish) ? row : null;
   };
 
   const api = express.Router();
@@ -157,9 +165,9 @@ export function createApp({ manager, store, sidecar, config, dataDir }) {
   // No credential: this is what the node has chosen to publish. Everything
   // here is filtered by the same predicate, never by the caller's request.
 
-  api.get('/public/filters', (req, res) => {
+  api.get('/public/filters', wrap(async (req, res) => {
     if (!publish.enabled) return res.json({ enabled: false, groups: [], radios: [] });
-    const radios = store.radios().filter((r) => r.public);
+    const radios = (await store.radios()).filter((r) => r.public);
     res.json({
       enabled: true,
       delayMinutes: publish.delayMinutes,
@@ -167,11 +175,11 @@ export function createApp({ manager, store, sidecar, config, dataDir }) {
       groups: [...new Set(radios.map((r) => r.group).filter(Boolean))],
       radios: radios.map((r) => ({ name: r.name, group: r.group ?? null })),
     });
-  });
+  }));
 
-  api.get('/public/transmissions', (req, res) => {
+  api.get('/public/transmissions', wrap(async (req, res) => {
     if (!publish.enabled) return res.json([]);
-    const rows = store.transmissions({
+    const rows = await store.transmissions({
       publicOnly: true,
       notAfter: publicCutoff(publish),
       group: req.query.group ? String(req.query.group) : undefined,
@@ -180,23 +188,23 @@ export function createApp({ manager, store, sidecar, config, dataDir }) {
       limit: Math.min(Number(req.query.limit) || 100, 200),
     });
     res.json(rows.map((r) => publicView(r, publish, manager.primary)));
-  });
+  }));
 
-  api.get('/public/transmissions/:id/text', (req, res) => {
-    const row = publish.transcripts === false ? null : publicRow(req.params.id);
+  api.get('/public/transmissions/:id/text', wrap(async (req, res) => {
+    const row = publish.transcripts === false ? null : await publicRow(req.params.id);
     const view = row && publicView(row, publish, manager.primary);
     if (!view?.text) return res.status(404).json({ error: 'not found' });
     res.type('text/plain').send(`${view.text}
 `);
-  });
+  }));
 
-  api.get('/public/transmissions/:id/audio', (req, res) => {
+  api.get('/public/transmissions/:id/audio', wrap(async (req, res) => {
     // Two gates, not one: clips may be withheld even where transcripts are
     // published, because a clip is somebody's voice.
-    const row = publish.audio ? publicRow(req.params.id) : null;
+    const row = publish.audio ? await publicRow(req.params.id) : null;
     if (!row) return res.status(404).json({ error: 'not found' });
     sendClip(res, row, dataDir, false);
-  });
+  }));
 
 
   // Everything past here needs at least a viewer.
@@ -205,7 +213,7 @@ export function createApp({ manager, store, sidecar, config, dataDir }) {
   // ---- everything past here is the operator's -------------------------
 
   api.get('/models', (req, res) => res.json(MODELS));
-  api.get('/radios', (req, res) => res.json(manager.radios()));
+  api.get('/radios', wrap(async (req, res) => res.json(await manager.radios())));
 
   // Radios the host can see. Each is annotated with a model guess and whether
   // it is already saved, so the UI can offer a one-click add.
@@ -214,18 +222,21 @@ export function createApp({ manager, store, sidecar, config, dataDir }) {
     auth.requireRole('admin'),
     wrap(async (req, res) => {
       const found = await sidecar.call('scan');
+      // Read the saved radios once rather than per device: a query per row
+      // was free against SQLite and will not be against a networked store.
+      const saved = new Set((await store.radios()).map((r) => r.mac));
       res.json(
         found.map((d) => ({
           ...d,
           mac: normalizeMac(d.mac),
           model: guessModel(d.name),
-          saved: !!store.radio(normalizeMac(d.mac)),
+          saved: saved.has(normalizeMac(d.mac)),
         })),
       );
     }),
   );
 
-  api.post('/radios', auth.requireRole('admin'), (req, res) => {
+  api.post('/radios', auth.requireRole('admin'), wrap(async (req, res) => {
     const mac = normalizeMac(req.body?.mac);
     if (!mac) return res.status(400).json({ error: 'mac must be 12 hex digits' });
     const model = req.body.model ?? null;
@@ -233,22 +244,22 @@ export function createApp({ manager, store, sidecar, config, dataDir }) {
       return res.status(400).json({ error: `unknown model ${model}` });
     }
     const name = String(req.body.name || model || mac).slice(0, 60);
-    store.saveRadio({ mac, name, model });
-    res.status(201).json(store.radio(mac));
-  });
+    await store.saveRadio({ mac, name, model });
+    res.status(201).json(await store.radio(mac));
+  }));
 
   // Publishing is a deliberate act, separate from adding a radio.
-  api.patch('/radios/:mac', auth.requireRole('admin'), (req, res) => {
+  api.patch('/radios/:mac', auth.requireRole('admin'), wrap(async (req, res) => {
     const mac = normalizeMac(req.params.mac);
-    if (!mac || !store.radio(mac)) return res.status(404).json({ error: 'unknown radio' });
-    res.json(store.updateRadio(mac, {
+    if (!mac || !(await store.radio(mac))) return res.status(404).json({ error: 'unknown radio' });
+    res.json(await store.updateRadio(mac, {
       name: req.body?.name,
       public: req.body?.public,
       group: req.body?.group,
     }));
-  });
+  }));
 
-  api.get('/groups', (req, res) => res.json(store.groups()));
+  api.get('/groups', wrap(async (req, res) => res.json(await store.groups())));
 
   api.delete(
     '/radios/:mac',
@@ -257,7 +268,7 @@ export function createApp({ manager, store, sidecar, config, dataDir }) {
       const mac = normalizeMac(req.params.mac);
       if (!mac) return res.status(400).json({ error: 'bad mac' });
       await manager.disconnect(mac).catch(() => {});
-      store.deleteRadio(mac);
+      await store.deleteRadio(mac);
       res.status(204).end();
     }),
   );
@@ -268,17 +279,17 @@ export function createApp({ manager, store, sidecar, config, dataDir }) {
       auth.requireRole('admin'),
       wrap(async (req, res) => {
         const mac = normalizeMac(req.params.mac);
-        if (!mac || !store.radio(mac)) return res.status(404).json({ error: 'unknown radio' });
+        if (!mac || !(await store.radio(mac))) return res.status(404).json({ error: 'unknown radio' });
         await manager[action](mac);
         res.status(202).json({ ok: true });
       }),
     );
   }
 
-  api.get('/transmissions', (req, res) => {
+  api.get('/transmissions', wrap(async (req, res) => {
     const mac = req.query.mac ? normalizeMac(String(req.query.mac)) : undefined;
-    res.json(store.transmissions({ mac, q: req.query.q && String(req.query.q), limit: req.query.limit }));
-  });
+    res.json(await store.transmissions({ mac, q: req.query.q && String(req.query.q), limit: req.query.limit }));
+  }));
 
   // What engines exist, and which is the default. The UI labels transcripts
   // with these.
@@ -288,18 +299,19 @@ export function createApp({ manager, store, sidecar, config, dataDir }) {
 
   // Catch up clips an engine has not managed. The audio outlives a failed
   // transcription, so a backlog from a missing module is recoverable.
-  api.post('/transcribe-missing', auth.requireRole('admin'), (req, res) => {
+  api.post('/transcribe-missing', auth.requireRole('admin'), async (req, res) => {
     const engine = req.query.engine ? String(req.query.engine) : undefined;
     try {
-      const queued = manager.retranscribe(engine, Number(req.query.limit) || 500);
+      const queued = await manager.retranscribe(engine, Number(req.query.limit) || 500);
       res.status(202).json({ queued, engine: engine ?? manager.primary });
     } catch (e) {
-      res.status(400).json({ error: e.message });
+      // An unknown engine is the caller's mistake; anything else is ours.
+      res.status(/unknown engine/.test(e.message) ? 400 : 502).json({ error: e.message });
     }
   });
 
-  api.post('/transmissions/:id/transcribe', auth.requireRole('admin'), (req, res) => {
-    const t = store.transmission(Number(req.params.id));
+  api.post('/transmissions/:id/transcribe', auth.requireRole('admin'), wrap(async (req, res) => {
+    const t = await store.transmission(Number(req.params.id));
     if (!t) return res.status(404).json({ error: 'unknown transmission' });
     const engineName = req.query.engine ? String(req.query.engine) : manager.primary;
     if (!manager.engines.has(engineName)) {
@@ -309,13 +321,13 @@ export function createApp({ manager, store, sidecar, config, dataDir }) {
     if (!wav) return res.status(409).json({ error: 'the audio for this clip is gone' });
     manager.enqueue({ priority: 1, id: t.id, engineName, wav });
     res.status(202).json({ ok: true, engine: engineName });
-  });
+  }));
 
   // The whole feed at once. Comparing models over hundreds of clips is the
   // reason to run several, and that is not a per-clip download.
-  api.get('/transmissions/export', (req, res) => {
+  api.get('/transmissions/export', wrap(async (req, res) => {
     const mac = req.query.mac ? normalizeMac(String(req.query.mac)) : undefined;
-    const rows = store.transmissions({
+    const rows = await store.transmissions({
       mac,
       q: req.query.q && String(req.query.q),
       limit: req.query.limit ?? 500,
@@ -346,18 +358,18 @@ export function createApp({ manager, store, sidecar, config, dataDir }) {
     }
 
     res.attachment(`airscribe-${stamp}.json`).json(rows);
-  });
+  }));
 
-  api.get('/transmissions/:id/audio', (req, res) => {
-    const t = store.transmission(Number(req.params.id));
+  api.get('/transmissions/:id/audio', wrap(async (req, res) => {
+    const t = await store.transmission(Number(req.params.id));
     if (!t) return res.status(404).json({ error: 'not found' });
     sendClip(res, t, dataDir, req.query.download !== undefined, (err) => {
       if (err && !res.headersSent) res.status(404).json({ error: 'not found' });
     });
-  });
+  }));
 
-  api.get('/transmissions/:id/text', (req, res) => {
-    const t = store.transmission(Number(req.params.id));
+  api.get('/transmissions/:id/text', wrap(async (req, res) => {
+    const t = await store.transmission(Number(req.params.id));
     const scripts = t?.transcripts ?? [];
     if (!t || !scripts.length) return res.status(404).json({ error: 'no transcript' });
     const stem = `${t.mac.replaceAll(':', '')}-${t.started_at}`;
@@ -366,7 +378,7 @@ export function createApp({ manager, store, sidecar, config, dataDir }) {
     // disagreement is the useful part, and a download that quietly picks one
     // hides it.
     res.type('text/plain').attachment(`${stem}.txt`).send(describe(t, scripts));
-  });
+  }));
 
   api.get('/events', (req, res) => {
     res.set({ 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', Connection: 'keep-alive' });

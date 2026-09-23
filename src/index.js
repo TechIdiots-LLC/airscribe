@@ -73,21 +73,29 @@ servers.push(app.listen(config.port, config.host, () =>
       `http://${config.host}:${config.port} (${config.sidecar.backend})`,
   )));
 
-const shutdown = () => {
+const shutdown = async () => {
   manager.stopRetrying();
   sidecar.stop();
   for (const e of engines.values()) e.stop?.(); // release any held workers
 
-  let left = servers.length;
-  for (const s of servers) {
-    s.close(() => {
-      if (--left === 0) {
-        store.close();
-        process.exit(0);
-      }
-    });
-  }
-  setTimeout(() => process.exit(0), 3000).unref();
+  // Before the listeners, not after. A clip handed over in the last second
+  // is still on its way to the store, which is now something that takes
+  // time — and `server.close()` does not call back while an /api/events
+  // stream is open, so anything waiting behind it waits for the bail-out
+  // timer instead. The audio is on disk either way; the row is worth this.
+  await manager.settled();
+  await Promise.all(servers.map((s) => new Promise((done) => s.close(done))));
+  await store.close();
+  process.exit(0);
 };
-process.on('SIGINT', shutdown);
-process.on('SIGTERM', shutdown);
+for (const sig of ['SIGINT', 'SIGTERM']) {
+  process.on(sig, () => {
+    // Whatever happens, do not hang: a store that has gone away must not
+    // keep the process alive past a reasonable wait.
+    setTimeout(() => process.exit(0), 3000).unref();
+    shutdown().catch((e) => {
+      console.error('shutdown: ' + e.message);
+      process.exit(1);
+    });
+  });
+}

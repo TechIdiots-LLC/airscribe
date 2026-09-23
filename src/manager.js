@@ -174,9 +174,25 @@ export class Manager extends EventEmitter {
   /**
    * @param {string} mac - Radio that produced the clip.
    * @param {{startMs: number, durationMs: number, pcm: Buffer, transmit: boolean}} clip - The audio.
-   * @returns {void}
+   * @returns {Promise<void>} The queued write, for a caller that wants it.
    */
   onClip(mac, clip) {
+    // The segmenter calls this synchronously and has nowhere to put a
+    // promise, so the write is chained onto this radio's own queue. That
+    // keeps one radio's transmissions in order without making a slow store
+    // hold up the audio thread, and gives the rejection somewhere to go.
+    this.writes = (this.writes ?? Promise.resolve())
+      .then(() => this.storeClip(mac, clip))
+      .catch((e) => console.error(`[store] ${mac}: ${e.message}`));
+    return this.writes;
+  }
+
+  /**
+   * @param {string} mac - Radio that produced the clip.
+   * @param {{startMs: number, durationMs: number, pcm: Buffer, transmit: boolean}} clip - The audio.
+   * @returns {Promise<void>}
+   */
+  async storeClip(mac, clip) {
     const startedAt = Date.now() - Math.round(clip.durationMs);
     const dir = join(this.dataDir, 'clips', mac.replaceAll(':', ''));
     mkdirSync(dir, { recursive: true });
@@ -189,7 +205,7 @@ export class Manager extends EventEmitter {
 
     const channel = this.onAir.get(mac) ?? this.state.get(mac)?.channel ?? null;
     const info = this.channels.get(mac)?.get(channel);
-    const id = this.store.addTransmission({
+    const id = await this.store.addTransmission({
       mac,
       startedAt,
       durationMs: clip.durationMs,
@@ -199,7 +215,7 @@ export class Manager extends EventEmitter {
       channelName: info?.name ?? null,
       channelHz: info?.rx_hz ?? null,
     });
-    this.emit('update', { type: 'transmission', ...this.store.transmission(id) });
+    this.emit('update', { type: 'transmission', ...(await this.store.transmission(id)) });
 
     this.enqueue({ priority: 0, id, engineName: this.primary, wav: engineWav });
     for (const name of this.extra) {
@@ -261,11 +277,11 @@ export class Manager extends EventEmitter {
     if (!engine) return;
     try {
       const { text } = await engine.transcribe(wav);
-      this.store.saveTranscript(id, engineName, { status: 'done', text });
+      await this.store.saveTranscript(id, engineName, { status: 'done', text });
     } catch (e) {
-      this.store.saveTranscript(id, engineName, { status: 'error', error: e.message });
+      await this.store.saveTranscript(id, engineName, { status: 'error', error: e.message });
     }
-    this.emit('update', { type: 'transmission', ...this.store.transmission(id) });
+    this.emit('update', { type: 'transmission', ...(await this.store.transmission(id)) });
   }
 
   /**
@@ -276,11 +292,11 @@ export class Manager extends EventEmitter {
    * live traffic, so recovering a backlog never delays what is on the air now.
    * @param {string} [engineName] - Engine to catch up; the default one if omitted.
    * @param {number} [limit] - Most clips to queue.
-   * @returns {number} How many were queued.
+   * @returns {Promise<number>} How many were queued.
    */
-  retranscribe(engineName = this.primary, limit = 500) {
+  async retranscribe(engineName = this.primary, limit = 500) {
     if (!this.engines.has(engineName)) throw new Error(`unknown engine ${engineName}`);
-    const rows = this.store.needingTranscript(engineName, limit);
+    const rows = await this.store.needingTranscript(engineName, limit);
     for (const row of rows) {
       const wav = this.engineWavFor(row);
       if (wav) this.enqueue({ priority: 1, id: row.id, engineName, wav });
@@ -318,6 +334,21 @@ export class Manager extends EventEmitter {
     this.wanted.delete(mac);
     this.clearRetry(mac);
     await this.sidecar.call('disconnect', { mac });
+  }
+
+  /**
+   * Wait for queued writes to reach the store.
+   *
+   * The segmenter hands clips over synchronously, so a write is chained
+   * rather than awaited at the call site. Shutdown wants to know they landed,
+   * and so does any test that asserts on what was recorded.
+   * @returns {Promise<void>}
+   */
+  async settled() {
+    // Awaited twice: a write can enqueue another, and the tail moves while
+    // the first await is pending.
+    await this.writes;
+    await this.writes;
   }
 
   /** @returns {void} Stop every pending retry, for shutdown. */
@@ -370,9 +401,9 @@ export class Manager extends EventEmitter {
     for (const mac of this.wanted) this.sidecar.call('connect', { mac }).catch(() => {});
   }
 
-  /** @returns {object[]} Radios with their live state merged in. */
-  radios() {
-    return this.store.radios().map((r) => ({
+  /** @returns {Promise<object[]>} Radios with their live state merged in. */
+  async radios() {
+    return (await this.store.radios()).map((r) => ({
       ...r,
       ...(this.state.get(r.mac) ?? { state: 'disconnected' }),
     }));

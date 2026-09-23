@@ -26,7 +26,18 @@ jobs:
       # The suite needs no radio and no speech model: the sidecar has a
       # simulator backend and the sherpa engine is tested against a fake
       # worker. That is deliberate, and it is what makes CI possible at all.
-      - run: npm test
+      # Not just "did it pass" but "did it all run". The store and migration
+      # tests skip themselves where node:sqlite is missing, which is the right
+      # behaviour on an old local Node and a silent loss of coverage here: a
+      # run that skipped the only two tests touching real SQL still goes green.
+      - name: Run the suite, and fail on a skip
+        run: |
+          # pipefail, or tee's exit status hides a failing suite.
+          set -o pipefail
+          npm test 2>&1 | tee test.log
+          skipped=$(grep -m1 '^# skipped' test.log | tr -dc '0-9')
+          echo "skipped: ${skipped:-unknown}"
+          test "${skipped:-1}" = "0"
 
       # The suites import modules; nothing started the server, which is how an
       # argument-parsing bug reached a release. Boot it and check it serves.

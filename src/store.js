@@ -3,9 +3,16 @@ import { mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
 
 /**
- * Radios and transmissions, in SQLite. `node:sqlite` needs Node 22.5+, which
- * is why package.json pins the engine; it keeps the project free of native
- * add-ons to build on the target machine.
+ * Radios and transmissions, in SQLite.
+ *
+ * `node:sqlite` needs Node 22.5+, which is why package.json pins the engine;
+ * it keeps the project free of native add-ons to build on the target machine.
+ *
+ * **Every public method is async even though SQLite answers immediately.**
+ * That is not pretence: it is the interface a second backend has to fit, and
+ * a networked database cannot answer synchronously. Writing it this way now
+ * means the callers already treat storage as something that takes time and
+ * can fail, which is true of a local disk too. See docs/storage.md.
  */
 export class Store {
   /**
@@ -31,6 +38,12 @@ export class Store {
         channel INTEGER, channel_name TEXT, channel_hz INTEGER,
         text TEXT, engine TEXT, error TEXT);
       CREATE INDEX IF NOT EXISTS tx_time ON transmissions(started_at DESC);
+      -- A radio and an instant identify a transmission. The constraint
+      -- cannot be violated here, because a local write either happens or
+      -- throws — but on a networked store a write can be committed and its
+      -- acknowledgement lost, and the retry must collide rather than
+      -- duplicate. A rule both backends share is one fewer difference.
+      CREATE UNIQUE INDEX IF NOT EXISTS tx_natural ON transmissions(mac, started_at);
       -- One row per engine per transmission, so a clip can be transcribed by
       -- more than one model and re-run without destroying what came before.
       CREATE TABLE IF NOT EXISTS transcripts (
@@ -94,18 +107,23 @@ export class Store {
     if (!columns.some((c) => c.name === 'text')) return; // already migrated
     this.db.exec('BEGIN');
     try {
-      // Only rows naming an engine are carried over. A failure with no
-      // engine never got as far as running one — the module was missing, the
-      // model path was wrong — so attributing it to 'unknown' would leave a
+      // Every row that was actually transcribed is carried over, named or
+      // not: a finished row holds text that something heard, and dropping it
+      // because the old schema failed to record which engine produced it
+      // would lose the transcript to save a label. Those get 'unknown'.
+      //
+      // A failure is different. A failure with no engine never got as far as
+      // running one — the module was missing, the model path was wrong — so
+      // it has nothing to carry, and inventing 'unknown' for it would leave a
       // phantom entry beside every clip that is later transcribed properly.
       this.db.exec(`
         INSERT OR IGNORE INTO transcripts
           (transmission_id, engine, status, text, error, created_at)
-        SELECT id, engine, status, text, error, started_at
+        SELECT id, COALESCE(engine, 'unknown'), status, text, error, started_at
           FROM transmissions
-         WHERE engine IS NOT NULL AND status IN ('done', 'error')
+         WHERE status = 'done' OR (engine IS NOT NULL AND status = 'error')
       `);
-      // Those unattributable ones have no transcript now, which is what
+      // Those unattributable failures have no transcript now, which is what
       // 'pending' means: audio present, nothing has read it.
       this.db.exec(`
         UPDATE transmissions SET status = 'pending'
@@ -121,24 +139,24 @@ export class Store {
     }
   }
 
-  /** @returns {object[]} All saved radios. */
-  radios() {
+  /** @returns {Promise<object[]>} All saved radios. */
+  async radios() {
     return this.db.prepare('SELECT * FROM radios ORDER BY added_at').all();
   }
 
   /**
    * @param {string} mac - Normalised MAC.
-   * @returns {object | undefined} The radio, if saved.
+   * @returns {Promise<object | undefined>} The radio, if saved.
    */
-  radio(mac) {
+  async radio(mac) {
     return this.db.prepare('SELECT * FROM radios WHERE mac = ?').get(mac);
   }
 
   /**
    * @param {{mac: string, name: string, model: string | null}} r - The radio.
-   * @returns {void}
+   * @returns {Promise<void>}
    */
-  saveRadio({ mac, name, model }) {
+  async saveRadio({ mac, name, model }) {
     this.db
       .prepare(
         `INSERT INTO radios (mac, name, model, added_at) VALUES (?, ?, ?, ?)
@@ -154,9 +172,9 @@ export class Store {
    * adding one can never turn it on by accident.
    * @param {string} mac - The radio.
    * @param {{name?: string, public?: boolean, group?: string|null}} patch - Changes.
-   * @returns {object | undefined} The updated row.
+   * @returns {Promise<object | undefined>} The updated row.
    */
-  updateRadio(mac, patch) {
+  async updateRadio(mac, patch) {
     const sets = [];
     const args = [];
     if (patch.name !== undefined) (sets.push('name = ?'), args.push(String(patch.name).slice(0, 60)));
@@ -169,8 +187,8 @@ export class Store {
     return this.radio(mac);
   }
 
-  /** @returns {string[]} The groups in use, for a filter. */
-  groups() {
+  /** @returns {Promise<string[]>} The groups in use, for a filter. */
+  async groups() {
     return this.db
       .prepare(`SELECT DISTINCT "group" AS g FROM radios
                  WHERE g IS NOT NULL AND g <> '' ORDER BY g`)
@@ -180,9 +198,9 @@ export class Store {
 
   /**
    * @param {string} mac - Radio to forget. Its transmissions are kept.
-   * @returns {void}
+   * @returns {Promise<void>}
    */
-  deleteRadio(mac) {
+  async deleteRadio(mac) {
     this.db.prepare('DELETE FROM radios WHERE mac = ?').run(mac);
   }
 
@@ -190,9 +208,9 @@ export class Store {
    * @param {{mac: string, startedAt: number, durationMs: number, audioFile: string,
    *   transmit?: boolean, channel?: number, channelName?: string,
    *   channelHz?: number}} t - A new clip.
-   * @returns {number} Its id.
+   * @returns {Promise<number>} Its id.
    */
-  addTransmission({ mac, startedAt, durationMs, audioFile, transmit = false,
+  async addTransmission({ mac, startedAt, durationMs, audioFile, transmit = false,
                     channel = null, channelName = null, channelHz = null }) {
     const r = this.db
       .prepare(
@@ -212,9 +230,9 @@ export class Store {
    * @param {number} id - Transmission id.
    * @param {string} engine - Engine name.
    * @param {{status: string, text?: string, error?: string}} r - Outcome.
-   * @returns {void}
+   * @returns {Promise<void>}
    */
-  saveTranscript(id, engine, { status, text = null, error = null }) {
+  async saveTranscript(id, engine, { status, text = null, error = null }) {
     this.db
       .prepare(
         `INSERT INTO transcripts (transmission_id, engine, status, text, error, created_at)
@@ -234,7 +252,11 @@ export class Store {
    * @returns {void}
    */
   refreshTransmissionStatus(id) {
-    const rows = this.transcripts(id);
+    // Reads through the synchronous statement directly rather than the async
+    // accessor: this runs inside a write and must not interleave with one.
+    const rows = this.db
+      .prepare('SELECT * FROM transcripts WHERE transmission_id = ? ORDER BY id')
+      .all(id);
     const status = rows.some((t) => t.status === 'done')
       ? 'done'
       : rows.some((t) => t.status === 'pending')
@@ -247,9 +269,9 @@ export class Store {
 
   /**
    * @param {number} id - Transmission id.
-   * @returns {object[]} Its transcripts, oldest first.
+   * @returns {Promise<object[]>} Its transcripts, oldest first.
    */
-  transcripts(id) {
+  async transcripts(id) {
     return this.db
       .prepare('SELECT * FROM transcripts WHERE transmission_id = ? ORDER BY id')
       .all(id);
@@ -257,9 +279,9 @@ export class Store {
 
   /**
    * @param {number} id - Transmission id.
-   * @returns {object | undefined} The row.
+   * @returns {Promise<object | undefined>} The row.
    */
-  transmission(id) {
+  async transmission(id) {
     const row = this.db.prepare('SELECT * FROM transmissions WHERE id = ?').get(id);
     return row ? this.withTranscripts([row])[0] : undefined;
   }
@@ -300,9 +322,9 @@ export class Store {
 
   /**
    * @param {{mac?: string, q?: string, limit?: number}} f - Filters.
-   * @returns {object[]} Newest first.
+   * @returns {Promise<object[]>} Newest first.
    */
-  transmissions({ mac, q, limit = 100, group, channel, publicOnly, notAfter } = {}) {
+  async transmissions({ mac, q, limit = 100, group, channel, publicOnly, notAfter } = {}) {
     const where = ['1 = 1'];
     const args = [];
     if (mac) (where.push('t.mac = ?'), args.push(mac));
@@ -338,9 +360,9 @@ export class Store {
    * still has its audio, so it can be tried again once the cause is fixed.
    * @param {string} engine - Engine name.
    * @param {number} [limit] - Most to return.
-   * @returns {object[]} Oldest first, so a backlog is worked in order.
+   * @returns {Promise<object[]>} Oldest first, so a backlog is worked in order.
    */
-  needingTranscript(engine, limit = 500) {
+  async needingTranscript(engine, limit = 500) {
     return this.db
       .prepare(
         `SELECT t.* FROM transmissions t
@@ -352,8 +374,8 @@ export class Store {
       .all(engine, limit);
   }
 
-  /** @returns {void} */
-  close() {
+  /** @returns {Promise<void>} */
+  async close() {
     this.db.close();
   }
 }

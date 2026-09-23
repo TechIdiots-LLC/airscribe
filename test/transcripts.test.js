@@ -133,7 +133,7 @@ test('live traffic goes ahead of a comparison backlog', async () => {
 test('the recovery sweep queues every clip an engine has not done', async () => {
   const { manager, store, dataDir } = make();
   for (let i = 1; i <= 3; i++) addClip(manager, store, dataDir, i);
-  const queued = manager.retranscribe('base');
+  const queued = await manager.retranscribe('base');
   assert.equal(queued, 3);
   await manager.pump();
   for (let i = 1; i <= 3; i++) {
@@ -144,12 +144,12 @@ test('the recovery sweep queues every clip an engine has not done', async () => 
 test('the sweep skips clips whose audio is gone', async () => {
   const { manager, store } = make();
   store.addTransmission({ mac: MAC, startedAt: 1, durationMs: 1000, audioFile: 'gone/missing.wav' });
-  assert.equal(manager.retranscribe('base'), 1, 'it is counted as needing work');
+  assert.equal(await manager.retranscribe('base'), 1, 'it is counted as needing work');
   await manager.pump();
   assert.equal(store.transcripts(1).length, 0, 'but nothing is invented for missing audio');
 });
 
-test('an unknown engine is refused rather than silently doing nothing', () => {
+test('an unknown engine is refused rather than silently doing nothing', async () => {
   const { manager } = make();
-  assert.throws(() => manager.retranscribe('nope'), /unknown engine/);
+  await assert.rejects(() => manager.retranscribe('nope'), /unknown engine/);
 });

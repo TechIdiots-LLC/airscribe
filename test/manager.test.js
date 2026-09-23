@@ -55,30 +55,33 @@ function make() {
   return { manager, store, updates, audio, fire };
 }
 
-test('run markers from the sidecar bracket one transmission', () => {
-  const { store, audio, fire } = make();
+test('run markers from the sidecar bracket one transmission', async () => {
+  const { manager, store, audio, fire } = make();
   fire({ event: 'audio-start', mac: MAC, transmit: false });
   audio(10, 0.3, { rx: true });
   fire({ event: 'audio-end', mac: MAC });
+  await manager.settled();
   assert.equal(store.rows.size, 1);
   assert.equal(store.transmission(1).transmit, 0);
 });
 
-test('two marked runs with no gap stay two transmissions', () => {
-  const { store, audio, fire } = make();
+test('two marked runs with no gap stay two transmissions', async () => {
+  const { manager, store, audio, fire } = make();
   for (let i = 0; i < 2; i++) {
     fire({ event: 'audio-start', mac: MAC, transmit: false });
     audio(10, 0.3, { rx: true });
     fire({ event: 'audio-end', mac: MAC });
   }
+  await manager.settled();
   assert.equal(store.rows.size, 2);
 });
 
-test('a transmitted run is recorded as sent', () => {
-  const { store, audio, fire } = make();
+test('a transmitted run is recorded as sent', async () => {
+  const { manager, store, audio, fire } = make();
   fire({ event: 'audio-start', mac: MAC, transmit: true });
   audio(10, 0.3, { transmit: true });
   fire({ event: 'audio-end', mac: MAC });
+  await manager.settled();
   assert.equal(store.transmission(1).transmit, 1);
 });
 
@@ -91,19 +94,22 @@ test('activity is emitted on change only, not per audio chunk', () => {
   assert.deepEqual(activity.map((a) => [a.rx, a.tx]), [[true, false], [false, false]]);
 });
 
-test('a disconnect closes the clip in progress and clears activity', () => {
-  const { store, updates, audio, fire } = make();
+test('a disconnect closes the clip in progress and clears activity', async () => {
+  const { manager, store, updates, audio, fire } = make();
   fire({ event: 'audio-start', mac: MAC, transmit: false });
   audio(10, 0.3, { rx: true });
   fire({ event: 'status', mac: MAC, state: 'disconnected' });
+  await manager.settled();
   assert.equal(store.rows.size, 1, 'the partial transmission is not thrown away');
-  const last = updates.at(-1);
-  assert.equal(last.type, 'status');
-  assert.equal(last.rx, false);
+  // The status is known at once; the row is not stored until the write lands,
+  // so the status no longer arrives last. It is still the last thing said
+  // about the radio's state, which is what this asserts.
+  const status = updates.filter((u) => u.type === 'status').at(-1);
+  assert.equal(status.rx, false);
 });
 
-test('each radio is segmented on its own', () => {
-  const { store, fire } = make();
+test('each radio is segmented on its own', async () => {
+  const { manager, store, fire } = make();
   const other = '11:22:33:44:55:66';
   const n = 800;
   const loud = Buffer.alloc(n * 2);
@@ -115,6 +121,7 @@ test('each radio is segmented on its own', () => {
     }
   }
   for (const mac of [MAC, other]) fire({ event: 'audio-end', mac });
+  await manager.settled();
   assert.equal(store.rows.size, 2);
   assert.deepEqual([...store.rows.values()].map((r) => r.mac).sort(), [MAC, other].sort());
 });
@@ -212,8 +219,8 @@ test('a radio that reports no battery is not warned about', () => {
   assert.ok(updates.some((u) => u.type === 'activity'));
 });
 
-test('a clip records the channel the run started on', () => {
-  const { store, fire, audio } = make();
+test('a clip records the channel the run started on', async () => {
+  const { manager, store, fire, audio } = make();
   fire({ event: 'channels', mac: MAC, channels: [
     { id: 3, name: 'FIRE DISP', rx_hz: 154265000 },
     { id: 4, name: 'PD1', rx_hz: 155475000 },
@@ -225,18 +232,20 @@ test('a clip records the channel the run started on', () => {
   // started on is the one that matters.
   fire({ event: 'radio-status', mac: MAC, rssi: 2, in_rx: false, in_tx: false, channel: 4 });
   fire({ event: 'audio-end', mac: MAC });
+  await manager.settled();
   const row = store.transmission(1);
   assert.equal(row.channel, 3);
   assert.equal(row.channelName, 'FIRE DISP');
   assert.equal(row.channelHz, 154265000);
 });
 
-test('an unknown channel index is recorded without a name', () => {
-  const { store, fire, audio } = make();
+test('an unknown channel index is recorded without a name', async () => {
+  const { manager, store, fire, audio } = make();
   fire({ event: 'radio-status', mac: MAC, rssi: 8, in_rx: false, in_tx: false, channel: 9 });
   fire({ event: 'audio-start', mac: MAC, transmit: false });
   audio(10, 0.3, { rx: true });
   fire({ event: 'audio-end', mac: MAC });
+  await manager.settled();
   const row = store.transmission(1);
   assert.equal(row.channel, 9);
   assert.equal(row.channelName, null, 'no invented name for a channel we never read');

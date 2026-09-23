@@ -1,7 +1,8 @@
 # Storage backends
 
-**Design, not built.** SQLite is the only backend today. This records what
-supporting SQL Server would take, and the one obstacle that decides the shape.
+**Phase one is built; phase two is not.** The store interface is
+asynchronous and SQLite is still the only backend. This records what
+supporting SQL Server would take, and the obstacle that decided the shape.
 
 ## Why bother
 
@@ -26,20 +27,17 @@ between people, across networks, and when nodes must keep working while the
 others are unreachable. A node writing to a database it cannot reach stops
 recording; a node whose peer is unreachable only stops being current.
 
-## The obstacle: everything is synchronous
+## The obstacle: everything was synchronous
 
 `node:sqlite` is synchronous, and the code took that freely. `Manager.onClip`
-writes a transmission in the middle of a synchronous callback from the
-segmenter; every API route calls the store inline. Nothing awaits anything.
+wrote a transmission in the middle of a synchronous callback from the
+segmenter; every API route called the store inline. Nothing awaited anything.
 
-A network database cannot be synchronous. So the work is not "add a driver" —
-it is **making the store interface asynchronous**, which touches:
+A network database cannot be synchronous. So the work was not "add a driver" —
+it was **making the store interface asynchronous**, which touched every method
+on `Store`, `Manager.onClip`, and around twenty call sites in `api.js`.
 
-- every method on `Store`
-- `Manager.onClip`, called synchronously from `Segmenter`'s `onClip`
-- roughly twenty call sites across `api.js`
-
-That refactor is most of the job and carries most of the risk. It is also
+That refactor was most of the job and carried most of the risk. It was also
 worth doing on its own: it decouples the store from the assumption that
 storage is free and instant, which is not a true thing to believe even about
 a local disk.
@@ -48,12 +46,36 @@ a local disk.
 
 Two phases, because the risky half can be proved without a database server.
 
-**Phase one — make the interface async, keep SQLite.** Every `Store` method
-returns a promise; the SQLite implementation simply wraps the synchronous
-calls, which is honest, since they really are immediate. `Manager.onClip`
-becomes async and serialises its own writes, so transmissions from one radio
-cannot be recorded out of order. Every existing test must pass unchanged in
-meaning. Nothing new is gained at this point, which is the sign it worked.
+**Phase one — make the interface async, keep SQLite. Done.** Every `Store`
+method returns a promise; the SQLite implementation simply wraps the
+synchronous calls, which is honest, since they really are immediate.
+`Manager.onClip` chains its writes onto a queue rather than awaiting at a
+call site it does not control, so transmissions from one radio cannot be
+recorded out of order, and `Manager.settled()` lets shutdown and the tests
+wait for them. Nothing new is gained at this point, which was the sign it
+worked: all 145 tests pass unchanged in meaning.
+
+Three things came out of it that were not the point:
+
+- **Shutdown waits for the queue, before closing the listeners rather than
+  after.** `server.close()` does not call back while an `/api/events` stream
+  is open, so a store write sequenced behind it would have been left to the
+  bail-out timer.
+- **`(mac, started_at)` is now a unique index** — see the retry argument
+  below. Adding it meant checking it held: it did, across 500 live rows.
+- **A migration bug, found only because the tests stopped skipping.** The
+  transcripts migration carried over only rows that named an engine, which
+  dropped the text of any finished row written before the engine column was
+  recorded. It now carries those over as `unknown`, on the grounds that
+  losing a transcript to save a label is the wrong trade. Failures with no
+  engine are still dropped, because they have nothing to carry.
+
+**That last one is the lesson worth keeping.** The store and migration tests
+carry `{ skip: !sqlite }` so that a machine without `node:sqlite` reports
+them as skipped rather than failing. On Node 20 that hides three tests —
+including both that touch real SQL — and a green run means almost nothing.
+**Test the store on Node 22 or later**, and read the skip count, not just the
+pass count.
 
 **Phase two — add the SQL Server implementation** behind the same interface,
 chosen by config:
@@ -116,15 +138,15 @@ everything goes through the listener either way.
 **A retried write must not duplicate a transmission.** This is the part
 automatic failover makes real. A write can fail *after* the server committed
 it — the commit succeeded, the acknowledgement did not arrive — and a retry
-would then insert the same transmission twice. Nothing in the current schema
-prevents it, because SQLite never fails that way.
+would then insert the same transmission twice.
 
-The answer is a natural key. A transmission is already uniquely identified by
-its radio and the instant it started, so a unique constraint on
-`(mac, started_at)` makes the retry safe: the second insert collides instead
-of duplicating. That constraint is worth adding to the SQLite schema at the
-same time, even though it cannot be hit there — a rule the two backends share
-is one fewer thing that differs between them.
+The answer is a natural key, and it is already in place. A transmission is
+uniquely identified by its radio and the instant it started, so the unique
+index on `(mac, started_at)` makes the retry safe: the second insert collides
+instead of duplicating. It is in the SQLite schema too, even though it cannot
+be hit there — a rule the two backends share is one fewer thing that differs
+between them, and it was worth confirming against real data before relying on
+it. The retry itself is phase two's to write; the constraint it needs is not.
 
 **Testing.** CI has no SQL Server. The dialect-specific SQL can be unit
 tested by asserting on generated statements, and the rest with a container
