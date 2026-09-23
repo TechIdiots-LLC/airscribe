@@ -127,6 +127,63 @@ A 15-second WAV is about 1 MB, which is bulky for a feed. If ffmpeg is present
 — and it is, since the SBC decode needs it — Opus would cut that roughly
 tenfold. Worth an option later rather than a requirement now.
 
+## Grouping: radios, and the channels under them
+
+A radio gets a `group` — "amateur", "emergency" — so a node running one radio
+on ham bands and another on a scanner can offer them as separate views.
+
+That alone is too coarse, because one scanning radio covers several agencies:
+`Holden PD` and `Rutld FD` arrive on the same radio minutes apart. Every
+transmission already records its channel name, so the filter should offer
+**radio, group and channel** — and only the first needs anything new stored.
+
+The public page then answers "everything", "this node", "the amateur radios",
+or "just fire", from the same rows.
+
+## Combining several nodes
+
+The aggregation should happen **server side**, not in the browser. A page that
+fetched three instances directly would break when one was down, could not
+search across them, and would need every node reachable by whoever opens it.
+Ingesting a peer's feed instead gives one URL to share, one search, and
+survives a peer going offline.
+
+That is the subscription mechanism described below, with the transmission
+gaining a **source**: this node, or the peer it came from. The public page
+filters on it exactly as it filters on radio or group, so "everything" and
+"this node only" are the same query with a different argument.
+
+Two things follow. A peer's transmissions must be marked as theirs rather
+than silently presented as local. And what a peer publishes to you is not
+automatically yours to republish onward — the default should be that
+subscribed content stays on your admin surface unless you say otherwise.
+
+## A word cloud
+
+Useful on a scanner: the common terms are the procedural vocabulary, and a
+sudden unusual one is worth noticing.
+
+It needs three filters, and the middle one is the domain-specific part:
+
+- **Ordinary stopwords** — the, and, to.
+- **Transcription noise** — `(static)`, `*DING*`, `[BLANK_AUDIO]`,
+  `Thank you.` and the other phrases a model falls back on when fed a squelch
+  tail. [tools/compare-engines.py](../tools/compare-engines.py) already
+  classifies these, and that logic should move into the server rather than
+  being written twice.
+- **A minimum count**, or a single mis-transcription becomes a headline.
+
+It must be built from the **published** rows only, and respect the delay. A
+cloud is a summary, and summarising transmissions that are not yet publishable
+would leak their content early — in aggregate rather than verbatim, but leak
+it nonetheless.
+
+Worth saying plainly, since this is public safety traffic: a word cloud makes
+patterns legible that individual clips do not. Names and street names recur
+and rise to the top. That is an argument for building it from the same gated
+rows as everything else, and for treating it as a publishing decision rather
+than a display option.
+
 ## Which transcript gets published
 
 A clip may have several. The public surface should show the default engine's,
