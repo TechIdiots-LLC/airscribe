@@ -139,6 +139,86 @@ The files inside are named after the model, so they are matched by shape
 rather than by name. An ambiguous match is reported rather than guessed at,
 because the wrong encoder produces gibberish instead of an error.
 
+## OpenVINO (Intel GPUs)
+
+sherpa-onnx's published packages run on the CPU or on CUDA, so an Intel Arc
+card needs a different engine. OpenVINO GenAI runs Whisper and SenseVoice on
+one, through the same kind of warm worker.
+
+```json
+"stt": {
+  "engine": "openvino",
+  "openvino": {
+    "python": "/opt/airscribe/.venv/bin/python",
+    "modelDir": "/var/lib/airscribe/models/whisper-base.en-fp16-ov",
+    "device": "GPU",
+    "cacheDir": "/var/lib/airscribe/ov-cache",
+    "language": "en"
+  }
+}
+```
+
+Install the GPU's compute driver, which is separate from the VA-API one that
+video transcoding uses, then OpenVINO in a venv, then a model:
+
+```sh
+sudo apt install intel-opencl-icd clinfo python3-venv
+sudo python3 -m venv /opt/airscribe/.venv
+sudo /opt/airscribe/.venv/bin/pip install "openvino-genai>=2026.4" huggingface_hub
+sudo /opt/airscribe/.venv/bin/hf download OpenVINO/whisper-base.en-fp16-ov \
+  --local-dir /var/lib/airscribe/models/whisper-base.en-fp16-ov
+sudo chown -R airscribe:airscribe /var/lib/airscribe/models
+```
+
+**The models are OpenVINO IR, not the ONNX archives sherpa-onnx uses**, so a
+`modelDir` cannot be shared between the two engines. The
+[OpenVINO organisation](https://huggingface.co/OpenVINO) publishes every
+Whisper size in `fp16`, `int8` and `int4`; for anything else, including
+SenseVoice, export it with `optimum-cli export openvino`.
+
+The service account needs the render group; see
+[installing.md](installing.md#using-an-intel-gpu). Then check, as that account:
+
+```sh
+sudo -u airscribe clinfo -l     # expect the card, not an empty list
+sudo -u airscribe /opt/airscribe/.venv/bin/python \
+  -c "from openvino import Core; print(Core().available_devices)"     # expect GPU
+```
+
+| key | default | |
+| --- | --- | --- |
+| `modelDir` | required | the model's directory |
+| `device` | `GPU` | `GPU`, `GPU.0`, `GPU.1` or `CPU` |
+| `fallbackDevice` | `CPU` | tried if `device` will not load the model; `null` reports the failure instead |
+| `cacheDir` | none | keeps compiled models, because compiling for a GPU is slow; must be writable by the service |
+| `language` | `auto` | a hint for multilingual models; English-only models ignore it |
+
+**Check where it landed.** The first clip logs
+`[stt] openvino worker running on GPU`. A fallback logs the reason and then
+names `CPU`, and transcripts keep arriving, so a missing driver otherwise looks
+like nothing more than slowness.
+
+**What the GPU buys.** Less than the card's size suggests: `tiny.en` reads a
+16-second clip in under half a second on a CPU, and clips go through one at a
+time. It earns its place when several models read each clip, or for models too
+large to keep up on a CPU — bearing in mind that
+[bigger is not better here](#bigger-is-not-better-here).
+
+It also runs only autoregressive models, so it does nothing for the
+[truncation problem](#models-that-cannot-truncate). Moonshine and the
+transducers stay on sherpa-onnx, and the two can run side by side:
+
+```json
+"stt": {
+  "engines": {
+    "moon": { "type": "sherpa-onnx", "family": "moonshine", "modelDir": "…" },
+    "arc": { "type": "openvino", "modelDir": "…", "cacheDir": "…", "language": "en" }
+  },
+  "default": "moon",
+  "alsoRun": ["arc"]
+}
+```
+
 ## Engines outside sherpa-onnx
 
 The `command` engine runs anything that prints a transcript, so these need no

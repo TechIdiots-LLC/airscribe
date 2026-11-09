@@ -24,6 +24,7 @@ npm run simulate        # fake radio + mock transcriber, no hardware needed
 | Web UI: radios, live status, transcript feed, search, downloads | working (against the simulator) |
 | Segmenting audio into one clip per transmission | working; replaying a real 3-transmission capture yields 3 clips |
 | Pluggable transcription: sherpa-onnx, whisper.cpp, any command, mock | working; not yet run against a real model |
+| Intel GPU transcription through OpenVINO | run against real models on a CPU; not yet on a GPU |
 | Radio registry, keyed by MAC, HTCommander model table | working |
 | Python sidecar protocol + simulator | working, tested end to end |
 | Real radio link (BlueZ RFCOMM control + SBC audio) | working — connects, decodes audio and disconnects cleanly against a real UV-Pro |
@@ -54,7 +55,7 @@ on older Node. Neither suite needs a radio or a speech model.
 - `ffmpeg` with the SBC decoder, to turn the radio's audio into PCM
 - For transcription: `pip install sherpa-onnx` and a model — see
   [docs/transcription.md](docs/transcription.md). whisper.cpp and any
-  transcript-printing command also work.
+  transcript-printing command also work, and OpenVINO runs on an Intel GPU.
 
 ## Configuration
 

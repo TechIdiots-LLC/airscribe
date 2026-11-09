@@ -218,6 +218,38 @@ sudo systemctl enable --now airscribe
 journalctl -u airscribe -f
 ```
 
+## Using an Intel GPU
+
+Only for the `openvino` engine; see [transcription.md](transcription.md#openvino-intel-gpus)
+for the driver and the model. The service account needs the render node:
+
+```sh
+sudo usermod -aG render airscribe
+```
+
+Add `render` to the unit's `SupplementaryGroups=` and restart. Only do this on
+a machine that has the group, because systemd refuses to start a unit that names
+a group that does not exist. `PrivateDevices` would hide the GPU too.
+
+**In a Proxmox LXC**, map the render node in from the host. Find which node is
+the card, on the host:
+
+```sh
+ls -l /dev/dri/by-path/
+```
+
+Then, inside the container, `getent group render` gives the group id to use,
+and on the host:
+
+```sh
+pct set <container> -dev0 /dev/dri/renderD128,gid=<that id>
+```
+
+Restart the container afterwards. Several containers can map the same node and
+use the card at the same time, so a media server can keep transcoding on it.
+The exception is a VM: passing the card through to one takes it away from the
+host and every container.
+
 ## Before there is a real radio backend
 
 The BlueZ backend is not written yet — `connect()` says so. Until it lands,
