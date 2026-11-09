@@ -61,7 +61,10 @@ export class WorkerEngine {
         } catch {
           return;
         }
-        if (msg.event === 'ready') return resolve();
+        if (msg.event === 'ready') {
+          if (msg.device) console.log(`[stt] ${this.label} worker running on ${msg.device}`);
+          return resolve();
+        }
         if (msg.event === 'error') return reject(new Error(msg.error));
         const p = this.pending.get(msg.id);
         this.pending.delete(msg.id);

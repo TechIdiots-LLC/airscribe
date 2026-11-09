@@ -1,5 +1,6 @@
 import { spawn } from 'node:child_process';
 import { SherpaEngine } from './sherpa.js';
+import { OpenVinoEngine } from './openvino.js';
 
 /**
  * A speech-to-text engine turns a WAV file (16 kHz mono) into text.
@@ -69,6 +70,9 @@ const ENGINES = {
       return { text: await run(bin, args) };
     },
   }),
+
+  /** OpenVINO GenAI, which is what can use an Intel GPU. See src/stt/openvino.js. */
+  openvino: (c) => new OpenVinoEngine(c),
 };
 
 /**
