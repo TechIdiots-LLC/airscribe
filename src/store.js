@@ -94,16 +94,19 @@ export class Store {
     if (!columns.some((c) => c.name === 'text')) return; // already migrated
     this.db.exec('BEGIN');
     try {
-      // Only rows naming an engine are carried over. A failure with no
-      // engine never got as far as running one — the module was missing, the
-      // model path was wrong — so attributing it to 'unknown' would leave a
-      // phantom entry beside every clip that is later transcribed properly.
+      // A failure with no engine never got as far as running one — the
+      // module was missing, the model path was wrong — so attributing it to
+      // 'unknown' would leave a phantom entry beside every clip that is later
+      // transcribed properly. A finished transcript with no engine is
+      // different: its text is the only copy, so it is kept as 'unknown'
+      // rather than dropped.
       this.db.exec(`
         INSERT OR IGNORE INTO transcripts
           (transmission_id, engine, status, text, error, created_at)
-        SELECT id, engine, status, text, error, started_at
+        SELECT id, COALESCE(engine, 'unknown'), status, text, error, started_at
           FROM transmissions
-         WHERE engine IS NOT NULL AND status IN ('done', 'error')
+         WHERE (engine IS NOT NULL AND status IN ('done', 'error'))
+            OR (engine IS NULL AND status = 'done')
       `);
       // Those unattributable ones have no transcript now, which is what
       // 'pending' means: audio present, nothing has read it.
