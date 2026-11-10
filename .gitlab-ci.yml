@@ -1,0 +1,212 @@
+# AirScribe CI on gitlab.techidiots.net, laid out as garage-lxc's, HandBrake-LXC's, MediaRiffle's and tippr's: the light
+# jobs on the Windows shell runner (tag "windows", which needs Python 3 for the version bump) and the builds and tests
+# on the Linux Docker runner (tags "linux", "docker"; gitlab-runner-install's install-linux-runner.sh). The build
+# needs root in the job container, not privileges. The template test boots the template in Docker-in-Docker with
+# systemd and needs the runner registered with --privileged (install-linux-runner.sh --privileged). GitLab ignores
+# .github/, whose workflow runs the same tests on the GitHub mirror.
+#
+#   test-node        Merge requests and pushes to main: npm test, then the server booted with --simulate.
+#   test-python      The same: the sidecar's tests on Ubuntu 22.04's and 24.04's Python.
+#   shellcheck       The same: the shell scripts.
+#   ci-build         The same: the .deb and the Proxmox template as job artifacts (7 days), named
+#                    <version>+ci<pipeline>.<commit> so a download says what it is.
+#   ci-template-test The same: boots the template, signs in (proxmox/test-template.sh).
+#   release-*        Push to main: if no GitLab release exists for package.json's version, build and test the same
+#                    and create the release with CHANGELOG.md's section as the notes:
+#                      airscribe_<ver>-1_all.deb                 Ubuntu 24.04 / Debian 12 (docs/installing.md)
+#                      AirScribe-v<ver>-proxmox-amd64.tar.zst    the Proxmox LXC template (docs/proxmox.md)
+#                      SHA256SUMS                                of both, for Admin -> Updates (docs/updating.md)
+#                    Build > Pipelines > New pipeline with RELEASE_DRY_RUN "true" builds without publishing.
+#   bump-version     Build > Pipelines > New pipeline with BUMP_VERSION set: bump package.json's version, roll
+#                    CHANGELOG.md's "## master" section into it, push release-v<version> and open a merge request.
+#                    Merging it makes the release.
+#
+# Release files go to the generic package registry (the template is a few hundred MB, and the pipeline passes it
+# between jobs as an artifact: the package file size limit and the artifact size limit, Admin > Settings > CI/CD,
+# must allow it).
+#
+# CI/CD variables (Settings > CI/CD > Variables), Protected + Masked, environment scope "release/main":
+#   CI_PUSH_TOKEN   Project access token, role Maintainer, scopes api + write_repository (bump-version only)
+
+workflow:
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+    # Avoid a duplicate branch pipeline while a merge request is open for the branch
+    - if: $CI_COMMIT_BRANCH && $CI_OPEN_MERGE_REQUESTS && $CI_PIPELINE_SOURCE == "push"
+      when: never
+    - if: $CI_COMMIT_BRANCH
+
+variables:
+  BUMP_VERSION:
+    value: "none"
+    options: ["none", "patch", "minor", "major", "prepatch", "preminor", "premajor", "prerelease"]
+    description: "Version bump type. Leave as 'none' to just build and release the current version."
+  BUMP_PREID:
+    value: "rc"
+    description: "Prerelease identifier for the pre* bump types (e.g. alpha, beta, rc)."
+  RELEASE_DRY_RUN:
+    value: "false"
+    options: ["false", "true"]
+    description: "'true': build and test the release files without publishing anything."
+
+default:
+  tags: [windows]
+
+stages:
+  - check
+  - build
+  - test
+  - release
+
+# Jobs that push or publish run in this environment; scope the protected variables to it.
+.release-environment: &release-environment
+  name: release/$CI_COMMIT_BRANCH
+  action: prepare
+
+.ci-rules: &ci-rules
+  - if: $BUMP_VERSION != "none"
+    when: never
+  - if: $RELEASE_DRY_RUN == "true"
+    when: never
+  - if: $CI_PIPELINE_SOURCE == "merge_request_event"
+  - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+
+.release-rules: &release-rules
+  - if: $BUMP_VERSION != "none"
+    when: never
+  - if: $CI_COMMIT_BRANCH == $CI_DEFAULT_BRANCH
+
+# The build on the Linux runner
+.linux-build:
+  tags: [linux, docker]
+  image: ubuntu:24.04
+  timeout: 1h
+
+# The template test: Docker-in-Docker, with a systemd container inside it
+.template-test:
+  tags: [linux, docker]
+  image: docker:27
+  services:
+    - name: docker:27-dind
+      alias: docker
+  variables:
+    DOCKER_TLS_CERTDIR: /certs
+  timeout: 1h
+  before_script:
+    - apk add --no-cache bash coreutils curl zstd
+    - for i in $(seq 30); do docker info >/dev/null 2>&1 && break; sleep 2; done
+    - docker info --format 'Docker {{.ServerVersion}}, {{.NCPU}} CPUs, {{.MemTotal}} bytes'
+
+# ── CI ──────────────────────────────────────────────────────────────────────────────────────────────
+
+test-node:
+  stage: check
+  tags: [linux, docker]
+  # Debian, with the Python 3 the pipeline test drives the sidecar with
+  image: node:24
+  rules: *ci-rules
+  script:
+    - npm ci --no-audit --no-fund
+    - npm test
+    # The suites import modules; nothing started the server. Boot it and check it serves.
+    - |
+      node src/index.js --simulate & pid=$!
+      for i in $(seq 30); do curl -fsS http://127.0.0.1:8100/healthz >/dev/null 2>&1 && break; sleep 1; done
+      curl -fsS http://127.0.0.1:8100/healthz | grep -q '"ok":true'
+      curl -fsS http://127.0.0.1:8100/api/radios >/dev/null
+      kill $pid
+
+test-python:
+  stage: check
+  tags: [linux, docker]
+  rules: *ci-rules
+  parallel:
+    matrix:
+      # Ubuntu 22.04's and 24.04's: the sidecar runs on whatever the box already has
+      - PYTHON: ["3.10", "3.12"]
+  image: python:$PYTHON-slim
+  script:
+    - python -m compileall -q sidecar tools
+    - python -m unittest discover -s sidecar -p "test_*.py" -v
+
+shellcheck:
+  stage: check
+  tags: [linux, docker]
+  image: koalaman/shellcheck-alpine:stable
+  rules: *ci-rules
+  script:
+    - shellcheck -x build/*.sh .gitlab/scripts/*.sh proxmox/*.sh proxmox/airscribe-firstboot deploy/linux/debian/*
+
+ci-build:
+  extends: .linux-build
+  stage: build
+  rules: *ci-rules
+  needs: []
+  script:
+    - bash .gitlab/scripts/build.sh ci-files "$(sed -n 's/^  "version": "\(.*\)",$/\1/p' package.json | head -1)+ci$CI_PIPELINE_IID.$CI_COMMIT_SHORT_SHA"
+  artifacts:
+    paths:
+      - ci-files/
+    expire_in: 7 days
+
+ci-template-test:
+  extends: .template-test
+  stage: test
+  rules: *ci-rules
+  needs: [ci-build]
+  script:
+    - bash proxmox/test-template.sh ci-files/AirScribe-*-proxmox-amd64.tar.zst
+
+# ── Release ─────────────────────────────────────────────────────────────────────────────────────────
+
+release-check:
+  stage: check
+  rules: *release-rules
+  script:
+    - ./.gitlab/scripts/release-check.ps1
+  artifacts:
+    reports:
+      dotenv: release.env
+
+release-build:
+  extends: .linux-build
+  stage: build
+  rules: *release-rules
+  needs: [release-check]
+  script:
+    - if [ "$RELEASE_BUILD" != "true" ]; then echo "Release $RELEASE_TAG already exists; skipping."; exit 0; fi
+    - bash .gitlab/scripts/build.sh release-files "$RELEASE_VERSION"
+  artifacts:
+    paths:
+      - release-files/
+    expire_in: 7 days
+
+release-template-test:
+  extends: .template-test
+  stage: test
+  rules: *release-rules
+  needs: [release-check, release-build]
+  script:
+    - if [ "$RELEASE_BUILD" != "true" ]; then echo "Release $RELEASE_TAG already exists; skipping."; exit 0; fi
+    - bash proxmox/test-template.sh release-files/AirScribe-*-proxmox-amd64.tar.zst
+
+release-publish:
+  stage: release
+  rules: *release-rules
+  needs: [release-check, release-build, release-template-test]
+  resource_group: release
+  script:
+    - ./.gitlab/scripts/publish-release.ps1
+
+# ── Version bump ────────────────────────────────────────────────────────────────────────────────────
+
+bump-version:
+  stage: build
+  resource_group: bump-version
+  environment: *release-environment
+  rules:
+    - if: $CI_PIPELINE_SOURCE == "web" && $BUMP_VERSION != "none"
+  variables:
+    GIT_DEPTH: 0
+  script:
+    - ./.gitlab/scripts/bump.ps1 -BumpType $env:BUMP_VERSION -PreId $env:BUMP_PREID

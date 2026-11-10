@@ -1,0 +1,15 @@
+[Unit]
+Description=Set up this AirScribe container (first boot)
+ConditionPathExists=/etc/airscribe/firstboot-pending
+Wants=network-online.target
+After=network-online.target
+Before=airscribe.service
+
+[Service]
+Type=oneshot
+ExecStart=/usr/local/sbin/airscribe-firstboot
+StandardOutput=journal+console
+RemainAfterExit=yes
+
+[Install]
+WantedBy=multi-user.target

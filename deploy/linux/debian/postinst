@@ -1,0 +1,29 @@
+#!/bin/sh
+# After install or upgrade: the service user, its data folder, settings readable by it, and the service running.
+set -e
+
+if [ "$1" = "configure" ]; then
+    if ! getent group airscribe >/dev/null; then
+        groupadd --system airscribe
+    fi
+    if ! getent passwd airscribe >/dev/null; then
+        useradd --system --gid airscribe --home-dir /var/lib/airscribe --no-create-home \
+            --shell /usr/sbin/nologin --comment "AirScribe service" airscribe
+    fi
+    # The Bluetooth adapter and the GPU's render node (transcription on an Intel GPU), where the groups exist
+    for g in bluetooth render video; do
+        if getent group "$g" >/dev/null; then usermod -aG "$g" airscribe || true; fi
+    done
+    install -d -o airscribe -g airscribe -m 0750 /var/lib/airscribe
+    # It holds the password hash and tokens
+    chown root:airscribe /etc/airscribe/airscribe.config.json
+    chmod 0640 /etc/airscribe/airscribe.config.json
+
+    if [ -d /run/systemd/system ]; then
+        systemctl daemon-reload
+        systemctl enable airscribe.service >/dev/null
+        systemctl restart airscribe.service || true
+    fi
+    echo "AirScribe is running on the address in /etc/airscribe/airscribe.config.json (http://127.0.0.1:8100 by default)."
+fi
+exit 0

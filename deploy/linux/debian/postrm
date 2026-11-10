@@ -1,0 +1,16 @@
+#!/bin/sh
+# Removal keeps the data (database, clips, models) and settings; purge deletes them and the service user.
+set -e
+if [ -d /run/systemd/system ]; then
+    systemctl daemon-reload || true
+fi
+if [ "$1" = "purge" ]; then
+    rm -rf /var/lib/airscribe /etc/airscribe
+    if getent passwd airscribe >/dev/null; then
+        userdel airscribe >/dev/null 2>&1 || true
+    fi
+    if getent group airscribe >/dev/null; then
+        groupdel airscribe >/dev/null 2>&1 || true
+    fi
+fi
+exit 0

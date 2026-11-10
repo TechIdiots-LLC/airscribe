@@ -1,0 +1,85 @@
+# Proxmox
+
+Each release carries `AirScribe-v<version>-proxmox-amd64.tar.zst`: Proxmox's own Ubuntu 24.04 template with Node 24
+(from NodeSource) and AirScribe's `.deb` installed, listening on the container's network. Its first boot sets the
+port and a sign-in password, so there is nothing to install by hand.
+
+## Create a container
+
+1. Download the template from the release and put it in a storage that holds container templates, e.g. upload it
+   under **local → CT Templates**, or copy it to `/var/lib/vz/template/cache/` on the node.
+2. Create the container from it. Unprivileged is fine. 1 GB of memory and 8 GB of disk run the mock and the small
+   models; add disk for clips and larger models.
+
+   ```sh
+   pct create 140 local:vztmpl/AirScribe-v0.1.0-proxmox-amd64.tar.zst \
+     --hostname airscribe --unprivileged 1 --cores 2 --memory 2048 --rootfs local-lvm:16 \
+     --net0 name=eth0,bridge=vmbr0,ip=dhcp --onboot 1
+   ```
+
+3. Optionally, before starting it, set the port or your own password in `/etc/airscribe/firstboot.env`:
+
+   ```sh
+   pct mount 140
+   nano /var/lib/lxc/140/rootfs/etc/airscribe/firstboot.env   # AIRSCRIBE_PORT, AIRSCRIBE_PASSWORD
+   pct unmount 140
+   ```
+
+4. Start it, and read where it listens and the password its first boot made:
+
+   ```sh
+   pct start 140
+   pct exec 140 -- cat /root/airscribe-first-login.txt
+   ```
+
+Open the address it gives and sign in. The password is stored only as a hash in
+`/etc/airscribe/airscribe.config.json`; the note in `/root` is the one copy of it, readable by root.
+
+To change the password later, set `AIRSCRIBE_PASSWORD` in `firstboot.env` and run `airscribe-firstboot` again inside
+the container, then `systemctl restart airscribe`. Run with no password set, it keeps the existing one.
+
+## Settings, logs, data
+
+| | |
+| --- | --- |
+| Settings | `/etc/airscribe/airscribe.config.json`, then `systemctl restart airscribe`. Every key: `/opt/airscribe/airscribe.config.json.sample` |
+| Logs | `journalctl -u airscribe` |
+| Data | `/var/lib/airscribe`: the database, the clips, and models if you put them there |
+
+The template starts with the `mock` transcription engine, which labels every clip as a mock transcript. Set up a
+real one from [transcription.md](transcription.md).
+
+## Transcription on the host's Intel GPU
+
+Map the GPU's render node into the container. Find which node is the card on the host, and the `render` group's id
+inside the container:
+
+```sh
+ls -l /dev/dri/by-path/                      # on the host
+pct exec 140 -- getent group render          # in the container
+pct set 140 -dev0 /dev/dri/renderD128,gid=<that id>
+pct reboot 140
+```
+
+Several containers can map the same render node and use the card at once, so a media server can keep transcoding on
+it. The package adds the service account to `render`. Then install the compute driver and the `openvino` engine as
+[transcription.md](transcription.md#openvino-intel-gpus) describes.
+
+## Radios over Bluetooth
+
+**Not working in a container yet.** The kernel refuses Bluetooth sockets to anything outside the host's own network
+namespace, which an LXC container is, so BlueZ inside one cannot reach a radio however the adapter is passed in.
+The route being tested is a Bluetooth stack that drives a USB dongle directly instead of through the kernel:
+`tools/probe-bumble.py`. Until that lands as a backend, run AirScribe for real radios on a machine with its own
+Bluetooth ([installing.md](installing.md)).
+
+## Updating
+
+**Admin → Updates** installs a newer release in place ([updating.md](updating.md)). By hand, download the release's
+`.deb` into the container and:
+
+```sh
+apt-get install ./airscribe_<version>-1_all.deb
+```
+
+`/etc/airscribe/airscribe.config.json` and `/var/lib/airscribe` are kept. A `pct snapshot` first is cheap insurance.

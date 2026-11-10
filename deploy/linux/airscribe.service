@@ -1,0 +1,36 @@
+[Unit]
+Description=AirScribe radio transcription
+Documentation=https://gitlab.techidiots.net/techidiots-llc/airscribe
+After=network-online.target bluetooth.service
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=airscribe
+Group=airscribe
+WorkingDirectory=/opt/airscribe
+ExecStart=/usr/bin/node /opt/airscribe/src/index.js --config /etc/airscribe/airscribe.config.json
+# A radio dropping its link is normal, and restarting is how the session is rebuilt
+Restart=always
+RestartSec=5
+Environment=NODE_ENV=production
+
+# Read-only everywhere except its data folder. Not PrivateDevices: it would
+# hide the Bluetooth adapter and the GPU's render node. The groups those need
+# (bluetooth, render) are added to the user by the package when they exist.
+ReadWritePaths=/var/lib/airscribe
+NoNewPrivileges=true
+PrivateTmp=true
+ProtectSystem=strict
+ProtectHome=true
+ProtectKernelTunables=true
+ProtectKernelModules=true
+ProtectControlGroups=true
+RestrictSUIDSGID=true
+LockPersonality=true
+# AF_BLUETOOTH for the radios: leave it out and every socket to one fails with
+# a permission error that never mentions Bluetooth
+RestrictAddressFamilies=AF_UNIX AF_INET AF_INET6 AF_NETLINK AF_BLUETOOTH
+
+[Install]
+WantedBy=multi-user.target

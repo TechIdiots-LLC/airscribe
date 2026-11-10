@@ -1,0 +1,11 @@
+#!/bin/sh
+# Before removal or upgrade: stop the service (an upgrade starts it again in postinst). Stopping it releases the
+# radios cleanly, which a radio needs before it will take the same channel again.
+set -e
+if [ -d /run/systemd/system ]; then
+    systemctl stop airscribe.service || true
+    if [ "$1" = "remove" ]; then
+        systemctl disable airscribe.service >/dev/null || true
+    fi
+fi
+exit 0

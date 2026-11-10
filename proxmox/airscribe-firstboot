@@ -1,0 +1,78 @@
+#!/bin/bash
+# Makes this container's AirScribe its own: run once, at its first boot, before AirScribe starts
+# (airscribe-firstboot.service); can be run again by hand, then systemctl restart airscribe.
+#
+# Applies /etc/airscribe/firstboot.env (the port, and a password) to /etc/airscribe/airscribe.config.json. AirScribe
+# won't listen on the container's network without a credential, so when the settings have none and no
+# AIRSCRIBE_PASSWORD is given, it makes a password. Makes SSH host keys when the container has none, and writes where
+# to open AirScribe (and the password it made) to /root/airscribe-first-login.txt, readable by root only.
+set -euo pipefail
+# pct exec runs commands with a minimal PATH
+export PATH=/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin:$PATH
+
+PENDING=/etc/airscribe/firstboot-pending
+ENV_FILE=/etc/airscribe/firstboot.env
+CONFIG=/etc/airscribe/airscribe.config.json
+LOGIN_FILE=/root/airscribe-first-login.txt
+CONFIGURE=/opt/airscribe/tools/configure.mjs
+
+if [ -f "$ENV_FILE" ]; then
+    set -a
+    # shellcheck disable=SC1090
+    . "$ENV_FILE"
+    set +a
+fi
+
+# Proxmox makes SSH host keys when it creates the container; anything else that starts the template may not
+if [ -d /etc/ssh ] && ! ls /etc/ssh/ssh_host_*_key >/dev/null 2>&1; then
+    ssh-keygen -A >/dev/null
+fi
+
+port=${AIRSCRIBE_PORT:-8100}
+case "$port" in
+    '' | *[!0-9]*) echo "airscribe-firstboot: AIRSCRIBE_PORT must be a number, not '$port'" >&2; exit 1 ;;
+esac
+
+made=""
+if [ -n "${AIRSCRIBE_PASSWORD:-}" ]; then
+    export AIRSCRIBE_NEW_PASSWORD=$AIRSCRIBE_PASSWORD
+elif node "$CONFIGURE" "$CONFIG" --has-credential; then
+    unset AIRSCRIBE_NEW_PASSWORD
+else
+    # 24 characters a person can type: no 0/O or 1/l/I. A fixed read rather than tr on /dev/urandom into head,
+    # whose early close would end tr with SIGPIPE, which pipefail turns into this script failing.
+    made=$(head -c 1024 /dev/urandom | tr -dc 'abcdefghijkmnopqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789')
+    made=${made:0:24}
+    [ ${#made} -eq 24 ] || { echo "airscribe-firstboot: couldn't make a password" >&2; exit 1; }
+    export AIRSCRIBE_NEW_PASSWORD=$made
+fi
+args=(--port "$port")
+[ -n "${AIRSCRIBE_NEW_PASSWORD:-}" ] && args+=(--password-env AIRSCRIBE_NEW_PASSWORD)
+node "$CONFIGURE" "$CONFIG" "${args[@]}"
+unset AIRSCRIBE_NEW_PASSWORD
+chown root:airscribe "$CONFIG"
+chmod 0640 "$CONFIG"
+
+addresses=$(hostname -I 2>/dev/null | tr ' ' '\n' | grep -v '^$' | grep -v ':' || true)
+umask 077
+{
+    echo "AirScribe is running in this container, on port $port:"
+    for a in $addresses; do echo "  http://$a:$port/"; done
+    echo
+    if [ -n "$made" ]; then
+        echo "Sign in with this password, made at the first boot:"
+        echo
+        echo "  $made"
+        echo
+        echo "To change it: set AIRSCRIBE_PASSWORD in /etc/airscribe/firstboot.env, run airscribe-firstboot, then"
+        echo "systemctl restart airscribe."
+    else
+        echo "Sign in with the password set in /etc/airscribe/firstboot.env, or the one already in the settings."
+    fi
+    echo
+    echo "Settings: $CONFIG (then systemctl restart airscribe). Logs: journalctl -u airscribe"
+    echo "Radios over Bluetooth and transcription on the host's GPU need the container set up for them:"
+    echo "docs/proxmox.md in the repository, or /usr/share/doc/airscribe/docs/proxmox.md."
+} > "$LOGIN_FILE"
+rm -f "$PENDING"
+echo "airscribe-firstboot: done; see $LOGIN_FILE"

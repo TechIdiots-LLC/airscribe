@@ -1,0 +1,22 @@
+{
+  "_readme": "AirScribe's settings for the .deb install. Every key is described in airscribe.config.json.sample in /opt/airscribe and in /usr/share/doc/airscribe. After a change: systemctl restart airscribe. A non-loopback host needs auth.passwordHash (node /opt/airscribe/tools/make-password.mjs) or auth.tokens.",
+  "host": "127.0.0.1",
+  "port": 8100,
+  "dataDir": "/var/lib/airscribe",
+
+  "auth": {
+    "username": null,
+    "passwordHash": null,
+    "tokens": []
+  },
+
+  "sidecar": {
+    "python": "python3",
+    "backend": "bluez"
+  },
+
+  "_stt": "The mock engine labels every clip as a mock transcript. Set up a real one from docs/transcription.md.",
+  "stt": {
+    "engine": "mock"
+  }
+}

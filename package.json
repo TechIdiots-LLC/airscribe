@@ -36,7 +36,6 @@
     "node": "^22.13.0 || 24"
   },
   "dependencies": {
-    "airscribe": "file:",
     "express": "^5.2.1"
   },
   "publishConfig": {
