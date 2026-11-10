@@ -220,8 +220,9 @@ journalctl -u airscribe -f
 
 ## Using an Intel GPU
 
-Only for the `openvino` engine; see [transcription.md](transcription.md#openvino-intel-gpus)
-for the driver and the model. The service account needs the render node:
+For the `openvino` engine, or whisper.cpp built with Vulkan; see
+[transcription.md](transcription.md#using-an-intel-gpu) for the drivers and the
+models. The service account needs the render node:
 
 ```sh
 sudo usermod -aG render airscribe

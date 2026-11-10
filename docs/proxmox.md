@@ -62,8 +62,8 @@ pct reboot 140
 ```
 
 Several containers can map the same render node and use the card at once, so a media server can keep transcoding on
-it. The package adds the service account to `render`. Then install the compute driver and the `openvino` engine as
-[transcription.md](transcription.md#openvino-intel-gpus) describes.
+it. The package adds the service account to `render`. Then set up OpenVINO or whisper.cpp with Vulkan as
+[transcription.md](transcription.md#using-an-intel-gpu) describes.
 
 ## Radios over Bluetooth
 

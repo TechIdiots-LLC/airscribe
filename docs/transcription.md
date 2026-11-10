@@ -139,11 +139,30 @@ The files inside are named after the model, so they are matched by shape
 rather than by name. An ambiguous match is reported rather than guessed at,
 because the wrong encoder produces gibberish instead of an error.
 
-## OpenVINO (Intel GPUs)
+## Using an Intel GPU
 
-sherpa-onnx's published packages run on the CPU or on CUDA, so an Intel Arc
-card needs a different engine. OpenVINO GenAI runs Whisper and SenseVoice on
-one, through the same kind of warm worker.
+sherpa-onnx's published packages run on the CPU or on CUDA, and ONNX Runtime
+has no Vulkan backend, so an Intel Arc card needs one of two other routes.
+Neither has been run on a real card yet; the plan is to try both on the same
+clips and keep whichever reads them better.
+
+| | [OpenVINO](#openvino) | [whisper.cpp built with Vulkan](#whispercpp-on-a-gpu-vulkan) |
+| --- | --- | --- |
+| engine | `openvino` | `whisper-cpp` |
+| driver | Intel's compute runtime, `intel-opencl-icd` | Mesa's Vulkan driver, `mesa-vulkan-drivers` |
+| install | a Python venv with `openvino-genai` | whisper.cpp built from source |
+| models | OpenVINO IR: every Whisper size ready-made, SenseVoice by export | ggml files, Whisper only |
+| model kept loaded | yes, by a warm worker | no: loaded again for every clip |
+
+Both reach the card through its render node, so the service account needs the
+`render` group and a container needs the node mapped in; see
+[installing.md](installing.md#using-an-intel-gpu). Several containers can share
+the card, so a media server can keep transcoding on it.
+
+## OpenVINO
+
+OpenVINO GenAI runs Whisper and SenseVoice on an Intel GPU, through the same
+kind of warm worker as sherpa-onnx.
 
 ```json
 "stt": {
@@ -331,6 +350,41 @@ curl -X POST -H 'authorization: Bearer <token>'   'http://localhost:8100/api/tra
 
 One process per clip, so it pays the model load every time. Fine for light
 traffic, and it is what the HTCommander fork's C# version used.
+
+`-nt` and `-np` are added; `language` becomes `-l`.
+
+### whisper.cpp on a GPU (Vulkan)
+
+whisper.cpp built with its Vulkan backend runs on an Intel Arc card through
+Mesa's ordinary Vulkan driver, with no Intel runtime to install. It uses the
+GPU by default; nothing in the engine's config changes. Ubuntu 24.04 has no
+whisper.cpp package, so build it:
+
+```sh
+sudo apt install build-essential cmake git libvulkan-dev glslc spirv-headers \
+  mesa-vulkan-drivers vulkan-tools
+git clone https://github.com/ggml-org/whisper.cpp && cd whisper.cpp
+cmake -B build -DGGML_VULKAN=1 -DCMAKE_BUILD_TYPE=Release
+cmake --build build -j --config Release
+sudo cmake --install build --prefix /usr/local && sudo ldconfig     # whisper-cli, whisper-server
+sudo install -d -o airscribe -g airscribe /var/lib/airscribe/models
+sudo -u airscribe curl -fL -o /var/lib/airscribe/models/ggml-base.en.bin \
+  https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-base.en.bin
+```
+
+Then check, as the service's account, that Vulkan sees the card itself:
+
+```sh
+sudo -u airscribe vulkaninfo --summary | grep deviceName
+```
+
+`llvmpipe` alone means Vulkan cannot reach the card (a missing `render` group
+or render node). whisper.cpp skips that software device, says
+`whisper_backend_init_gpu: no GPU found`, and runs on the CPU.
+
+**Each clip loads the model again**, which on a GPU also means copying it to
+the card and setting Vulkan up, and on short clips that can cost more than the
+GPU saves. Measure before relying on it.
 
 ## command
 
