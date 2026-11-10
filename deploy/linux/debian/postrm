@@ -5,7 +5,8 @@ if [ -d /run/systemd/system ]; then
     systemctl daemon-reload || true
 fi
 if [ "$1" = "purge" ]; then
-    rm -rf /var/lib/airscribe /etc/airscribe
+    rm -rf /var/lib/airscribe /etc/airscribe /var/cache/airscribe-update
+    rm -f /var/log/airscribe-update.log
     if getent passwd airscribe >/dev/null; then
         userdel airscribe >/dev/null 2>&1 || true
     fi

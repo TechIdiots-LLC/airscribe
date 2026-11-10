@@ -1,0 +1,13 @@
+[Unit]
+Description=Update AirScribe to the release asked for in Admin → Updates
+Documentation=https://gitlab.techidiots.net/techidiots-llc/airscribe/-/blob/main/docs/updating.md
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=oneshot
+# root: it installs a package. Started by airscribe-update.path; it stops and starts airscribe.service itself
+# (through the package's scripts), so it isn't part of it.
+User=root
+ExecStart=/usr/lib/airscribe/airscribe-update
+TimeoutStartSec=30min

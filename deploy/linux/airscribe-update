@@ -1,0 +1,182 @@
+#!/bin/bash
+# Updates AirScribe to the release an admin picked in Admin → Updates. Installed by the .deb as
+# /usr/lib/airscribe/airscribe-update and run as root by airscribe-update.service, which airscribe-update.path starts
+# when AirScribe writes /var/lib/airscribe/update/request (the service itself can't install anything). MediaRiffle's
+# deploy/linux/mediariffle-update, adapted.
+#
+# The request names only a version; this downloads that release's .deb and SHA256SUMS from the project's own address,
+# checks the .deb against them, and installs it with apt-get (which keeps /etc/airscribe/airscribe.config.json and
+# fetches any new dependency), having saved the database. It then waits for the new version to start (it writes its
+# version to update/running) and, if it doesn't, puts the database back and installs the old version's .deb again.
+# Never an older version than the one installed. How it goes is in update/status.json, for Admin, and in
+# /var/log/airscribe-update.log.
+#
+#   airscribe-update            do the update asked for, if any
+set -u
+umask 022
+
+DIR=/var/lib/airscribe/update
+REQUEST=$DIR/request
+STATUS=$DIR/status.json
+RUNNING=$DIR/running
+WORK=/var/cache/airscribe-update
+LOG=/var/log/airscribe-update.log
+CONFIG=/etc/airscribe/airscribe.config.json
+START_SECONDS=${AIRSCRIBE_UPDATE_START_SECONDS:-180}
+
+mkdir -p "$WORK" && chmod 0700 "$WORK"
+exec 9>"$WORK/lock"
+flock -n 9 || exit 0
+exec > >(tee -a "$LOG") 2>&1
+
+say() { echo "$(date '+%F %T') $*"; }
+
+ID="" VERSION="" FROM="" STATE=""
+# status.json for Admin: written beside the request in the service's folder, so never through a link it put there
+status() {
+    STATE=$1
+    local msg tmp
+    msg=$(printf '%s' "$2" | sed 's/\\/\\\\/g; s/"/\\"/g' | tr -d '\000-\037')
+    tmp=$(mktemp "$DIR/.status.XXXXXX") || return
+    printf '{"id":"%s","version":"%s","from":"%s","state":"%s","message":"%s","updatedUtc":"%s","log":"%s"}\n' \
+        "$ID" "$VERSION" "$FROM" "$STATE" "$msg" "$(date -u +%FT%TZ)" "$LOG" > "$tmp"
+    chmod 0644 "$tmp"
+    mv -f "$tmp" "$STATUS"
+    say "$STATE: $2"
+}
+
+# The folder is the service's: a link put in its place isn't followed
+[ -d "$DIR" ] && [ ! -L "$DIR" ] || exit 0
+[ -f "$REQUEST" ] && [ ! -L "$REQUEST" ] || exit 0
+request=$(head -c 1024 "$REQUEST")
+rm -f "$REQUEST"
+field() { printf '%s\n' "$request" | sed -n "s/^$1=\\(.*\\)\$/\\1/p" | head -1 | tr -d '\r'; }
+ID=$(field id | tr -cd '0-9a-f' | head -c 32)
+VERSION=$(field version)
+
+say "Request $ID: AirScribe $VERSION"
+if ! [[ $VERSION =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?$ ]]; then
+    VERSION=""
+    status failed "The request didn't name a version."
+    exit 1
+fi
+base="https://gitlab.techidiots.net/techidiots-llc/airscribe/-/releases/v$VERSION/downloads"
+# For testing the updater against a local copy of releases (http://host/v@VERSION@): set only by whoever runs it as
+# root, never from the request
+[ -n "${AIRSCRIBE_UPDATE_URL:-}" ] && base=${AIRSCRIBE_UPDATE_URL//@VERSION@/$VERSION}
+installed=$(dpkg-query -W -f='${Version}' airscribe 2>/dev/null)
+if [ -z "$installed" ]; then
+    status failed "AirScribe isn't installed from its .deb here."
+    exit 1
+fi
+FROM=$(printf '%s' "${installed%-*}" | tr '~' '-')
+target="${VERSION/-/\~}-1"
+if ! dpkg --compare-versions "$target" gt "$installed"; then
+    status failed "$VERSION isn't newer than the installed $FROM."
+    exit 1
+fi
+deb="airscribe_${target}_all.deb"
+
+# Downloads one file of a release into $WORK/<version>/
+fetch() {   # <base url> <version> <file>
+    mkdir -p "$WORK/$2"
+    curl -fsSL --retry 3 --connect-timeout 20 -o "$WORK/$2/$3" "$1/$3"
+}
+# Checks a downloaded file against its release's SHA256SUMS
+verify() {  # <version> <file>
+    local want got
+    want=$(awk -v f="$2" '$2 == f || $2 == "*" f { print $1; exit }' "$WORK/$1/SHA256SUMS")
+    got=$(sha256sum "$WORK/$1/$2" | awk '{ print $1 }')
+    [ -n "$want" ] && [ "$want" = "$got" ]
+}
+
+rm -rf "${WORK:?}"/*/
+status downloading "Downloading AirScribe $VERSION ($deb)."
+if ! fetch "$base" "$VERSION" SHA256SUMS || ! fetch "$base" "$VERSION" "$deb"; then
+    status failed "Couldn't download $deb and SHA256SUMS of $VERSION from $base."
+    exit 1
+fi
+if ! verify "$VERSION" "$deb"; then
+    status failed "The downloaded $deb doesn't match the release's SHA256SUMS: not installed."
+    exit 1
+fi
+
+# The installed version's .deb, to go back to if the new one doesn't start, checked against its SHA256SUMS
+old_base=${base//v$VERSION/v$FROM}
+old_deb="airscribe_${installed}_all.deb"
+old=""
+if fetch "$old_base" "$FROM" "$old_deb"; then
+    if fetch "$old_base" "$FROM" SHA256SUMS && ! verify "$FROM" "$old_deb"; then
+        say "The $FROM .deb doesn't match its SHA256SUMS: no going back to it"
+    else
+        old="$WORK/$FROM/$old_deb"
+    fi
+else
+    say "Couldn't download $old_deb: no going back to $FROM if $VERSION doesn't start"
+fi
+
+# The database, saved before the new version can change it and put back with the old one (an older version can't
+# be trusted with a database a newer one has upgraded). Where it is: dataDir in the settings file, which only root
+# can change. Clips aren't touched by an update, so they aren't copied.
+data=$(node -e 'try { process.stdout.write(String(JSON.parse(require("fs").readFileSync(process.argv[1], "utf8")).dataDir || "")) } catch {}' "$CONFIG" 2>/dev/null)
+case "$data" in /*) ;; *) data=/var/lib/airscribe ;; esac
+db=$data/airscribe.sqlite
+save_db() {
+    rm -rf "$WORK/db" && mkdir -p "$WORK/db"
+    [ -f "$db" ] || { say "No database at $db to save"; return 0; }
+    local f
+    for f in "$db" "$db-wal" "$db-shm"; do [ -f "$f" ] && cp -p "$f" "$WORK/db/"; done
+    say "Saved $db"
+}
+restore_db() {
+    [ -f "$WORK/db/airscribe.sqlite" ] || return 0
+    systemctl stop airscribe.service
+    rm -f "$db" "$db-wal" "$db-shm"
+    cp -p "$WORK/db/"* "$(dirname "$db")/"
+    say "Put back $db as it was before the update"
+}
+
+install_deb() {   # [--reinstall] <.deb>: apt-get fetches what it newly depends on; a stale package list is refreshed once
+    local args=(-y -q -o Dpkg::Options::=--force-confold --allow-downgrades "$@")
+    DEBIAN_FRONTEND=noninteractive apt-get install "${args[@]}" && return 0
+    apt-get update -q && DEBIAN_FRONTEND=noninteractive apt-get install "${args[@]}"
+}
+started() {   # <version>: it wrote its version and the service is up
+    local i
+    for ((i = 0; i < START_SECONDS; i += 3)); do
+        if [ "$(head -c 64 "$RUNNING" 2>/dev/null | tr -d '[:space:]')" = "$1" ] && systemctl is-active --quiet airscribe.service; then
+            return 0
+        fi
+        sleep 3
+    done
+    return 1
+}
+go_back() {   # <why>
+    if [ -z "$old" ]; then
+        status failed "$1 The old version's .deb couldn't be downloaded to go back to; see $LOG."
+        exit 1
+    fi
+    status rolling_back "$1 Putting $FROM back."
+    rm -f "$RUNNING"
+    restore_db
+    # Reinstalled even when apt thinks it's there (an install that stopped part way), so it's started again
+    if install_deb --reinstall "$old" && started "$FROM"; then
+        status rolled_back "$1 $FROM was put back; see $LOG."
+    else
+        status failed "$1 Putting $FROM back failed too; see $LOG."
+    fi
+    exit 1
+}
+
+status installing "Installing AirScribe $VERSION; the server restarts."
+rm -f "$RUNNING"
+# Stopped first, so the database is saved as it was left and the radios are released (the package's scripts start it
+# again)
+systemctl stop airscribe.service
+save_db
+install_deb "$WORK/$VERSION/$deb" || go_back "Installing $VERSION failed."
+status checking "Waiting for AirScribe $VERSION to start."
+started "$VERSION" || go_back "AirScribe $VERSION didn't start within $START_SECONDS seconds."
+status "done" "Updated from $FROM to $VERSION."
+rm -rf "${WORK:?}"/*/
+exit 0

@@ -7,7 +7,8 @@
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
-<header><h1>AirScribe</h1><span id="conn" class="pill">connecting…</span></header>
+<header><h1>AirScribe</h1><span id="conn" class="pill">connecting…</span>
+  <span class="spacer"></span><button id="admin-toggle" hidden>Admin</button></header>
 <section id="signin" hidden>
   <h2>Sign in</h2>
   <div id="signin-body"></div>
@@ -31,6 +32,14 @@
     <ul id="feed"></ul>
   </section>
 </main>
+<section id="admin" hidden>
+  <div class="row"><h2>Admin</h2></div>
+  <div class="panel">
+    <div class="row"><h3>Updates</h3><button id="updates-check">Check now</button></div>
+    <div id="updates"><p class="meta">Loading…</p></div>
+  </div>
+</section>
 <script src="app.js" type="module"></script>
+<script src="admin.js" type="module"></script>
 </body>
 </html>

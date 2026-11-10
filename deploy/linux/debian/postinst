@@ -23,6 +23,8 @@ if [ "$1" = "configure" ]; then
         systemctl daemon-reload
         systemctl enable airscribe.service >/dev/null
         systemctl restart airscribe.service || true
+        # Admin -> Updates: starts the updater when AirScribe asks for an update
+        systemctl enable --now airscribe-update.path >/dev/null 2>&1 || true
     fi
     echo "AirScribe is running on the address in /etc/airscribe/airscribe.config.json (http://127.0.0.1:8100 by default)."
 fi

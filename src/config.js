@@ -24,6 +24,9 @@ const DEFAULTS = {
   // A dropped radio is retried, the wait doubling to this ceiling.
   reconnect: { baseMs: 5000, maxMs: 300000 },
   stt: { engine: 'mock' },
+  // Admin → Updates: how often to look for a release (0: only when asked),
+  // and whether pre-releases are offered. See docs/updating.md.
+  updates: { checkHours: 12, prereleases: false },
 };
 
 /**

@@ -25,6 +25,8 @@ npm run simulate        # fake radio + mock transcriber, no hardware needed
 | Segmenting audio into one clip per transmission | working; replaying a real 3-transmission capture yields 3 clips |
 | Pluggable transcription: sherpa-onnx, whisper.cpp, any command, mock | working; not yet run against a real model |
 | Intel GPU transcription through OpenVINO | run against real models on a CPU; not yet on a GPU |
+| Proxmox LXC template and .deb, built and boot-tested by GitLab CI | working; radios over Bluetooth not yet inside a container, see [docs/proxmox.md](docs/proxmox.md) |
+| Admin → Updates: install a newer release from the browser | working against local releases; see [docs/updating.md](docs/updating.md) |
 | Radio registry, keyed by MAC, HTCommander model table | working |
 | Python sidecar protocol + simulator | working, tested end to end |
 | Real radio link (BlueZ RFCOMM control + SBC audio) | working — connects, decodes audio and disconnects cleanly against a real UV-Pro |
@@ -33,7 +35,8 @@ npm run simulate        # fake radio + mock transcriber, no hardware needed
 | Public page, delayed publishing, RSS | design only, see [docs/publishing.md](docs/publishing.md) |
 | Digital modes (AFSK/IRC/file transfer) | design only, see [docs/digital-modes.md](docs/digital-modes.md) |
 
-Documentation: [installing](docs/installing.md) · [testing](docs/testing.md) ·
+Documentation: [installing](docs/installing.md) · [Proxmox template](docs/proxmox.md) ·
+[updating](docs/updating.md) · [testing](docs/testing.md) ·
 [publishing](docs/publishing.md) ·
 [segmentation](docs/segmentation.md) ·
 [transcription](docs/transcription.md) · [Bluetooth link](docs/bluetooth.md) ·

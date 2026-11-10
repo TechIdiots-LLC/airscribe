@@ -115,7 +115,7 @@ install -m 0644 "$here/firstboot.env" "$root/etc/airscribe/firstboot.env"
 touch "$root/etc/airscribe/firstboot-pending"
 # Enabled without a running systemd (systemctl works on the files in a chroot). The container has no Bluetooth
 # adapter of its own, so BlueZ's daemon isn't started unless one is given to it.
-in_root systemctl enable airscribe.service airscribe-firstboot.service
+in_root systemctl enable airscribe.service airscribe-firstboot.service airscribe-update.path
 in_root systemctl disable bluetooth.service >/dev/null 2>&1 || true
 
 cat > "$root/etc/motd" <<'MOTD'

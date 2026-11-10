@@ -51,6 +51,17 @@ audio { width: 100%; height: 32px; }
 .export { color: var(--accent); font-size: 13px; text-decoration: none; border: 1px solid var(--line); border-radius: 6px; padding: 5px 10px; white-space: nowrap; }
 .export:hover { border-color: var(--accent); }
 .actions { display: flex; gap: 6px; margin-top: 6px; }
+.spacer { flex: 1; }
+#admin { max-width: 900px; margin: 0 auto; padding: 16px; }
+.panel { border: 1px solid var(--line); border-radius: 8px; padding: 12px 16px; margin-bottom: 16px; }
+.panel h3 { flex: 1; margin: 0; font-size: 15px; color: var(--fg); }
+.panel a, #admin a { color: var(--accent); }
+.notes { white-space: pre-wrap; font-size: 13px; margin: 8px 0; max-height: 18em; overflow: auto; }
+.notice { border: 1px solid var(--line); border-left: 3px solid var(--accent); border-radius: 6px; padding: 8px 10px; margin: 8px 0; }
+.notice.done, .notice.rolled_back { border-left-color: var(--ok); }
+.notice.failed { border-left-color: var(--bad); }
+.notice.rolling_back { border-left-color: var(--warn); }
+button:disabled { opacity: .5; cursor: default; }
 #signin { max-width: 460px; margin: 48px auto; padding: 0 16px; }
 #signin h2 { margin-bottom: 8px; }
 #signin input { flex: 1; min-width: 0; }

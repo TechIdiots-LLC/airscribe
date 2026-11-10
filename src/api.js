@@ -101,9 +101,10 @@ const PUBLIC_CLIP = /^\/public\/transmissions\/\d+\/(audio|text)$/;
  * @param {import('./sidecar.js').Sidecar} o.sidecar - Bluetooth helper.
  * @param {object} o.config - The whole config, for auth and the port split.
  * @param {string} o.dataDir - Data directory (clips live under it).
+ * @param {import('./updates.js').Updates} [o.updates] - Admin → Updates.
  * @returns {import('express').Express} The app.
  */
-export function createApp({ manager, store, sidecar, config, dataDir }) {
+export function createApp({ manager, store, sidecar, config, dataDir, updates }) {
   const app = express();
   const auth = createAuth(config);
   app.use(express.json({ limit: '32kb' }));
@@ -367,6 +368,26 @@ export function createApp({ manager, store, sidecar, config, dataDir }) {
     // hides it.
     res.type('text/plain').attachment(`${stem}.txt`).send(describe(t, scripts));
   });
+
+  // ---- Admin → Updates ------------------------------------------------
+  // Admins only, and never on the public listener (not in PUBLIC_API). The
+  // install only names a version; the updater fetches and checks the rest.
+  if (updates) {
+    api.get('/admin/updates', auth.requireRole('admin'), (req, res) => res.json(updates.report()));
+    api.post(
+      '/admin/updates/check',
+      auth.requireRole('admin'),
+      wrap(async (req, res) => {
+        await updates.check();
+        res.json(updates.report());
+      }),
+    );
+    api.post('/admin/updates/install', auth.requireRole('admin'), (req, res) => {
+      const error = updates.request(String(req.body?.version ?? ''));
+      if (error) return res.status(400).json({ error });
+      res.json(updates.report());
+    });
+  }
 
   api.get('/events', (req, res) => {
     res.set({ 'Content-Type': 'text/event-stream', 'Cache-Control': 'no-cache', Connection: 'keep-alive' });

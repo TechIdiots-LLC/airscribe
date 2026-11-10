@@ -6,6 +6,7 @@ if [ -d /run/systemd/system ]; then
     systemctl stop airscribe.service || true
     if [ "$1" = "remove" ]; then
         systemctl disable airscribe.service >/dev/null || true
+        systemctl disable --now airscribe-update.path >/dev/null 2>&1 || true
     fi
 fi
 exit 0

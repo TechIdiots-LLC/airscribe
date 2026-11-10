@@ -7,6 +7,7 @@ import { Sidecar } from './sidecar.js';
 import { Manager } from './manager.js';
 import { createEngines } from './stt/index.js';
 import { createApp } from './api.js';
+import { Updates, VERSION } from './updates.js';
 
 const args = process.argv.slice(2);
 const flag = (n) => args.includes(n);
@@ -55,7 +56,10 @@ const manager = new Manager({
 });
 sidecar.start();
 
-const app = createApp({ manager, store, sidecar, config, dataDir: config.dataDir });
+console.log(`AirScribe ${VERSION}`);
+const updates = new Updates({ config: config.updates });
+updates.start();
+const app = createApp({ manager, store, sidecar, config, dataDir: config.dataDir, updates });
 
 // Two listeners in front of one app when adminPort is set: the public one
 // serves only the public surface, and the admin one everything. Binding the
@@ -67,13 +71,17 @@ if (config.adminPort) {
   servers.push(app.listen(config.adminPort, adminHost, () =>
     console.log(`airscribe admin on http://${adminHost}:${config.adminPort}`)));
 }
-servers.push(app.listen(config.port, config.host, () =>
+servers.push(app.listen(config.port, config.host, () => {
   console.log(
     `airscribe ${config.adminPort ? 'public surface' : ''} on ` +
       `http://${config.host}:${config.port} (${config.sidecar.backend})`,
-  )));
+  );
+  // Listening is what an updater waiting on this version needs to see
+  updates.markRunning();
+}));
 
 const shutdown = () => {
+  updates.stop();
   manager.stopRetrying();
   sidecar.stop();
   for (const e of engines.values()) e.stop?.(); // release any held workers

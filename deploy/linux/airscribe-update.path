@@ -1,0 +1,10 @@
+[Unit]
+Description=Watch for an update asked for in Admin → Updates
+
+[Path]
+# AirScribe writes this; airscribe-update removes it as it starts
+PathExists=/var/lib/airscribe/update/request
+Unit=airscribe-update.service
+
+[Install]
+WantedBy=multi-user.target

@@ -47,6 +47,10 @@ rm -f "$app/package-lock.json"
 find "$app" -name '__pycache__' -prune -exec rm -rf {} +
 
 install -D -m 0644 "$linux/airscribe.service" "$pkg/usr/lib/systemd/system/airscribe.service"
+# Admin -> Updates: the updater, run as root when the service asks (docs/updating.md)
+install -D -m 0755 "$linux/airscribe-update" "$pkg/usr/lib/airscribe/airscribe-update"
+install -D -m 0644 "$linux/airscribe-update.path" "$pkg/usr/lib/systemd/system/airscribe-update.path"
+install -D -m 0644 "$linux/airscribe-update.service" "$pkg/usr/lib/systemd/system/airscribe-update.service"
 install -D -m 0640 "$linux/airscribe.config.json" "$pkg/etc/airscribe/airscribe.config.json"
 
 doc=$pkg/usr/share/doc/airscribe
