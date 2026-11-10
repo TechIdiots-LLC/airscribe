@@ -148,11 +148,11 @@ clips and keep whichever reads them better.
 
 | | [OpenVINO](#openvino) | [whisper.cpp built with Vulkan](#whispercpp-on-a-gpu-vulkan) |
 | --- | --- | --- |
-| engine | `openvino` | `whisper-cpp` |
+| engine | `openvino` | `whisper-server` (or `whisper-cpp`) |
 | driver | Intel's compute runtime, `intel-opencl-icd` | Mesa's Vulkan driver, `mesa-vulkan-drivers` |
 | install | a Python venv with `openvino-genai` | whisper.cpp built from source |
 | models | OpenVINO IR: every Whisper size ready-made, SenseVoice by export | ggml files, Whisper only |
-| model kept loaded | yes, by a warm worker | no: loaded again for every clip |
+| model kept loaded | yes, by a warm worker | with `whisper-server`; `whisper-cpp` loads it for every clip |
 
 Both reach the card through its render node, so the service account needs the
 `render` group and a container needs the node mapped in; see
@@ -382,9 +382,55 @@ sudo -u airscribe vulkaninfo --summary | grep deviceName
 or render node). whisper.cpp skips that software device, says
 `whisper_backend_init_gpu: no GPU found`, and runs on the CPU.
 
-**Each clip loads the model again**, which on a GPU also means copying it to
-the card and setting Vulkan up, and on short clips that can cost more than the
-GPU saves. Measure before relying on it.
+The `whisper-cpp` engine loads the model again for every clip, which on a GPU
+also means copying it to the card and setting Vulkan up; on short clips that
+can cost more than the GPU saves. Use `whisper-server` instead.
+
+## whisper-server
+
+whisper.cpp's server loads the model once and keeps it. AirScribe starts it on
+the first clip, on a free loopback port, and posts each clip to it; if it
+dies, that clip fails and the next one starts it again, as the Python workers
+do.
+
+```json
+"stt": {
+  "engine": "whisper-server",
+  "whisper-server": {
+    "model": "/var/lib/airscribe/models/ggml-base.en.bin",
+    "language": "en",
+    "args": ["-t", "4"]
+  }
+}
+```
+
+| key | default | |
+| --- | --- | --- |
+| `model` | required, unless `url` | a ggml model file |
+| `language` | the server's, `en` | sent with each clip; `auto` for a multilingual model to detect it |
+| `args` | none | more of the server's options, applied to every clip: `-t` threads, `-nth` the no-speech threshold, `--vad -vm <model>` voice detection |
+| `binary` | `whisper-server` | the program |
+| `binaryArgs` | none | arguments before the server's own, for a wrapper: `"binary": "nice", "binaryArgs": ["-n", "10", "whisper-server"]` |
+| `port` | a free one | the loopback port it listens on |
+| `startSeconds` | `300` | how long loading may take |
+| `timeoutSeconds` | `120` | how long one clip may take |
+| `url` | none | use a whisper-server already running instead of starting one |
+
+**Check where it landed.** The first clip logs the server's own device lines:
+
+```
+[stt] whisper-server: whisper_init_with_params_no_state: use gpu    = 1
+[stt] whisper-server: whisper_backend_init_gpu: no GPU found
+```
+
+`no GPU found` from a Vulkan build means it is on the CPU; see the check
+above. A model that won't load fails the clip with the server's last lines of
+output.
+
+**It has no password.** It listens on loopback only, but anything on the same
+machine can use it, including its `/load`, which swaps the model. That suits a
+container that runs only AirScribe. A server given with `url` is yours to run:
+keep it off the network.
 
 ## command
 

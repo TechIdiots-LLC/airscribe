@@ -1,6 +1,7 @@
 import { spawn } from 'node:child_process';
 import { SherpaEngine } from './sherpa.js';
 import { OpenVinoEngine } from './openvino.js';
+import { WhisperServerEngine } from './whisper-server.js';
 
 /**
  * A speech-to-text engine turns a WAV file (16 kHz mono) into text.
@@ -71,8 +72,14 @@ const ENGINES = {
     },
   }),
 
-  /** OpenVINO GenAI, which is what can use an Intel GPU. See src/stt/openvino.js. */
+  /** OpenVINO GenAI, for an Intel GPU. See src/stt/openvino.js. */
   openvino: (c) => new OpenVinoEngine(c),
+
+  /**
+   * whisper.cpp's server, which keeps the model loaded: the way to run a
+   * Vulkan build on a GPU. See src/stt/whisper-server.js.
+   */
+  'whisper-server': (c) => new WhisperServerEngine(c),
 };
 
 /**

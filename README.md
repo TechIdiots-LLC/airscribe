@@ -23,8 +23,8 @@ npm run simulate        # fake radio + mock transcriber, no hardware needed
 | --- | --- |
 | Web UI: radios, live status, transcript feed, search, downloads | working (against the simulator) |
 | Segmenting audio into one clip per transmission | working; replaying a real 3-transmission capture yields 3 clips |
-| Pluggable transcription: sherpa-onnx, whisper.cpp, any command, mock | working; not yet run against a real model |
-| Intel GPU transcription through OpenVINO | run against real models on a CPU; not yet on a GPU |
+| Pluggable transcription: sherpa-onnx, whisper.cpp (per clip or a warm whisper-server), any command, mock | working; not yet run against a real model |
+| Intel GPU transcription through OpenVINO or whisper.cpp's Vulkan backend | run against real models on a CPU; not yet on a GPU |
 | Proxmox LXC template and .deb, built and boot-tested by GitLab CI | working; radios over Bluetooth not yet inside a container, see [docs/proxmox.md](docs/proxmox.md) |
 | Admin → Updates: install a newer release from the browser | working against local releases; see [docs/updating.md](docs/updating.md) |
 | Radio registry, keyed by MAC, HTCommander model table | working |
@@ -58,7 +58,8 @@ on older Node. Neither suite needs a radio or a speech model.
 - `ffmpeg` with the SBC decoder, to turn the radio's audio into PCM
 - For transcription: `pip install sherpa-onnx` and a model — see
   [docs/transcription.md](docs/transcription.md). whisper.cpp and any
-  transcript-printing command also work, and OpenVINO runs on an Intel GPU.
+  transcript-printing command also work, and OpenVINO or whisper.cpp built
+  with Vulkan runs on an Intel GPU.
 
 ## Configuration
 

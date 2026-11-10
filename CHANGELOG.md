@@ -15,6 +15,9 @@
 - **Transcription on an Intel GPU:** the `openvino` engine runs Whisper and SenseVoice through OpenVINO GenAI on an
   Intel Arc card, and moves to the CPU, saying so in the log, when the GPU won't load the model
   (docs/transcription.md).
+- **`whisper-server` engine:** runs whisper.cpp's server, which loads the model once and keeps it, instead of
+  whisper-cli for every clip. With whisper.cpp built for Vulkan, it is the second way onto an Intel GPU, through
+  Mesa's driver rather than Intel's runtime (docs/transcription.md).
 - **`tools/probe-bumble.py`:** reaches a radio through Bumble, a Bluetooth stack in Python that drives a USB dongle
   directly, to find out whether the radio link can work on Windows and in a container without the system's
   Bluetooth.
