@@ -40,10 +40,14 @@
     <div class="row">
       <h2>Transmissions</h2>
       <select id="filter-radio"><option value="">All radios</option></select>
-      <input id="search" type="search" placeholder="Search text…">
+      <input id="search" type="search" placeholder="Search all transmissions…">
       <a id="export" class="export" download>Export</a>
     </div>
     <ul id="feed"></ul>
+    <div class="row feed-foot">
+      <span id="feed-count" class="meta"></span>
+      <button id="feed-more" hidden>Load older</button>
+    </div>
   </section>
 </main>
 <section id="admin" hidden>

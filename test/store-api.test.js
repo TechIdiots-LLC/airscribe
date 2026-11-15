@@ -99,3 +99,56 @@ test('a radio can be renamed, but not to nothing', { skip: !sqlite }, async () =
     server.close();
   }
 });
+
+test('the feed pages by key: every transmission once, newest first, with a total', { skip: !sqlite }, async () => {
+  const { Store } = await import('../src/store.js');
+  const { createApp } = await import('../src/api.js');
+  const { EventEmitter } = await import('node:events');
+  const store = new Store(':memory:', 'base');
+  store.saveRadio({ mac: '38:D2:00:01:56:51', name: 'Fire dispatch', model: 'uv-pro' });
+  // Seven clips; 4 and 5 start in the same millisecond, as two radios can
+  const at = [1000, 2000, 3000, 4000, 4000, 5000, 6000];
+  const ids = at.map((startedAt, i) => {
+    const id = store.addTransmission({ mac: '38:D2:00:01:56:51', startedAt, durationMs: 900, audioFile: `${i}.wav` });
+    store.saveTranscript(id, 'base', { status: 'done', text: i % 2 ? 'engine fire on Main Street' : 'copy' });
+    return id;
+  });
+  const manager = Object.assign(new EventEmitter(), { radios: () => store.radios() });
+  const app = createApp({ manager, store, sidecar: {}, config: { host: '127.0.0.1', auth: { tokens: ['secret'] } }, dataDir: '.' });
+  const server = app.listen(0, '127.0.0.1');
+  await new Promise((r) => server.once('listening', r));
+  const base = `http://127.0.0.1:${server.address().port}/api/transmissions`;
+  const get = (qs) => fetch(`${base}?${qs}`, { headers: { authorization: 'Bearer secret' } });
+  try {
+    const seen = [];
+    let before = '';
+    for (let page = 0; page < 5; page++) {
+      const res = await get(`limit=3${before ? `&before=${before}` : ''}`);
+      assert.equal(res.headers.get('x-total-count'), '7');
+      const rows = await res.json();
+      seen.push(...rows.map((r) => r.id));
+      before = res.headers.get('x-next-before');
+      if (!before) break;
+    }
+    assert.equal(seen.length, 7, `three pages: 3, 3, 1, and then no cursor; got ${seen}`);
+    assert.deepEqual(new Set(seen).size, 7, 'none twice, the tie included');
+    assert.deepEqual(seen, [...ids].sort((a, b) => at[ids.indexOf(b)] - at[ids.indexOf(a)] || b - a), 'newest first');
+
+    // A search is the whole history's, not what a page happened to hold
+    const fire = await get('q=fire&limit=2');
+    assert.equal(fire.headers.get('x-total-count'), '3');
+    assert.equal((await fire.json()).length, 2);
+    assert.ok(fire.headers.get('x-next-before'), 'and it pages too');
+    // An exact page leaves no cursor to an empty one
+    const exact = await get('limit=7');
+    assert.equal(exact.headers.get('x-next-before'), null);
+    assert.equal((await get('before=yesterday')).status, 400);
+
+    // The radio's name reaches a clip's own record and the CSV
+    assert.equal(store.transmission(ids[0]).radio_name, 'Fire dispatch');
+    const csv = await (await fetch(`${base}/export?format=csv`, { headers: { authorization: 'Bearer secret' } })).text();
+    assert.match(csv.split('\n')[1], /,38:D2:00:01:56:51,Fire dispatch,/);
+  } finally {
+    server.close();
+  }
+});

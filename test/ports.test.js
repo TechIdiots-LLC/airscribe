@@ -6,7 +6,7 @@ import { hashPassword } from '../src/auth.js';
 
 const store = {
   radios: () => [], radio: () => undefined,
-  transmission: () => undefined, transmissions: () => [],
+  transmission: () => undefined, transmissions: () => [], countTransmissions: () => 0,
 };
 const manager = Object.assign(new EventEmitter(), {
   radios: () => [], engines: new Map([['base', {}]]), primary: 'base', extra: [],

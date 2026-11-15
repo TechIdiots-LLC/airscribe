@@ -8,6 +8,9 @@ import { PUBLISH_DEFAULTS, publicCutoff, publishable, publicView } from './publi
 
 const PUBLIC = fileURLToPath(new URL('../public', import.meta.url));
 
+/** The most transmissions one export carries: all of them, for any ordinary install. */
+const EXPORT_MAX = 50000;
+
 /**
  * Wrap an async handler so a rejection becomes a 502 instead of a hang.
  * @param {Function} fn - Async route handler.
@@ -280,9 +283,28 @@ export function createApp({ manager, store, sidecar, config, dataDir, updates })
     );
   }
 
+  // A page of the feed. Still a plain array, as it always was; how many match
+  // in all, and the cursor for the next (older) page when there is one, ride
+  // in headers. `before` is that cursor: <started_at>.<id> of the last row.
   api.get('/transmissions', (req, res) => {
     const mac = req.query.mac ? normalizeMac(String(req.query.mac)) : undefined;
-    res.json(store.transmissions({ mac, q: req.query.q && String(req.query.q), limit: req.query.limit }));
+    const q = req.query.q ? String(req.query.q) : undefined;
+    let before;
+    if (req.query.before) {
+      const m = /^(\d+)\.(\d+)$/.exec(String(req.query.before));
+      if (!m) return res.status(400).json({ error: 'before must be <started_at>.<id>' });
+      before = { at: Number(m[1]), id: Number(m[2]) };
+    }
+    const n = Math.min(Math.max(Number(req.query.limit) || 100, 1), 500);
+    // One more than asked for says whether there is another page
+    const rows = store.transmissions({ mac, q, before, limit: n + 1, max: 501 });
+    res.set('X-Total-Count', String(store.countTransmissions({ mac, q })));
+    if (rows.length > n) {
+      rows.length = n;
+      const last = rows[n - 1];
+      res.set('X-Next-Before', `${last.started_at}.${last.id}`);
+    }
+    res.json(rows);
   });
 
   // What engines exist, and which is the default. The UI labels transcripts
@@ -320,10 +342,13 @@ export function createApp({ manager, store, sidecar, config, dataDir, updates })
   // reason to run several, and that is not a per-clip download.
   api.get('/transmissions/export', (req, res) => {
     const mac = req.query.mac ? normalizeMac(String(req.query.mac)) : undefined;
+    // Everything the filter matches, not one page of it, within a cap that
+    // keeps a CSV of a busy year in memory comfortably
     const rows = store.transmissions({
       mac,
       q: req.query.q && String(req.query.q),
-      limit: req.query.limit ?? 500,
+      limit: req.query.limit ?? EXPORT_MAX,
+      max: EXPORT_MAX,
     });
     const stamp = new Date().toISOString().slice(0, 10);
 

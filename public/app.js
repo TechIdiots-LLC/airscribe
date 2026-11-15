@@ -38,7 +38,8 @@ if (fromUrl) {
 const url = (p) => (token ? `${p}${p.includes('?') ? '&' : '?'}token=${encodeURIComponent(token)}` : p);
 const $ = (id) => document.getElementById(id);
 
-async function api(path, opts = {}) {
+/** @returns {Promise<Response>} The response, or throws one with `status` for an error. */
+async function request(path, opts = {}) {
   const res = await fetch(url(`/api${path}`), {
     ...opts,
     headers: { 'Content-Type': 'application/json' },
@@ -49,6 +50,11 @@ async function api(path, opts = {}) {
     err.status = res.status;
     throw err;
   }
+  return res;
+}
+
+async function api(path, opts = {}) {
+  const res = await request(path, opts);
   return res.status === 204 ? null : res.json();
 }
 
@@ -60,7 +66,21 @@ const el = (tag, props = {}, ...kids) => {
 
 const models = new Map();
 let radios = [];
-const txs = new Map(); // id -> row
+const txs = new Map(); // id -> row, what the feed is showing
+
+// The feed is paged from the server, newest first: the search box and the
+// radio filter ask the server, so they cover the whole history rather than the
+// rows that happened to be loaded. "Load older" asks for the next page with
+// the cursor the last one gave.
+const PAGE = 50;
+// Left open, a page gains every new transmission; without paging back it
+// keeps this many and lets "Load older" fetch the rest again
+const LIVE_CAP = 300;
+let feedCursor = null;   // where the next page starts, or null at the end
+let feedTotal = 0;       // how many match the filter, for "50 of 1,234"
+let feedSeq = 0;         // the latest load: a slower, earlier answer is dropped
+let pagedBack = false;   // older pages were asked for: keep them
+const nodes = new Map(); // id -> its <li>, so one row is redrawn, not the feed
 
 function renderRadios() {
   const list = $('radios');
@@ -181,7 +201,7 @@ function renderTx(t) {
   // Only worth labelling once more than one model has had a go at it.
   const others = scripts.filter((s) => s !== primaryScript);
   const dir = t.transmit ? 'sent' : 'heard';
-  return el('li', { id: `tx-${t.id}`, className: t.transmit ? 'sent' : '' },
+  const li = el('li', { id: `tx-${t.id}`, className: t.transmit ? 'sent' : '' },
     el('div', { className: 'meta' },
       el('span', { className: `tag ${dir}` }, dir), ' ',
       `${new Date(t.started_at).toLocaleString()} · ${radio?.name ?? t.mac} · ${(t.duration_ms / 1000).toFixed(1)}s`,
@@ -206,36 +226,162 @@ function renderTx(t) {
       el('a', { href: url(`/api/transmissions/${t.id}/audio?download`) }, 'Download audio'),
       t.text ? el('a', { href: url(`/api/transmissions/${t.id}/text`) }, 'Download text') : ''),
   );
+  li.dataset.at = String(t.started_at);
+  li.dataset.id = String(t.id);
+  return li;
 }
 
+/** @returns {boolean} Whether `a` comes before `b` in the feed: newer, or the same moment and a later id. */
+const newer = (a, b) => a.started_at > b.started_at || (a.started_at === b.started_at && a.id > b.id);
+
+/**
+ * Draw one transmission, or redraw it in place. Only that row changes: the
+ * others keep their players, so a clip being listened to isn't stopped by
+ * another one arriving, and the browser isn't asked to fetch every clip's
+ * header again on every update. A redrawn row keeps its own player too.
+ * @param {object} t - The transmission.
+ * @returns {void}
+ */
+function placeRow(t) {
+  const li = renderTx(t);
+  const old = nodes.get(t.id);
+  if (old) {
+    const player = old.querySelector('audio');
+    if (player) li.querySelector('audio')?.replaceWith(player);
+    old.replaceWith(li);
+  } else {
+    const feed = $('feed');
+    // Mostly new rows go first and older pages go last; look only otherwise
+    let next = feed.firstElementChild;
+    const at = (n) => ({ started_at: Number(n.dataset.at), id: Number(n.dataset.id) });
+    if (feed.lastElementChild && newer(at(feed.lastElementChild), t)) next = null;
+    else while (next && newer(at(next), t)) next = next.nextElementSibling;
+    feed.insertBefore(li, next);
+  }
+  nodes.set(t.id, li);
+}
+
+/** @returns {void} Redraw every row (after a rename), keeping each one's player. */
 function renderFeed() {
+  for (const t of txs.values()) placeRow(t);
+  renderFeedFoot();
+}
+
+/** @returns {void} The count and "Load older" under the feed. */
+function renderFeedFoot() {
+  const filtered = $('filter-radio').value || $('search').value.trim();
+  $('feed-more').hidden = !feedCursor;
+  $('feed-count').textContent = txs.size
+    ? `Showing ${txs.size.toLocaleString()} of ${Math.max(feedTotal, txs.size).toLocaleString()}`
+    : filtered ? 'Nothing matches.' : 'No transmissions yet.';
+}
+
+/**
+ * Load the feed's first page for the current filter, or with `more`, the next
+ * older page after what is shown.
+ * @param {{more?: boolean}} [o] - Options.
+ * @returns {Promise<void>}
+ */
+async function loadFeed({ more = false } = {}) {
+  const seq = ++feedSeq;
+  const params = new URLSearchParams({ limit: String(PAGE) });
   const mac = $('filter-radio').value;
-  const q = $('search').value.toLowerCase();
-  const rows = [...txs.values()]
-    .filter((t) => (!mac || t.mac === mac) && (!q || (t.text ?? '').toLowerCase().includes(q)))
-    .sort((a, b) => b.started_at - a.started_at);
-  $('feed').replaceChildren(...rows.map(renderTx));
+  const q = $('search').value.trim();
+  if (mac) params.set('mac', mac);
+  if (q) params.set('q', q);
+  if (more && feedCursor) params.set('before', feedCursor);
+  const res = await request(`/transmissions?${params}`);
+  const rows = await res.json();
+  if (seq !== feedSeq) return;   // the filter changed while this was on its way
+  if (!more) {
+    txs.clear();
+    nodes.clear();
+    $('feed').replaceChildren();
+  }
+  pagedBack = more;
+  feedCursor = res.headers.get('X-Next-Before');
+  feedTotal = Number(res.headers.get('X-Total-Count')) || 0;
+  for (const t of rows) {
+    txs.set(t.id, t);
+    placeRow(t);
+  }
+  renderFeedFoot();
   refreshExport();
 }
 
-async function loadFeed() {
-  for (const t of await api('/transmissions?limit=200')) txs.set(t.id, t);
-  renderFeed();
+/**
+ * Whether a transmission belongs in the feed as it is filtered: the same
+ * test the server makes, for rows that arrive live.
+ * @param {object} t - The transmission.
+ * @returns {boolean} Whether to show it.
+ */
+function matchesFilter(t) {
+  const mac = $('filter-radio').value;
+  const q = $('search').value.trim().toLowerCase();
+  if (mac && t.mac !== mac) return false;
+  if (!q) return true;
+  return [t.channel_name, t.text, ...(t.transcripts ?? []).map((s) => s.text)]
+    .some((s) => (s ?? '').toLowerCase().includes(q));
 }
 
-/** Point the export link at whatever the feed is currently showing. */
+/**
+ * A transmission arrived or changed. Shown rows are redrawn; a new one is
+ * added if it matches the filter and falls within the pages loaded, so
+ * re-transcribing an old clip doesn't drop it among today's.
+ * @param {object} t - The transmission, as the server sent it.
+ * @returns {void}
+ */
+function onTransmission(t) {
+  if (txs.has(t.id)) {
+    txs.set(t.id, t);
+    placeRow(t);
+    return;
+  }
+  if (!matchesFilter(t)) return;
+  const shown = [...txs.values()];
+  const oldest = shown.reduce((o, x) => (!o || newer(o, x) ? x : o), null);
+  if (feedCursor && oldest && !newer(t, oldest)) return;
+  txs.set(t.id, t);
+  feedTotal += 1;
+  placeRow(t);
+  trimLive();
+  renderFeedFoot();
+}
+
+/** @returns {void} Keep a feed left open from growing without end. */
+function trimLive() {
+  if (pagedBack || txs.size <= LIVE_CAP) return;
+  const rows = [...txs.values()].sort((a, b) => (newer(a, b) ? -1 : 1));
+  for (const t of rows.slice(LIVE_CAP)) {
+    txs.delete(t.id);
+    nodes.get(t.id)?.remove();
+    nodes.delete(t.id);
+  }
+  const last = rows[LIVE_CAP - 1];
+  feedCursor = `${last.started_at}.${last.id}`;
+}
+
+/** Point the export link at everything the feed's filter matches, not only the loaded pages. */
 function refreshExport() {
   const mac = $('filter-radio').value;
   const q = $('search').value.trim();
-  const params = new URLSearchParams({ format: 'csv', limit: '500' });
+  const params = new URLSearchParams({ format: 'csv' });
   if (mac) params.set('mac', mac);
   if (q) params.set('q', q);
   $('export').href = url(`/api/transmissions/export?${params}`);
-  $('export').title = 'Every engine’s transcript for these clips, as CSV';
+  $('export').title = 'Every engine’s transcript for every transmission matching the filter, as CSV';
 }
 
-$('filter-radio').onchange = () => { renderFeed(); refreshExport(); };
-$('search').oninput = () => { renderFeed(); refreshExport(); };
+const reload = () => loadFeed().catch((e) => { $('feed-count').textContent = e.message; });
+let searchTimer = null;
+$('filter-radio').onchange = reload;
+// Asked of the server, so wait for a pause in the typing
+$('search').oninput = () => { clearTimeout(searchTimer); searchTimer = setTimeout(reload, 300); };
+$('feed-more').onclick = async () => {
+  $('feed-more').disabled = true;
+  try { await loadFeed({ more: true }); } catch (e) { alert(e.message); }
+  $('feed-more').disabled = false;
+};
 
 function listen() {
   const es = new EventSource(url('/api/events'));
@@ -243,7 +389,7 @@ function listen() {
   es.onerror = () => { $('conn').textContent = 'reconnecting…'; $('conn').className = 'pill bad'; };
   es.onmessage = (m) => {
     const u = JSON.parse(m.data);
-    if (u.type === 'transmission') { txs.set(u.id, u); renderFeed(); }
+    if (u.type === 'transmission') onTransmission(u);
     else if (u.type === 'status' || u.type === 'activity') {
       const r = radios.find((x) => x.mac === u.mac);
       if (r) { Object.assign(r, u); delete r.type; renderRadios(); }

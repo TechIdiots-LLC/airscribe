@@ -285,12 +285,16 @@ export class Store {
   withTranscripts(rows) {
     if (!rows.length) return rows;
     const ids = rows.map((r) => r.id);
-    const all = this.db
-      .prepare(
-        `SELECT * FROM transcripts WHERE transmission_id IN (${ids.map(() => '?').join(',')})
-         ORDER BY id`,
-      )
-      .all(...ids);
+    // In chunks: an export can name tens of thousands of clips, more than one
+    // statement may bind
+    const all = [];
+    for (let i = 0; i < ids.length; i += 500) {
+      const chunk = ids.slice(i, i + 500);
+      all.push(...this.db
+        .prepare(`SELECT * FROM transcripts WHERE transmission_id IN (${chunk.map(() => '?').join(',')})
+                  ORDER BY id`)
+        .all(...chunk));
+    }
     const byTx = new Map();
     for (const t of all) {
       if (!byTx.has(t.transmission_id)) byTx.set(t.transmission_id, []);
@@ -307,10 +311,54 @@ export class Store {
   }
 
   /**
-   * @param {{mac?: string, q?: string, limit?: number}} f - Filters.
+   * A page of transmissions, newest first.
+   *
+   * Paged by key rather than by offset: `before` is the last row already
+   * shown, and the page is what is older than it, by time and then id. New
+   * transmissions arriving meanwhile then don't shift the pages, and the
+   * boundary is exact even when two radios start in the same millisecond.
+   * @param {object} f - Filters, as for countTransmissions, and:
+   * @param {number} [f.limit] - Rows wanted, up to `max`.
+   * @param {{at: number, id: number}} [f.before] - Only rows older than this one.
+   * @param {number} [f.max] - The most `limit` may ask for: 500 for a page, more for an export.
    * @returns {object[]} Newest first.
    */
-  transmissions({ mac, q, limit = 100, group, channel, publicOnly, notAfter } = {}) {
+  transmissions({ limit = 100, before, max = 500, ...f } = {}) {
+    const { where, args } = this.#filters(f);
+    if (before) {
+      where.push('(t.started_at < ? OR (t.started_at = ? AND t.id < ?))');
+      args.push(before.at, before.at, before.id);
+    }
+    // Left join, so a transmission whose radio was removed is still listed
+    // to an operator — but never publicly, since r.public is then null.
+    const sql = `SELECT t.*, r.name AS radio_name, r."group" AS radio_group
+                   FROM transmissions t LEFT JOIN radios r ON r.mac = t.mac
+                  WHERE ${where.join(' AND ')}
+                  ORDER BY t.started_at DESC, t.id DESC LIMIT ?`;
+    const rows = this.db.prepare(sql).all(...args, Math.min(Number(limit) || 100, max));
+    return this.withTranscripts(rows);
+  }
+
+  /**
+   * How many transmissions a filter matches, for "50 of 1,234".
+   * @param {object} [f] - The same filters as transmissions().
+   * @returns {number} The count.
+   */
+  countTransmissions(f = {}) {
+    const { where, args } = this.#filters(f);
+    return this.db
+      .prepare(`SELECT COUNT(*) AS n FROM transmissions t LEFT JOIN radios r ON r.mac = t.mac
+                 WHERE ${where.join(' AND ')}`)
+      .get(...args).n;
+  }
+
+  /**
+   * The WHERE clause the page, its count and the exports share.
+   * @param {{mac?: string, q?: string, group?: string, channel?: string,
+   *   publicOnly?: boolean, notAfter?: number}} f - Filters.
+   * @returns {{where: string[], args: any[]}} Conditions and their values.
+   */
+  #filters({ mac, q, group, channel, publicOnly, notAfter } = {}) {
     const where = ['1 = 1'];
     const args = [];
     if (mac) (where.push('t.mac = ?'), args.push(mac));
@@ -329,14 +377,7 @@ export class Store {
       );
       args.push(`%${q}%`, `%${q}%`);
     }
-    // Left join, so a transmission whose radio was removed is still listed
-    // to an operator — but never publicly, since r.public is then null.
-    const sql = `SELECT t.*, r.name AS radio_name, r."group" AS radio_group
-                   FROM transmissions t LEFT JOIN radios r ON r.mac = t.mac
-                  WHERE ${where.join(' AND ')}
-                  ORDER BY t.started_at DESC LIMIT ?`;
-    const rows = this.db.prepare(sql).all(...args, Math.min(Number(limit) || 100, 500));
-    return this.withTranscripts(rows);
+    return { where, args };
   }
 
   /**

@@ -14,6 +14,10 @@
   as raw SBC, which ffmpeg turns into a WAV, and a dongle or channel that won't open says why.
 - **Rename a radio:** a Rename button on each radio, so two of the same model, which scan in with the same name, can
   be told apart. The feed, the radio filter and exports show the new name, past transmissions included.
+- **The feed pages, and searches everything:** 50 transmissions at a time with **Load older** and a count ("Showing
+  50 of 1,234"). The search box and the radio filter ask the server, so they cover the whole history rather than
+  the rows that happened to be loaded, and Export takes everything they match. A transmission arriving or being
+  transcribed redraws only its own row, so a clip being played isn't stopped by another arriving.
 - **Transcription on the GPU, confirmed:** the `openvino` engine runs on an Arc A750 from an unprivileged Proxmox
   container, with Ubuntu 24.04's own Intel compute runtime; docs/proxmox.md has the steps as they were run.
 - **Template:** new containers have the `en_US.UTF-8` locale, so `pct enter` no longer brings locale warnings to
