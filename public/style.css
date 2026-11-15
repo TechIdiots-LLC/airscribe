@@ -113,6 +113,22 @@ dialog#controls::backdrop { background: rgba(0, 0, 0, .5); }
 .ch-marker.live .dot { background: var(--warn); box-shadow: 0 0 12px 4px var(--warn); animation: onair 0.9s ease-in-out infinite alternate; }
 @keyframes ripple { from { transform: scale(1); opacity: .9; } to { transform: scale(10); opacity: 0; } }
 @keyframes onair { from { transform: scale(1); } to { transform: scale(1.35); } }
+/* Several channels that would cover each other: a count, and the names below
+   one another, each lit while its channel is on the air */
+.ch-group { position: relative; width: 22px; height: 22px; cursor: pointer; }
+.ch-group .badge { position: absolute; inset: 0; border-radius: 50%; background: var(--accent); color: #fff;
+  border: 2px solid #fff; box-shadow: 0 0 3px rgba(0, 0, 0, .7); font: 700 11px/18px system-ui, sans-serif; text-align: center; }
+.ch-group .names { position: absolute; left: 27px; top: -1px; display: flex; flex-direction: column; white-space: nowrap;
+  font: 600 12px/15px system-ui, sans-serif; color: #fff; text-shadow: 0 0 3px #000, 0 0 3px #000, 0 0 2px #000; pointer-events: none; }
+.ch-group .nm.more { font-weight: 500; font-style: italic; }
+.ch-group .nm.live { color: #ffc14d; }
+.ch-group .ring { position: absolute; inset: -2px; border-radius: 50%; border: 3px solid var(--accent); opacity: 0; }
+.ch-group.pulse .ring { animation: ripple 2.4s ease-out 1; }
+.ch-group.live .badge { background: var(--warn); box-shadow: 0 0 12px 4px var(--warn); animation: onair 0.9s ease-in-out infinite alternate; }
+.ch-group-list { max-height: 260px; overflow-y: auto; }
+.ch-group-list li { padding: 4px 0; border-bottom: 1px solid var(--line); }
+.ch-group-list li:last-child { border-bottom: 0; }
+.on-air { color: var(--warn); font-size: 12px; font-weight: 600; }
 /* Popups in the page's colours. #mapview outranks maplibre-gl.css, which loads later */
 #mapview .maplibregl-popup-content { background: var(--card); color: var(--fg); border: 1px solid var(--line); }
 #mapview .maplibregl-popup-close-button { color: var(--muted); font-size: 18px; }

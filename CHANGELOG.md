@@ -25,7 +25,10 @@
   HTCommander's protocol reference.
 - **Map:** a view with each channel where an admin placed it (Place, then click the map; drag to move). A channel
   lights up while one of the radios is receiving on it and pulses when its transmission has been saved; its popup
-  shows what it said lately and opens the feed on it. Base maps are MapLibre styles (`map.styles`), by default the
+  shows what it said lately and opens the feed on it. Channels that would cover each other, such as several at one
+  public safety complex, are drawn as one marker with a count and each name, a name lighting up while its channel is
+  on the air; clicking it zooms in until they part, or lists them where they share a spot. An admin can **Move** a
+  channel with a click too, for one placed on top of another. Base maps are MapLibre styles (`map.styles`), by default the
   colour-relief, dark colour-relief and OpenStreetMap styles from tiles.wifidb.net; a dark browser starts on the dark
   one, and the choice is remembered. MapLibre GL JS 6 is served by AirScribe itself (public/vendor).
 - **Insights:** a view beside the feed, for the last day, week, month or everything, for one radio or channel:
