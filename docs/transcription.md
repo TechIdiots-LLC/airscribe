@@ -419,6 +419,31 @@ do.
 | `timeoutSeconds` | `120` | how long one clip may take |
 | `url` | none | use a whisper-server already running instead of starting one |
 
+**Voice detection keeps chirps from becoming words.** Whisper always writes
+something, so a transmission that is only a talk-permit beep, a data burst or
+a squelch tail comes back as "you", "Oh" or "BAM!". whisper.cpp has Silero
+voice detection built in; with it, a clip with no speech comes back empty,
+which the page shows as "(no speech recognised)". Through this engine, on
+synthetic clips, base.en gave:
+
+| clip | without | with `--vad` |
+| --- | --- | --- |
+| 0.8 s two-tone beep | "(beeping)" | nothing |
+| 0.9 s pink noise | "(explosion)" | nothing |
+| 1.5 s of speech | "And so I felt" | "And so I felt" |
+
+Real chirps may fool it more often than synthetic ones; compare on your own
+channel. The model (about 1 MB) comes with whisper.cpp's script, and goes in
+`args`:
+
+```sh
+sh ./models/download-vad-model.sh silero-v5.1.2 /var/lib/airscribe/models
+```
+
+```json
+"args": ["--vad", "-vm", "/var/lib/airscribe/models/ggml-silero-v5.1.2.bin"]
+```
+
 **Check where it landed.** The first clip logs the server's own device lines:
 
 ```
