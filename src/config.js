@@ -9,7 +9,7 @@ const DEFAULTS = {
   adminHost: null,
   dataDir: './data',
   auth: { username: null, password: null, passwordHash: null, apiKey: null, tokens: [] },
-  sidecar: { python: 'python3', backend: 'bluez', controlChannel: null, audioChannel: null },
+  sidecar: { python: 'python3', backend: 'bluez', controlChannel: null, audioChannel: null, transport: 'usb:0' },
   audio: {
     sampleRate: 32000,
     preRollMs: 300,

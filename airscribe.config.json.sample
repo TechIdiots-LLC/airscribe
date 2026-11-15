@@ -13,9 +13,11 @@
     "tokens": []
   },
 
+  "_sidecar": "backend: bluez (the host's Bluetooth), bumble (a USB dongle driven directly: an LXC container or Windows; python must then be a Python 3.11+ with Bumble, and transport names the dongle, usb:0 or usb:VID:PID), or sim. See docs/bluetooth.md.",
   "sidecar": {
     "python": "python3",
     "backend": "bluez",
+    "transport": "usb:0",
     "controlChannel": null,
     "audioChannel": null
   },

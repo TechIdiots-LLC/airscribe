@@ -127,6 +127,12 @@ test-python:
   image: python:$PYTHON-slim
   script:
     - python -m compileall -q sidecar tools
+    # The bumble backend's tests run where Bumble can (3.11+), against its virtual controller. Pinned: the
+    # backend works around a gap in this version's RFCOMM (sidecar/bumble_link.py)
+    - |
+      if python -c 'import sys; sys.exit(sys.version_info < (3, 11))'; then
+        pip install -q "bumble==0.0.236"
+      fi
     - python -m unittest discover -s sidecar -p "test_*.py" -v
 
 shellcheck:

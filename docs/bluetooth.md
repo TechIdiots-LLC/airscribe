@@ -343,6 +343,41 @@ fine; two near the same radio would look like the same device.
 Bumble also supports the TP-Link UB500 (Realtek RTL8761B), which needs its
 firmware loaded each time it starts (`bumble-rtk-fw-download`). Not tried yet.
 
+### The `bumble` backend
+
+[`sidecar/bumble_link.py`](../sidecar/bumble_link.py) is the sidecar's
+`bumble` backend. Everything above Bluetooth is `bluez.RadioLink`, unchanged,
+so every rule in [the backend](#the-backend) table holds for it too. Only the
+channels underneath differ: Bumble runs on its own event loop in one thread,
+and each RFCOMM channel reaches RadioLink as an object with the few socket
+methods it uses.
+
+What it adds:
+
+- **Pairing keys** are Bumble's own, in `<dataDir>/bumble-keys.json`. A bond
+  made by BlueZ or Windows doesn't carry over, so the first connection pairs:
+  put the radio in pairing mode for it. The probe's `bumble-keys.json` can be
+  copied there instead, for the same dongle.
+- **An unencrypted link is used, with a warning.** The UV-Pro accepted
+  encryption, but it isn't known to require it.
+- **The dongle takes no incoming connections.** Radios are dialled; nothing
+  answers a stranger.
+- **Scanning is a Bluetooth inquiry**, 8 seconds, listing everything that
+  answers. BlueZ's scan listed only paired devices.
+
+**A gap in Bumble 0.0.236 worked around:** when the far end closes an RFCOMM
+channel, Bumble answers but never marks the channel closed or says so. The
+backend hooks that answer so a reader isn't left waiting on a dead channel.
+CI pins that version for this reason.
+
+Tested against a fake radio on Bumble's virtual controller
+(`sidecar/test_bumble_link.py`): finding the channels past a silent one,
+holding control open, a transmission arriving as one run and decoding, a
+radio closing a channel, dropping and being reconnected, and a clean
+disconnect. The virtual controller can't encrypt, so encryption is only
+proven by the probe on the real radio. **The backend itself has not yet
+run against a real radio.**
+
 ## The UV-Pro
 
 This project is developed against a **BTech UV-Pro**, the radio BenLink was

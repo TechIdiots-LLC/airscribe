@@ -18,6 +18,10 @@
 - **`whisper-server` engine:** runs whisper.cpp's server, which loads the model once and keeps it, instead of
   whisper-cli for every clip. With whisper.cpp built for Vulkan, it is the second way onto an Intel GPU, through
   Mesa's driver rather than Intel's runtime (docs/transcription.md).
+- **`bumble` Bluetooth backend:** reaches radios through a USB dongle that Bumble drives directly, for an LXC
+  container, where the system's Bluetooth can't work, and in time Windows. The radio handling is the BlueZ backend's,
+  unchanged; only the Bluetooth underneath differs. Set `sidecar.backend` to `bumble`, `sidecar.python` to a Python
+  with Bumble, and `sidecar.transport` to the dongle (docs/proxmox.md). Tested against a fake radio, not yet a real one.
 - **`tools/probe-bumble.py`:** reaches a radio through Bumble, a Bluetooth stack in Python that drives a USB dongle
   directly, to find out whether the radio link can work on Windows and in a container without the system's
   Bluetooth. In an unprivileged Proxmox container it paired with a UV-Pro, found its channels and captured its

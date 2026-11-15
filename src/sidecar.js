@@ -19,7 +19,9 @@ const SCRIPT = fileURLToPath(new URL('../sidecar/airscribe_sidecar.py', import.m
  */
 export class Sidecar extends EventEmitter {
   /**
-   * @param {{python: string, backend: string}} o - Sidecar config.
+   * @param {{python: string, backend: string, controlChannel?: number, audioChannel?: number,
+   *   transport?: string, keys?: string}} o - Sidecar config. `transport` (Bumble's name for
+   *   the dongle, e.g. usb:0 or usb:0A12:0001) and `keys` are for the bumble backend.
    */
   constructor(o) {
     super();
@@ -31,16 +33,24 @@ export class Sidecar extends EventEmitter {
     this.backoff = 500;
   }
 
-  /** @returns {void} */
-  start() {
-    this.stopped = false;
-    // eslint-disable-next-line security/detect-child-process -- fixed script path, argv array
+  /** @returns {string[]} The helper's arguments, its script first. */
+  args() {
     const args = [SCRIPT, '--backend', this.o.backend];
     // Skipping the channel probe spares the radio sessions it frees slowly.
     if (this.o.controlChannel) args.push('--control-channel', String(this.o.controlChannel));
     if (this.o.audioChannel) args.push('--audio-channel', String(this.o.audioChannel));
+    if (this.o.backend === 'bumble') {
+      if (this.o.transport) args.push('--transport', String(this.o.transport));
+      if (this.o.keys) args.push('--keys', String(this.o.keys));
+    }
+    return args;
+  }
+
+  /** @returns {void} */
+  start() {
+    this.stopped = false;
     // eslint-disable-next-line security/detect-child-process -- fixed script path, argv array
-    const child = spawn(this.o.python, args, { stdio: ['pipe', 'pipe', 'inherit'] });
+    const child = spawn(this.o.python, this.args(), { stdio: ['pipe', 'pipe', 'inherit'] });
     this.child = child;
     createInterface({ input: child.stdout }).on('line', (line) => this.onLine(line));
     child.on('error', (e) => this.emit('event', { event: 'sidecar-error', error: e.message }));

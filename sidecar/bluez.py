@@ -155,9 +155,19 @@ def parse_ht_status(buf):
 
 
 class RadioLink:
-    """One connected radio: two held sockets and the threads reading them."""
+    """One connected radio: two held sockets and the threads reading them.
 
-    def __init__(self, mac, emit, decoder=None, control_ch=None, audio_ch=None):
+    `opener(mac, channel, timeout)` returns a connected socket and raises
+    OSError when the radio refuses; `release(sock)` hands one back. They are
+    the kernel's RFCOMM sockets by default. The Bumble backend passes its own,
+    whose objects act enough like sockets for everything here
+    (sidecar/bumble_link.py).
+    """
+
+    def __init__(self, mac, emit, decoder=None, control_ch=None, audio_ch=None,
+                 opener=None, release=None):
+        self.opener = opener or (lambda m, ch, timeout: _rfcomm(m, ch, timeout=timeout))
+        self.release = release or _release
         self.mac = mac
         self.emit = emit
         self.decoder = decoder
@@ -237,14 +247,14 @@ class RadioLink:
     def find_control(self, last):
         for ch in range(1, last + 1):
             try:
-                s = _rfcomm(self.mac, ch, timeout=4)
+                s = self.opener(self.mac, ch, 4)
             except OSError:
                 continue
             self.ctrl, self.control_ch = s, ch
             if self.status():
                 return
             self.ctrl, self.control_ch = None, None
-            _release(s)
+            self.release(s)
             time.sleep(SETTLE)
         raise RuntimeError(
             "no channel answered a GAIA query; the radio's control service may "
@@ -257,7 +267,7 @@ class RadioLink:
             if ch == self.control_ch:
                 continue
             try:
-                cand = _rfcomm(self.mac, ch, timeout=4)
+                cand = self.opener(self.mac, ch, 4)
             except OSError:
                 continue
             time.sleep(1.0)
@@ -265,7 +275,7 @@ class RadioLink:
             if st and st["aoc_connected"]:
                 self.audio, self.audio_ch = cand, ch
                 return
-            _release(cand)
+            self.release(cand)
             time.sleep(SETTLE)
         raise RuntimeError("no channel reported itself as the BS AOC audio channel")
 
@@ -273,7 +283,7 @@ class RadioLink:
         """Connect both channels, or raise having released whatever opened."""
         try:
             if self.control_ch:
-                self.ctrl = _rfcomm(self.mac, self.control_ch)
+                self.ctrl = self.opener(self.mac, self.control_ch, 8)
                 if not self.status():
                     raise RuntimeError(
                         f"channel {self.control_ch} did not answer GAIA; "
@@ -283,7 +293,7 @@ class RadioLink:
                 self.find_control(last)
 
             if self.audio_ch:
-                self.audio = _rfcomm(self.mac, self.audio_ch)
+                self.audio = self.opener(self.mac, self.audio_ch, 8)
             else:
                 self.find_audio(last)
         except Exception:
@@ -305,7 +315,7 @@ class RadioLink:
         self.stop.set()
         for sock in (self.audio, self.ctrl):
             if sock:
-                _release(sock)
+                self.release(sock)
         self.audio = self.ctrl = None
 
     # -- the two loops -----------------------------------------------------

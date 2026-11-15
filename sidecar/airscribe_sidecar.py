@@ -11,8 +11,11 @@ Backends:
   sim    A fake radio that "hears" a burst of tone every few seconds, with the
          run markers a real radio sends. Lets the whole pipeline run with no
          Bluetooth hardware.
-  bluez  Linux/BlueZ. Device listing works; the RFCOMM audio link is NOT yet
-         implemented and connect() says so. See docs/bluetooth.md.
+  bluez  Linux/BlueZ: the radio link through the kernel's RFCOMM sockets.
+         See docs/bluetooth.md.
+  bumble A USB dongle driven by Bumble instead of the OS, for an LXC
+         container (where BlueZ can't work) or Windows. Same radio code as
+         bluez above it. See sidecar/bumble_link.py.
 """
 
 import argparse
@@ -113,6 +116,25 @@ class SimBackend:
         emit({"event": "status", "mac": mac, "state": "disconnected"})
 
 
+class Unavailable:
+    """A backend that could not start: every command says why."""
+
+    def __init__(self, reason):
+        self.reason = reason
+
+    def scan(self):
+        raise RuntimeError(self.reason)
+
+    def connect(self, _mac):
+        raise RuntimeError(self.reason)
+
+    def disconnect(self, _mac):
+        raise RuntimeError(self.reason)
+
+    def shutdown(self):
+        pass
+
+
 class BluezBackend:
     """Linux/BlueZ. Holds one RadioLink per connected radio."""
 
@@ -177,7 +199,14 @@ class BluezBackend:
             self.disconnect(mac)
 
 
-BACKENDS = {"sim": SimBackend, "bluez": BluezBackend}
+def _bumble_backend(args):
+    # Imported here: Bumble is only installed where this backend is used
+    from bumble_link import BumbleBackend
+    return BumbleBackend(emit, transport=args.transport, keys=args.keys,
+                         control_ch=args.control_channel, audio_ch=args.audio_channel)
+
+
+BACKENDS = {"sim": SimBackend, "bluez": BluezBackend, "bumble": _bumble_backend}
 
 
 def main():
@@ -187,9 +216,20 @@ def main():
     # known-good pair can be given to skip it. See docs/bluetooth.md.
     ap.add_argument("--control-channel", type=int)
     ap.add_argument("--audio-channel", type=int)
+    # bumble: which dongle (Bumble's transport name), and where its pairing keys live
+    ap.add_argument("--transport", default="usb:0")
+    ap.add_argument("--keys")
     args = ap.parse_args()
     if args.backend == "bluez":
         backend = BluezBackend(args.control_channel, args.audio_channel)
+    elif args.backend == "bumble":
+        try:
+            backend = _bumble_backend(args)
+        except RuntimeError as e:
+            # Said once, then every request gets the same answer, rather than
+            # exiting and being restarted in a loop by the server
+            emit({"event": "sidecar-error", "error": str(e)})
+            backend = Unavailable(str(e))
     else:
         backend = BACKENDS[args.backend]()
 

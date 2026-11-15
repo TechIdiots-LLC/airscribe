@@ -43,7 +43,8 @@ console.log(
     ` (default: ${primary}${extra.length ? `, also: ${extra.join(', ')}` : ''})`,
 );
 const store = new Store(join(config.dataDir, 'airscribe.sqlite'), primary);
-const sidecar = new Sidecar(config.sidecar);
+// Bumble keeps its own pairing keys; beside the database, the one folder the service may write
+const sidecar = new Sidecar({ keys: join(config.dataDir, 'bumble-keys.json'), ...config.sidecar });
 const manager = new Manager({
   sidecar,
   store,

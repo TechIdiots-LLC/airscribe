@@ -67,14 +67,14 @@ it. The package adds the service account to `render`. Then set up OpenVINO or wh
 
 ## Radios over Bluetooth
 
-**AirScribe can't reach a radio from a container yet**, but the way it will has been shown to work. The kernel
-refuses Bluetooth sockets to anything outside the host's own network namespace, which an LXC container is, so BlueZ
-inside one cannot reach a radio however the adapter is passed in. Bumble, a Bluetooth stack that drives a USB dongle
-directly, can: `tools/probe-bumble.py` paired with a UV-Pro, found its channels and captured its audio from inside an
-unprivileged container ([bluetooth.md](bluetooth.md#through-bumble-in-an-lxc-container)). Until that is a backend,
-run AirScribe for real radios on a machine with its own Bluetooth ([installing.md](installing.md)).
+The kernel refuses Bluetooth sockets to anything outside the host's own network namespace, which an LXC container is,
+so BlueZ inside one cannot reach a radio however the adapter is passed in, and the template's default `bluez` backend
+reports `bluetoothctl unavailable`. Use the **`bumble`** backend instead: Bumble, a Bluetooth stack in Python, drives a
+USB dongle directly. `tools/probe-bumble.py` paired with a UV-Pro, found its channels and captured its audio from inside
+an unprivileged container this way ([bluetooth.md](bluetooth.md#through-bumble-in-an-lxc-container)). The backend
+itself has been tested against a fake radio, not yet a real one.
 
-To try the probe, give the container the dongle as a USB device. On the host:
+Give the container the dongle as a USB device. On the host:
 
 ```sh
 lsusb                                              # find the dongle: bus, device and ID
@@ -82,8 +82,9 @@ echo "blacklist btusb" > /etc/modprobe.d/no-btusb.conf && rmmod btusb   # the ho
 ```
 
 `btusb` is the host's driver for every Bluetooth dongle, so this turns off the host's own Bluetooth too. Then either
-add the device in the container's **Resources → Add → Device** as `/dev/bus/usb/<bus>/<device>` (the number changes if
-it's unplugged; this is the way that was tried), or, to survive that, add to `/etc/pve/lxc/<id>.conf`:
+add the device in the container's **Resources → Add → Device** as `/dev/bus/usb/<bus>/<device>`, with **GID in CT** set
+to the `airscribe` group's id (`pct exec <id> -- getent group airscribe`) so the service can open it (the number
+changes if it's unplugged; this is the way that was tried), or, to survive that, add to `/etc/pve/lxc/<id>.conf`:
 
 ```
 lxc.cgroup2.devices.allow: c 189:* rwm
@@ -98,13 +99,34 @@ echo 'SUBSYSTEM=="usb", ATTRS{idVendor}=="0a12", ATTRS{idProduct}=="0001", MODE=
 udevadm control --reload && udevadm trigger
 ```
 
-Restart the container, then in it:
+Restart the container, then in it install Bumble (the version CI tests) and check it reaches the dongle:
 
 ```sh
 apt update && apt install -y python3-venv libatomic1
-python3 -m venv /opt/bumble && /opt/bumble/bin/pip install bumble
+python3 -m venv /opt/bumble && /opt/bumble/bin/pip install "bumble==0.0.236"
+runuser -u airscribe -- /opt/bumble/bin/python /opt/airscribe/tools/probe-bumble.py --transport usb:0A12:0001 --info
+```
+
+Run as `airscribe`, that also proves the service may open the dongle. Then point AirScribe at it, in
+`/etc/airscribe/airscribe.config.json`:
+
+```json
+"sidecar": {
+  "python": "/opt/bumble/bin/python",
+  "backend": "bumble",
+  "transport": "usb:0A12:0001"
+}
+```
+
+`systemctl restart airscribe`, then **Scan for radios** in the web page. With the radio in pairing mode, **Add** it
+and connect; the first connection pairs, and the key is kept in `/var/lib/airscribe/bumble-keys.json`. If the probe
+already paired this dongle with the radio, copying its `bumble-keys.json` there (owned by `airscribe`) skips that.
+
+The probe is still useful on its own, as root and with AirScribe stopped, since only one program can hold the dongle:
+
+```sh
 P="/opt/bumble/bin/python /opt/airscribe/tools/probe-bumble.py --transport usb:0A12:0001"
-$P --info && $P --scan
+$P --scan
 $P <radio MAC>            # pairs (radio in pairing mode the first time), finds the channels, captures 45 s
 ```
 
