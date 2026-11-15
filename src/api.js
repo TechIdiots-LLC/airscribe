@@ -82,6 +82,17 @@ function sendClip(res, t, dataDir, download, onError) {
   res.sendFile(file, { headers, acceptRanges: true }, onError ?? (() => {}));
 }
 
+/**
+ * The channel filter in a query: one channel, or several when `channel` is
+ * given more than once (the Map's list asks for the channels in view so).
+ * @param {unknown} value - req.query.channel.
+ * @returns {string | string[] | undefined} The name or names, or undefined for every channel.
+ */
+function channelQuery(value) {
+  const names = [].concat(value ?? []).map(String).filter(Boolean);
+  return names.length > 1 ? names : names[0];
+}
+
 /** Paths a public listener may serve. Everything else is 404 there. */
 const PUBLIC_API = new Set([
   '/session', '/login', '/logout',
@@ -364,7 +375,7 @@ export function createApp({ manager, store, sidecar, config, dataDir, updates, c
     const q = req.query.q ? String(req.query.q) : undefined;
     // speech=1 leaves out what the feed shows as "(no speech recognised)"
     const speech = req.query.speech === '1';
-    const channel = req.query.channel ? String(req.query.channel) : undefined;
+    const channel = channelQuery(req.query.channel);
     let before;
     if (req.query.before) {
       const m = /^(\d+)\.(\d+)$/.exec(String(req.query.before));
@@ -424,7 +435,7 @@ export function createApp({ manager, store, sidecar, config, dataDir, updates, c
       mac,
       q: req.query.q && String(req.query.q),
       speech: req.query.speech === '1',
-      channel: req.query.channel ? String(req.query.channel) : undefined,
+      channel: channelQuery(req.query.channel),
       limit: req.query.limit ?? EXPORT_MAX,
       max: EXPORT_MAX,
     });

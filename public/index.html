@@ -100,14 +100,44 @@
     <p id="map-status" class="map-status" hidden></p>
   </div>
   <aside id="map-side">
-    <div class="row"><h2>Map</h2><select id="map-style" title="Base map"></select></div>
-    <p class="meta">A channel lights up while one of the radios is receiving on it, and pulses when its transmission
-      has been saved. Channels that would cover each other are drawn as one, with each name; click it to zoom in
-      until they part, or to list them where they can't.</p>
-    <h3>On the map</h3>
-    <ul id="map-placed" class="map-list"></ul>
-    <h3>Not placed yet</h3>
-    <ul id="map-unplaced" class="map-list"></ul>
+    <div class="row map-head">
+      <nav class="tabs">
+        <button data-tab="tx" class="active">Transmissions</button>
+        <button data-tab="ch">Channels</button>
+      </nav>
+      <span class="spacer"></span>
+      <select id="map-style" title="Base map"></select>
+    </div>
+    <div id="map-tab-tx" class="map-tab">
+      <div class="row wrap">
+        <select id="map-radio" title="Whose transmissions to list"><option value="">All radios</option></select>
+        <label class="toggle" title="Only channels placed within the part of the map showing">
+          <input type="checkbox" id="map-inview"> In view only</label>
+        <label class="toggle" title="Leave out transmissions shown as “(no speech recognised)”, such as a radio’s chirp">
+          <input type="checkbox" id="map-hide-silent"> Hide no speech</label>
+        <label class="toggle" title="Show what a channel says on the map, at the channel, for a few seconds">
+          <input type="checkbox" id="map-words" checked> Words on the map</label>
+      </div>
+      <div id="map-focus" class="focus" hidden>
+        <span id="map-focus-names"></span>
+        <button id="map-focus-clear" class="link">Show all</button>
+      </div>
+      <ul id="map-tx" class="map-tx"></ul>
+      <div class="row feed-foot">
+        <span id="map-tx-count" class="meta"></span>
+        <button id="map-tx-more" hidden>Load older</button>
+      </div>
+      <audio id="map-player" preload="none" hidden></audio>
+    </div>
+    <div id="map-tab-ch" class="map-tab" hidden>
+      <p class="meta">A channel lights up while one of the radios is receiving on it, and pulses when its transmission
+        has been saved. Channels that would cover each other are drawn as one, with each name; click it to zoom in
+        until they part, or to list them where they can't.</p>
+      <h3>On the map</h3>
+      <ul id="map-placed" class="map-list"></ul>
+      <h3>Not placed yet</h3>
+      <ul id="map-unplaced" class="map-list"></ul>
+    </div>
   </aside>
 </section>
 <section id="admin" hidden>

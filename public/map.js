@@ -1,7 +1,8 @@
 // The Map view: each channel at the place an admin gave it, lit while a radio
-// is receiving on it and pulsing when its transmission has been saved.
-// Channels close enough to cover each other at the zoom shown are drawn as one
-// marker naming them all.
+// is receiving on it and pulsing when its transmission has been saved. Beside
+// it, what is being said, newest first; and for a few seconds, the words at the
+// channel on the map. Channels close enough to cover each other at the zoom
+// shown are drawn as one marker naming them all.
 // MapLibre (public/vendor, through the import map in index.html) is imported
 // only when the view is first opened.
 import { showView } from './views.js';
@@ -85,6 +86,7 @@ async function open() {
     map.addControl(new maplibregl.AttributionControl({ compact: true }), 'bottom-right');
     map.on('click', onMapClick);
     map.on('zoomend', regroup);
+    map.on('moveend', onMoved);
     map.on('error', (e) => {
       // A tile that didn't load is routine; a style that didn't is the map failing
       if (!e.sourceId) status(`The base map didn't load: ${e.error?.message ?? 'unknown error'}`);
@@ -99,6 +101,8 @@ async function open() {
     map.resize();
     await loadChannels(false);
   }
+  // Loaded once, then kept up to date by the event stream
+  if (!listOpen) loadList().catch(listError);
 }
 
 $('map-style').onchange = () => {
@@ -135,6 +139,9 @@ async function loadChannels(fit) {
     radioNames.set(r.mac, r.name);
     if (r.position) placeRadio(r.mac, r.position);
   }
+  renderRadioFilter(radios);
+  // A channel just placed becomes a link in the list, and a renamed radio shows its new name
+  for (const t of listed.values()) placeListRow(t);
 }
 
 /** Draw a channel's marker, or move it. */
@@ -146,7 +153,8 @@ function placeMarker(c) {
     return;
   }
   const element = el('div', { className: 'ch-marker', title: c.name },
-    el('span', { className: 'ring' }), el('span', { className: 'dot' }), el('span', { className: 'label' }, c.name));
+    el('span', { className: 'ring' }), el('span', { className: 'dot' }), el('span', { className: 'label' }, c.name),
+    el('span', { className: 'bubble' }));
   const marker = new maplibregl.Marker({ element, draggable: role === 'admin', anchor: 'center' })
     .setLngLat([c.lon, c.lat])
     .addTo(map);
@@ -296,6 +304,7 @@ function regroup() {
   }
   for (const g of before.values()) g.marker.remove();
   for (const g of groups) drawGroup(g);
+  drawSaid();
 }
 
 /**
@@ -313,7 +322,8 @@ function makeGroup(key, members) {
   }));
   if (named.length < members.length) names.append(el('span', { className: 'nm more' }, `+${members.length - named.length} more`));
   const element = el('div', { className: 'ch-group', title: members.map((c) => c.name).join(', ') },
-    el('span', { className: 'ring' }), el('span', { className: 'badge' }, String(members.length)), names);
+    el('span', { className: 'ring' }), el('span', { className: 'badge' }, String(members.length)), names,
+    el('span', { className: 'bubble' }));
   const g = { key, members, element, marker: null, named: named.length };
   g.marker = new maplibregl.Marker({ element, anchor: 'center' }).setLngLat(middle(members)).addTo(map);
   element.addEventListener('click', (e) => {
@@ -343,7 +353,9 @@ function openGroup(g) {
   showGroupPopup(g);
 }
 
-// ---- What a marker shows: on the air -----------------------------------------
+// ---- What a marker shows: on the air, playing, pointed at --------------------
+
+let hovered = null;  // the channel of the transmission the pointer is over
 
 /** @param {string} name - A channel. @returns {boolean} Whether a radio is receiving on it now. */
 const isLive = (name) => [...liveBy.values()].includes(name);
@@ -355,7 +367,11 @@ const isLive = (name) => [...liveBy.values()].includes(name);
  */
 function decorate(name) {
   const m = markers.get(name);
-  if (m) m.element.classList.toggle('live', isLive(name));
+  if (m) {
+    m.element.classList.toggle('live', isLive(name));
+    m.element.classList.toggle('playing', playingTx?.channel_name === name);
+    m.element.classList.toggle('hl', hovered === name);
+  }
   const g = groupOf.get(name);
   if (g) drawGroup(g);
 }
@@ -363,13 +379,18 @@ function decorate(name) {
 /** @param {object} g - A group. @returns {void} Light it, and the names in it, for what its channels are doing. */
 function drawGroup(g) {
   const live = new Set(liveBy.values());
+  const playing = playingTx?.channel_name;
   const unnamed = g.members.slice(g.named).map((c) => c.name);
   const any = (names, test) => names.some(test);
   const all = g.members.map((c) => c.name);
   g.element.classList.toggle('live', any(all, (n) => live.has(n)));
+  g.element.classList.toggle('playing', all.includes(playing));
+  g.element.classList.toggle('hl', all.includes(hovered));
   for (const nm of g.element.querySelectorAll('.nm')) {
     const names = nm.dataset.name ? [nm.dataset.name] : unnamed;
     nm.classList.toggle('live', any(names, (n) => live.has(n)));
+    nm.classList.toggle('playing', names.includes(playing));
+    nm.classList.toggle('hl', names.includes(hovered));
   }
 }
 
@@ -384,6 +405,59 @@ function pulse(name) {
   host.classList.remove('pulse');
   void host.offsetWidth;
   host.classList.add('pulse');
+}
+
+/**
+ * Point at a channel on the map, while the pointer is over its transmission.
+ * @param {string} name - The channel.
+ * @param {boolean} on - Pointing or not.
+ * @returns {void}
+ */
+function highlight(name, on) {
+  const was = hovered;
+  hovered = on ? name : hovered === name ? null : hovered;
+  if (was && was !== hovered) decorate(was);
+  if (hovered) decorate(hovered);
+}
+
+// ---- The words, at the channel, for a few seconds --------------------------
+
+const said = new Map();     // channel -> {text, at, until}: the latest words, while shown
+const saidFor = new Set();  // transmissions whose words have been shown, so each is once
+
+/**
+ * Show what a channel said at its marker, for longer the more there is.
+ * @param {string} name - The channel.
+ * @param {string} text - What it said.
+ * @returns {void}
+ */
+function sayOnMap(name, text) {
+  const ms = Math.min(20000, 6000 + text.length * 60);
+  said.set(name, { text, at: Date.now(), until: Date.now() + ms });
+  drawSaid();
+  setTimeout(drawSaid, ms + 50);
+}
+
+/** @returns {void} Each marker with the latest words of its channels, and none once they're old. */
+function drawSaid() {
+  const now = Date.now();
+  for (const [name, s] of said) if (s.until <= now) said.delete(name);
+  const showing = new Map();  // marker element -> the words it carries
+  if ($('map-words').checked) {
+    for (const [name, s] of said) {
+      const host = hostOf(name);
+      if (host && !(showing.get(host)?.at > s.at)) showing.set(host, { name, ...s });
+    }
+  }
+  for (const host of document.querySelectorAll('#map-canvas .saying')) {
+    if (!showing.has(host)) host.classList.remove('saying');
+  }
+  for (const [host, s] of showing) {
+    // A group says whose words they are
+    host.querySelector('.bubble').replaceChildren(
+      host.classList.contains('ch-group') ? el('b', {}, `${s.name}: `) : '', s.text);
+    host.classList.add('saying');
+  }
 }
 
 // ---- Popups ---------------------------------------------------------------
@@ -425,6 +499,7 @@ async function showPopup(c) {
         .filter(Boolean).join(' · ')),
     el('ul', { className: 'ch-latest' }, el('li', { className: 'meta' }, 'Loading…')));
   const actions = el('div', { className: 'actions' },
+    el('button', { onclick: () => { mine.remove(); setFocus([c.name]); } }, 'Show in the list'),
     el('button', { onclick: () => openFeed(c.name) }, 'Open in feed'));
   if (role === 'admin') {
     actions.append(
@@ -473,8 +548,10 @@ async function showGroupPopup(g) {
       line);
   }));
   const body = el('div', { className: 'ch-popup' },
-    el('strong', {}, `${names.length} channels here`), list);
-  openPopup(g.marker.getLngLat(), body);
+    el('strong', {}, `${names.length} channels here`), list,
+    el('div', { className: 'actions' },
+      el('button', { onclick: () => { mine.remove(); setFocus(names); } }, 'Show these in the list')));
+  const mine = openPopup(g.marker.getLngLat(), body);
   await Promise.all(g.members.map(async (c) => {
     try {
       const [t] = await api(`/transmissions?channel=${encodeURIComponent(c.name)}&limit=1`);
@@ -492,15 +569,15 @@ function openFeed(name) {
   showView('main');
 }
 
-/** A channel on the map, from the side: flown to, with its popup. */
+/** A channel on the map, from the list: flown to, with its popup. */
 function goTo(c) {
   map.flyTo({ center: [c.lon, c.lat], zoom: Math.max(map.getZoom(), 12) });
   showPopup(c);
-  // On a phone the side is under the map
+  // On a phone the list is under the map
   $('map-canvas').scrollIntoView({ block: 'nearest', behavior: 'smooth' });
 }
 
-// ---- Placing channels ---------------------------------------------------------
+// ---- The Channels tab: placing them -----------------------------------------
 
 function renderSide(placed) {
   $('map-placed').replaceChildren(...(placed.length ? placed.map((c) => el('li', {},
@@ -543,6 +620,319 @@ async function onMapClick(e) {
   await loadChannels(false);
 }
 
+// ---- The Transmissions tab: what is said, beside the map ----------------------
+// The feed's transmissions, compact, newest first and live. For every channel,
+// the channels in view, or those a popup chose ("Show in the list"); for one
+// radio if asked, so a radio scanning amateur channels, whose conversations run
+// long, can be left out while watching another scanning emergency services.
+
+const LIST_PAGE = 50;
+const LIST_CAP = 200;      // left open, the list keeps this many
+const RADIO_KEY = 'airscribe.map.radio';
+const INVIEW_KEY = 'airscribe.map.inView';
+const SILENT_KEY = 'airscribe.map.hideSilent';
+const WORDS_KEY = 'airscribe.map.words';
+const TAB_KEY = 'airscribe.map.tab';
+const listed = new Map();  // id -> transmission
+const rows = new Map();    // id -> its <li>
+let listOpen = false;      // loaded once; kept up to date from then on
+let listCursor = null;     // where "Load older" starts, or null at the end
+let listTotal = 0;         // how many match, for "50 of 1,234"
+let listSeq = 0;           // the latest load: a slower, earlier answer is dropped
+let listPagedBack = false; // older pages were asked for: keep them
+let listScopeKey = '';     // the channels in view when it was loaded
+let focus = null;          // the channels "Show in the list" chose, or null
+const player = $('map-player');
+let playingTx = null;      // the transmission the list is playing
+
+$('map-inview').checked = recall(INVIEW_KEY, '0') === '1';
+// Until it is chosen here, as the feed has it
+$('map-hide-silent').checked = recall(SILENT_KEY, recall('airscribe.hideSilent', '0')) === '1';
+$('map-words').checked = recall(WORDS_KEY, '1') === '1';
+
+/** @returns {boolean} Whether `a` comes before `b`: newer, or the same moment and a later id. */
+const newer = (a, b) => a.started_at > b.started_at || (a.started_at === b.started_at && a.id > b.id);
+
+/** @returns {string[]} The placed channels within the part of the map showing. */
+function inView() {
+  const b = map.getBounds();
+  return channels.filter((c) => isPlaced(c) && b.contains([c.lon, c.lat])).map((c) => c.name);
+}
+
+/** @returns {string[] | null} The channels the list keeps to: chosen, in view, or null for all. */
+function listScope() {
+  if (focus) return focus;
+  if ($('map-inview').checked && map) return inView();
+  return null;
+}
+
+/** @param {object[]} radios - The radios. @returns {void} The radio filter's choices, keeping the one chosen. */
+function renderRadioFilter(radios) {
+  const sel = $('map-radio');
+  const cur = sel.options.length > 1 ? sel.value : recall(RADIO_KEY, '');
+  sel.replaceChildren(el('option', { value: '' }, 'All radios'),
+    ...radios.map((r) => el('option', { value: r.mac }, r.name)));
+  sel.value = radios.some((r) => r.mac === cur) ? cur : '';
+}
+
+/**
+ * Load the list's first page for its filter, or with `more`, the next older one.
+ * @param {{more?: boolean}} [o] - Options.
+ * @returns {Promise<void>}
+ */
+async function loadList({ more = false } = {}) {
+  const seq = ++listSeq;
+  const scope = listScope();
+  if (scope && !scope.length) {
+    // Asking for no channel in particular would be asking for all of them
+    clearList();
+    listOpen = true;
+    listScopeKey = '';
+    listCursor = null;
+    listTotal = 0;
+    drawListFoot();
+    return;
+  }
+  const p = new URLSearchParams({ limit: String(LIST_PAGE) });
+  if ($('map-radio').value) p.set('mac', $('map-radio').value);
+  if ($('map-hide-silent').checked) p.set('speech', '1');
+  for (const name of scope ?? []) p.append('channel', name);
+  if (more && listCursor) p.set('before', listCursor);
+  const res = await request(`/transmissions?${p}`);
+  const got = await res.json();
+  if (seq !== listSeq) return;   // the filter changed while this was on its way
+  if (!more) clearList();
+  listOpen = true;
+  listScopeKey = scope ? scope.join('\n') : '';
+  listPagedBack = more;
+  listCursor = res.headers.get('X-Next-Before');
+  listTotal = Number(res.headers.get('X-Total-Count')) || 0;
+  for (const t of got) {
+    listed.set(t.id, t);
+    placeListRow(t);
+  }
+  drawListFoot();
+}
+
+const listError = (e) => { $('map-tx-count').textContent = e.message; };
+
+function clearList() {
+  listed.clear();
+  rows.clear();
+  $('map-tx').replaceChildren();
+}
+
+/** @returns {void} The count and "Load older" under the list. */
+function drawListFoot() {
+  const scope = listScope();
+  $('map-tx-more').hidden = !listCursor;
+  $('map-tx-count').textContent = listed.size
+    ? `Showing ${listed.size.toLocaleString()} of ${Math.max(listTotal, listed.size).toLocaleString()}`
+    : scope && !scope.length ? 'No channel on the map is in view: zoom out, or untick “In view only”.'
+    : scope || $('map-radio').value || $('map-hide-silent').checked ? 'Nothing matches.'
+    : 'No transmissions yet.';
+}
+
+/**
+ * One transmission in the list: when, which channel (a link to it on the map
+ * once placed), which radio, and what was said.
+ * @param {object} t - The transmission.
+ * @returns {HTMLLIElement} Its row.
+ */
+function renderListRow(t) {
+  const c = channels.find((x) => x.name === t.channel_name);
+  const where = t.channel_name || (t.channel === null || t.channel === undefined ? '' : `ch ${t.channel}`);
+  const { text, state } = words(t);
+  const playing = playingTx?.id === t.id;
+  const li = el('li', { className: [t.transmit ? 'sent' : '', playing ? 'playing' : ''].join(' ').trim() },
+    el('div', { className: 'mtx-head' },
+      el('button', { className: 'play', title: playing ? 'Stop' : 'Play', onclick: () => play(t) }, playing ? '■' : '▶'),
+      el('span', {}, when(t.started_at)),
+      !where ? ''
+        : c && isPlaced(c) ? el('button', { className: 'link chan', title: 'Show it on the map', onclick: () => goTo(c) }, where)
+        : el('span', { className: 'chan', title: t.channel_name ? 'Not placed on the map' : '' }, where),
+      el('span', {}, `${radioNames.get(t.mac) ?? t.radio_name ?? t.mac} · ${((t.duration_ms ?? 0) / 1000).toFixed(1)}s`)),
+    el('div', { className: `tx-text ${state}` }, text));
+  li.dataset.at = String(t.started_at);
+  li.dataset.id = String(t.id);
+  if (t.channel_name) {
+    li.onmouseenter = () => highlight(t.channel_name, true);
+    li.onmouseleave = () => highlight(t.channel_name, false);
+  }
+  return li;
+}
+
+/** @param {object} t - A transmission. @returns {void} Draw its row, or redraw it in place. */
+function placeListRow(t) {
+  const li = renderListRow(t);
+  const old = rows.get(t.id);
+  if (old) old.replaceWith(li);
+  else {
+    const list = $('map-tx');
+    // Mostly new rows go first and older pages go last; look only otherwise
+    const at = (n) => ({ started_at: Number(n.dataset.at), id: Number(n.dataset.id) });
+    let next = list.firstElementChild;
+    if (list.lastElementChild && newer(at(list.lastElementChild), t)) next = null;
+    else while (next && newer(at(next), t)) next = next.nextElementSibling;
+    list.insertBefore(li, next);
+  }
+  rows.set(t.id, li);
+}
+
+/**
+ * Whether a transmission arriving live belongs in the list: the test the
+ * server makes for a page.
+ * @param {object} t - The transmission.
+ * @returns {boolean} Whether to show it.
+ */
+function listMatches(t) {
+  const mac = $('map-radio').value;
+  if (mac && t.mac !== mac) return false;
+  // Hiding no speech: a clip joins once it has words, rather than showing
+  // while it's transcribed and vanishing if it turns out a chirp
+  if ($('map-hide-silent').checked && !(t.text ?? '').trim()) return false;
+  const scope = listScope();
+  return !scope || scope.includes(t.channel_name);
+}
+
+/** @param {object} t - A transmission that arrived or changed. @returns {void} */
+function onListTransmission(t) {
+  if (!listOpen) return;
+  if (listed.has(t.id)) {
+    if ($('map-hide-silent').checked && words(t).state === 'silent') return dropRow(t.id);
+    listed.set(t.id, t);
+    placeListRow(t);
+    return;
+  }
+  if (!listMatches(t)) return;
+  // Older than the pages loaded (an old clip transcribed again): not news
+  const oldest = [...listed.values()].reduce((o, x) => (!o || newer(o, x) ? x : o), null);
+  if (listCursor && oldest && !newer(t, oldest)) return;
+  listed.set(t.id, t);
+  listTotal += 1;
+  placeListRow(t);
+  trimList();
+  drawListFoot();
+}
+
+/** @param {number} id - A transmission deleted. @returns {void} */
+function dropRow(id) {
+  if (!listed.has(id)) return;
+  listed.delete(id);
+  rows.get(id)?.remove();
+  rows.delete(id);
+  listTotal = Math.max(0, listTotal - 1);
+  drawListFoot();
+}
+
+/** @returns {void} Keep a list left open from growing without end. */
+function trimList() {
+  if (listPagedBack || listed.size <= LIST_CAP) return;
+  const all = [...listed.values()].sort((a, b) => (newer(a, b) ? -1 : 1));
+  for (const t of all.slice(LIST_CAP)) {
+    listed.delete(t.id);
+    rows.get(t.id)?.remove();
+    rows.delete(t.id);
+  }
+  const last = all[LIST_CAP - 1];
+  listCursor = `${last.started_at}.${last.id}`;
+}
+
+/**
+ * Play a transmission from the list, or stop it if it's the one playing. Its
+ * channel is marked on the map meanwhile, so it can be seen where it came from.
+ * @param {object} t - The transmission.
+ * @returns {void}
+ */
+function play(t) {
+  if (playingTx?.id === t.id) {
+    player.pause();
+    return;
+  }
+  setPlaying(t);
+  player.src = withToken(`/api/transmissions/${t.id}/audio`);
+  player.play().catch((e) => { if (e.name !== 'AbortError') setPlaying(null); });
+}
+
+/** @param {object | null} t - The transmission playing now, or null. @returns {void} */
+function setPlaying(t) {
+  const before = playingTx;
+  playingTx = t;
+  for (const x of [before, t]) {
+    if (!x) continue;
+    const li = rows.get(x.id);
+    const on = x === t;
+    if (li) {
+      li.classList.toggle('playing', on);
+      const b = li.querySelector('.play');
+      b.textContent = on ? '■' : '▶';
+      b.title = on ? 'Stop' : 'Play';
+    }
+    if (x.channel_name) decorate(x.channel_name);
+  }
+}
+
+// Changing the clip pauses the last one on the way, after the new one has
+// started; only a player that has really stopped ends what's marked
+for (const type of ['pause', 'ended', 'error']) {
+  player.addEventListener(type, () => {
+    if (player.paused || player.ended || player.error) setPlaying(null);
+  });
+}
+
+/** @param {string[] | null} names - Channels to keep the list to, or null for the usual. @returns {void} */
+function setFocus(names) {
+  focus = names?.length ? names : null;
+  $('map-focus').hidden = !focus;
+  $('map-focus-names').textContent = focus ? `Only ${focus.join(', ')}` : '';
+  $('map-inview').disabled = Boolean(focus);
+  if (focus) showTab('tx');
+  loadList().catch(listError);
+}
+
+let movedTimer = null;
+/** @returns {void} With "In view only", the map moved: list what's in view now. */
+function onMoved() {
+  if (focus || !$('map-inview').checked || !listOpen) return;
+  clearTimeout(movedTimer);
+  movedTimer = setTimeout(() => {
+    if (inView().join('\n') !== listScopeKey) loadList().catch(listError);
+  }, 300);
+}
+
+$('map-radio').onchange = () => {
+  remember(RADIO_KEY, $('map-radio').value);
+  loadList().catch(listError);
+};
+$('map-inview').onchange = () => {
+  remember(INVIEW_KEY, $('map-inview').checked ? '1' : '0');
+  loadList().catch(listError);
+};
+$('map-hide-silent').onchange = () => {
+  remember(SILENT_KEY, $('map-hide-silent').checked ? '1' : '0');
+  loadList().catch(listError);
+};
+$('map-words').onchange = () => {
+  remember(WORDS_KEY, $('map-words').checked ? '1' : '0');
+  drawSaid();
+};
+$('map-focus-clear').onclick = () => setFocus(null);
+$('map-tx-more').onclick = async () => {
+  $('map-tx-more').disabled = true;
+  try { await loadList({ more: true }); } catch (e) { alert(e.message); }
+  $('map-tx-more').disabled = false;
+};
+
+/** @param {'tx' | 'ch'} name - Transmissions or Channels. @returns {void} */
+function showTab(name) {
+  for (const b of document.querySelectorAll('#map-side [data-tab]')) b.classList.toggle('active', b.dataset.tab === name);
+  $('map-tab-tx').hidden = name !== 'tx';
+  $('map-tab-ch').hidden = name !== 'ch';
+  remember(TAB_KEY, name);
+}
+for (const b of document.querySelectorAll('#map-side [data-tab]')) b.onclick = () => showTab(b.dataset.tab);
+showTab(recall(TAB_KEY, 'tx') === 'ch' ? 'ch' : 'tx');
+
 // ---- The event stream ----------------------------------------------------------
 
 // While a radio is receiving, its channel is lit: the radio's own status, as
@@ -558,11 +948,13 @@ document.addEventListener('airscribe:activity', (e) => {
   if (a.position) placeRadio(a.mac, a.position);
 });
 
-// A transmission saved: one pulse at its channel, the first time it's heard of
+// A transmission saved, then transcribed: into the list; one pulse at its
+// channel the first time it's heard of, and its words there once it has some
 document.addEventListener('airscribe:transmission', (e) => {
   const t = e.detail;
+  onListTransmission(t);
   if (!t.channel_name || !map) return;
-  // A channel heard for the first time joins the side list
+  // A channel heard for the first time joins the Channels tab
   if (!channels.some((c) => c.name === t.channel_name)) loadChannels(false).catch(() => {});
   if (t.started_at < Date.now() - 5 * 60 * 1000) return;   // an old clip transcribed again isn't news
   if (!pulsed.has(t.id)) {
@@ -570,7 +962,16 @@ document.addEventListener('airscribe:transmission', (e) => {
     if (pulsed.size > 500) pulsed.delete(pulsed.values().next().value);
     pulse(t.channel_name);
   }
+  const text = (t.text ?? '').trim();
+  if (text && !saidFor.has(t.id)) {
+    saidFor.add(t.id);
+    if (saidFor.size > 500) saidFor.delete(saidFor.values().next().value);
+    sayOnMap(t.channel_name, text);
+  }
 });
+
+document.addEventListener('airscribe:deleted', (e) => e.detail.ids.forEach(dropRow));
+document.addEventListener('airscribe:purged', () => { if (listOpen) loadList().catch(listError); });
 
 document.addEventListener('airscribe:view', (e) => {
   if (e.detail !== 'mapview') return;

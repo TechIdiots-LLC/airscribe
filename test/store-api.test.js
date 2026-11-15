@@ -180,6 +180,12 @@ test('the channels heard, and the feed filtered to one of them', { skip: !sqlite
     const holden = await get('/transmissions?channel=Holden%20PD');
     assert.equal(holden.headers.get('x-total-count'), '2');
     assert.ok((await holden.json()).every((t) => t.channel_name === 'Holden PD'));
+    // Several at once, as the Map's list asks for the channels in view
+    const both = await get('/transmissions?channel=Holden%20PD&channel=Rutld%20FD');
+    assert.equal(both.headers.get('x-total-count'), '3');
+    assert.deepEqual((await both.json()).map((t) => t.started_at), [3, 2, 1], 'both channels, not the one with none');
+    assert.equal((await (await get('/transmissions?channel=')).json()).length, 4, 'an empty filter is every channel');
+    assert.equal(store.transmissions({ channel: [] }).length, 4, 'and so is an empty list');
     const csv = await (await get('/transmissions/export?format=csv&channel=Rutld%20FD')).text();
     assert.equal(csv.trim().split('\n').length, 1, 'no transcripts yet, so only the header');
   } finally {

@@ -31,6 +31,13 @@
   channel with a click too, for one placed on top of another. Base maps are MapLibre styles (`map.styles`), by default the
   colour-relief, dark colour-relief and OpenStreetMap styles from tiles.wifidb.net; a dark browser starts on the dark
   one, and the choice is remembered. MapLibre GL JS 6 is served by AirScribe itself (public/vendor).
+- **What's said, beside the Map:** the Map's side lists the transmissions as they come in, newest first, each with a
+  play button; while one plays its channel is marked on the map, pointing at a row points at its channel, and a
+  channel's name flies to it. The list can keep to one radio (so a radio scanning amateur channels, whose
+  conversations run long, can be left out while watching one scanning emergency services), to the channels in view,
+  or to channels chosen from a popup (**Show in the list**). What a channel says also shows at it on the map for a
+  few seconds (**Words on the map**). Placing channels moved to the side's **Channels** tab. `/api/transmissions`
+  takes `channel` more than once, for any of several channels.
 - **Insights:** a view beside the feed, for the last day, week, month or everything, for one radio or channel:
   a word cloud of what was said (common English words and a model's own annotations such as "(static)" left out;
   unit and call numbers kept), transmissions per hour or day, busy hours by weekday, and each channel's

@@ -365,8 +365,9 @@ export class Store {
 
   /**
    * The WHERE clause the page, its count and the exports share.
-   * @param {{mac?: string, q?: string, group?: string, channel?: string,
-   *   publicOnly?: boolean, notAfter?: number}} f - Filters.
+   * @param {{mac?: string, q?: string, group?: string, channel?: string | string[],
+   *   publicOnly?: boolean, notAfter?: number}} f - Filters. `channel` may name several
+   *   channels, as the Map's list does for those in view; an empty list is no filter.
    * @returns {{where: string[], args: any[]}} Conditions and their values.
    */
   #filters({ mac, q, group, channel, publicOnly, notAfter, speech } = {}) {
@@ -379,7 +380,11 @@ export class Store {
       args.push(...none.args);
     }
     if (group) (where.push('r."group" = ?'), args.push(group));
-    if (channel) (where.push('t.channel_name = ?'), args.push(channel));
+    const channels = [].concat(channel ?? []).filter(Boolean);
+    if (channels.length) {
+      where.push(`t.channel_name IN (${channels.map(() => '?').join(', ')})`);
+      args.push(...channels);
+    }
     // The publishing gate applied in the query rather than after it, so the
     // delay does not depend on every caller remembering to subtract it.
     if (publicOnly) where.push('r.public = 1');
