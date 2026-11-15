@@ -5,6 +5,7 @@ import { fileURLToPath } from 'node:url';
 import { MODELS, guessModel, normalizeMac } from './models.js';
 import { createAuth } from './auth.js';
 import { PUBLISH_DEFAULTS, publicCutoff, publishable, publicView } from './publish.js';
+import { insights } from './insights.js';
 
 const PUBLIC = fileURLToPath(new URL('../public', import.meta.url));
 
@@ -212,6 +213,18 @@ export function createApp({ manager, store, sidecar, config, dataDir, updates, c
   api.get('/radios', (req, res) => res.json(manager.radios()));
   // Channels transmissions came in on, by the name the radio gave them
   api.get('/channels', (req, res) => res.json(store.channelsSeen()));
+
+  // Insights: the commonest words, transmissions per hour and per channel, over
+  // the last `days` (0 for everything), for one radio or channel if asked
+  api.get('/insights', (req, res) => {
+    const days = req.query.days === undefined ? 7 : Number(req.query.days);
+    if (!Number.isFinite(days) || days < 0) return res.status(400).json({ error: 'days is a number, 0 for all' });
+    res.json(insights(store, {
+      since: days > 0 ? Date.now() - days * 24 * 60 * 60 * 1000 : 0,
+      mac: req.query.mac ? normalizeMac(String(req.query.mac)) : undefined,
+      channel: req.query.channel ? String(req.query.channel) : undefined,
+    }));
+  });
 
   // Radios the host can see. Each is annotated with a model guess and whether
   // it is already saved, so the UI can offer a one-click add.

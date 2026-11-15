@@ -7,7 +7,7 @@
 }
 * { box-sizing: border-box; }
 body { margin: 0; background: var(--bg); color: var(--fg); font: 15px/1.45 system-ui, sans-serif; }
-header { display: flex; align-items: center; gap: 12px; padding: 12px 16px; border-bottom: 1px solid var(--line); }
+header { display: flex; flex-wrap: wrap; align-items: center; gap: 8px 12px; padding: 12px 16px; border-bottom: 1px solid var(--line); }
 h1 { font-size: 18px; margin: 0; }
 h2 { font-size: 16px; margin: 0; }
 h3 { font-size: 14px; color: var(--muted); margin: 12px 0 4px; }
@@ -72,6 +72,32 @@ button.link.danger { color: var(--bad); }
 .links { display: flex; flex-wrap: wrap; gap: 0 12px; align-items: baseline; }
 .links a { margin-right: 0; }
 #admin { max-width: 900px; margin: 0 auto; padding: 16px; }
+/* The header's views: Feed, Insights, Admin */
+.views { display: flex; gap: 4px; }
+.views button.active { border-color: var(--accent); color: var(--accent); }
+/* Insights */
+#insights { max-width: 1000px; margin: 0 auto; padding: 16px; }
+#insights > .row h2 { flex: 0 0 auto; margin-right: 8px; }
+.cloud { display: flex; flex-wrap: wrap; gap: 2px 14px; align-items: baseline; justify-content: center; padding: 8px 0; }
+.cloud .word { background: none; border: 0; padding: 0; line-height: 1.25; color: var(--muted); }
+.cloud .w1 { color: var(--fg); }
+.cloud .w2 { color: var(--fg); font-weight: 600; }
+.cloud .w3 { color: var(--accent); font-weight: 600; }
+.cloud .word:hover { text-decoration: underline; }
+.bars { display: block; width: 100%; height: 140px; margin-top: 4px; }
+.bars rect { fill: var(--accent); }
+.axis { display: flex; justify-content: space-between; font-size: 11px; color: var(--muted); margin-top: 2px; }
+.heat { display: grid; grid-template-columns: 3em repeat(24, minmax(0, 1fr)); gap: 2px; font-size: 10px; color: var(--muted); }
+.heat .hr { white-space: nowrap; overflow: visible; }
+.heat .cell { height: 16px; border-radius: 2px; background: var(--card); border: 1px solid var(--line); position: relative; }
+.heat .cell span { position: absolute; inset: 0; border-radius: 1px; background: var(--accent); }
+.scroll-x { overflow-x: auto; }
+table.channels { width: 100%; border-collapse: collapse; font-size: 13px; }
+table.channels th, table.channels td { text-align: left; padding: 5px 8px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+table.channels th { color: var(--muted); font-weight: 500; }
+table.channels .num { text-align: right; font-variant-numeric: tabular-nums; }
+table.channels td.bar { width: 30%; }
+.share { height: 6px; background: var(--accent); border-radius: 3px; }
 .panel { border: 1px solid var(--line); border-radius: 8px; padding: 12px 16px; margin-bottom: 16px; }
 .panel h3 { flex: 1; margin: 0; font-size: 15px; color: var(--fg); }
 .panel a, #admin a { color: var(--accent); }

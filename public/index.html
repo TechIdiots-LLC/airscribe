@@ -25,7 +25,12 @@
   </form>
 </div>
 <header><h1>AirScribe</h1><span id="conn" class="pill">connecting…</span>
-  <span class="spacer"></span><button id="admin-toggle" hidden>Admin</button>
+  <nav class="views">
+    <button data-view="main" class="active">Feed</button>
+    <button data-view="insights">Insights</button>
+    <button id="admin-toggle" data-view="admin" hidden>Admin</button>
+  </nav>
+  <span class="spacer"></span>
   <button id="logout" hidden>Sign out</button></header>
 <main id="main" hidden>
   <section id="radios-panel">
@@ -55,6 +60,36 @@
     </div>
   </section>
 </main>
+<section id="insights" hidden>
+  <div class="row wrap">
+    <h2>Insights</h2>
+    <select id="ins-range">
+      <option value="1">Last 24 hours</option>
+      <option value="7" selected>Last 7 days</option>
+      <option value="30">Last 30 days</option>
+      <option value="0">Everything</option>
+    </select>
+    <select id="ins-radio"><option value="">All radios</option></select>
+    <select id="ins-channel"><option value="">All channels</option></select>
+  </div>
+  <p id="ins-summary"></p>
+  <div class="panel">
+    <div class="row"><h3>Words</h3><span class="meta">Click one to find it in the feed</span></div>
+    <div id="ins-words" class="cloud"></div>
+  </div>
+  <div class="panel">
+    <div class="row"><h3>Activity</h3></div>
+    <div id="ins-activity"></div>
+  </div>
+  <div class="panel" id="ins-heat-panel">
+    <div class="row"><h3>Busy hours</h3><span class="meta">By weekday and hour, in this browser’s time</span></div>
+    <div id="ins-heat"></div>
+  </div>
+  <div class="panel">
+    <div class="row"><h3>Channels</h3><span class="meta">Click one to see its traffic</span></div>
+    <div id="ins-channels" class="scroll-x"></div>
+  </div>
+</section>
 <section id="admin" hidden>
   <div class="row"><h2>Admin</h2></div>
   <div class="panel">
@@ -80,6 +115,7 @@
   </div>
 </section>
 <script src="app.js" type="module"></script>
+<script src="insights.js" type="module"></script>
 <script src="admin.js" type="module"></script>
 </body>
 </html>

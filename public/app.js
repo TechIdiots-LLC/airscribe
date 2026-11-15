@@ -1,3 +1,5 @@
+import { showView } from './views.js';
+
 // The token rides on the query string rather than a header, because the event
 // stream and the audio and text download links cannot set one.
 //
@@ -652,7 +654,7 @@ async function boot() {
     $('feed').replaceChildren(el('li', { className: 'tx-text error' }, e.message));
   }
   $('logout').hidden = !session?.guarded;
-  $('main').hidden = false;
+  showView('main');
   listen();
   document.dispatchEvent(new CustomEvent('airscribe:signed-in', { detail: session }));
 }

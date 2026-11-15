@@ -454,6 +454,40 @@ export class Store {
   }
 
   /**
+   * What Insights summarises: transmissions per hour, per channel, and the
+   * transcripts the feed shows (the default engine's), newest first.
+   *
+   * Hours are UTC hour starts. Every whole-hour time zone has the same hour
+   * boundaries, so the page can label them in local time and add them up into
+   * local days and weekdays itself.
+   * @param {{since?: number, mac?: string, channel?: string, textLimit?: number}} [f] - From when
+   *   (ms), for one radio or channel, and how many transcripts at most.
+   * @returns {{hourly: object[], channels: object[], texts: string[]}} The rows.
+   */
+  insightRows({ since = 0, mac, channel, textLimit = 20000 } = {}) {
+    const { where, args } = this.#filters({ mac, channel });
+    where.push('t.started_at >= ?');
+    args.push(since);
+    const from = `FROM transmissions t LEFT JOIN radios r ON r.mac = t.mac WHERE ${where.join(' AND ')}`;
+    const hourly = this.db
+      .prepare(`SELECT (t.started_at / 3600000) * 3600000 AS hour, COUNT(*) AS count, SUM(t.duration_ms) AS ms
+                ${from} GROUP BY hour ORDER BY hour`)
+      .all(...args);
+    const channels = this.db
+      .prepare(`SELECT t.channel_name AS name, MAX(t.channel_hz) AS hz, COUNT(*) AS count,
+                       SUM(t.duration_ms) AS ms, MAX(t.started_at) AS last
+                ${from} GROUP BY t.channel_name ORDER BY count DESC, name`)
+      .all(...args);
+    const texts = !this.defaultEngine ? [] : this.db
+      .prepare(`SELECT x.text FROM transmissions t LEFT JOIN radios r ON r.mac = t.mac
+                  JOIN transcripts x ON x.transmission_id = t.id AND x.engine = ? AND x.status = 'done'
+                 WHERE ${where.join(' AND ')} ORDER BY t.started_at DESC LIMIT ?`)
+      .all(this.defaultEngine, ...args, textLimit)
+      .map((r) => r.text);
+    return { hourly, channels, texts };
+  }
+
+  /**
    * The channels transmissions came in on, for the feed's channel filter.
    * @returns {{name: string, hz: number|null, count: number, last: number}[]} By name.
    */

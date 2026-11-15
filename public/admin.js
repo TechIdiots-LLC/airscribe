@@ -200,17 +200,12 @@ $('keep-save').onclick = async () => {
   }
 };
 
-function show(admin) {
-  $('admin').hidden = !admin;
-  $('main').hidden = admin;
-  $('admin-toggle').textContent = admin ? 'Back to radios' : 'Admin';
-  if (admin) {
-    load();
-    loadStorage();
-  }
-}
-
-$('admin-toggle').onclick = () => show($('admin').hidden);
+// Loaded when Admin is opened (views.js switches the page)
+document.addEventListener('airscribe:view', (e) => {
+  if (e.detail !== 'admin') return;
+  load();
+  loadStorage();
+});
 $('updates-check').onclick = async () => {
   $('updates-check').disabled = true;
   await load(true);
