@@ -132,7 +132,11 @@ function renderRadios() {
           el('button', { onclick: () => act(r.mac, connected ? 'disconnect' : 'connect') }, connected ? 'Disconnect' : 'Connect'),
           el('button', { onclick: () => rename(r) }, 'Rename'),
           el('button', { onclick: () => remove(r) }, 'Remove'),
-          connected && role === 'admin' ? el('button', { onclick: () => openControls(r) }, 'Controls') : ''),
+          connected && role === 'admin' ? el('button', { onclick: () => openControls(r) }, 'Controls') : '',
+          // Its channels, backups of them, and stations to write (channels.js)
+          connected && role === 'admin'
+            ? el('button', { onclick: () => document.dispatchEvent(new CustomEvent('airscribe:channels', { detail: r })) }, 'Channels')
+            : ''),
       );
     }),
   );

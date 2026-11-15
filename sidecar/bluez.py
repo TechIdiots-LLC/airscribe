@@ -19,6 +19,7 @@ Audio is decoded per transmission. The radio delimits each one, so a run's SBC
 is collected and decoded when the run closes.
 """
 
+import contextlib
 import socket
 import threading
 import time
@@ -38,6 +39,7 @@ POSITION_EVERY = 60  # seconds; a monitoring radio rarely moves
 # GET_DEV_INFO (4), argument 3 - carries the channel count among much else.
 GET_DEV_INFO = bytes([0xFF, 0x01, 0x00, 0x01, 0x00, 0x02, 0x00, 0x04, 0x03])
 READ_RF_CH = 13     # one channel's name and frequencies, by index
+WRITE_RF_CH = 14    # one channel, the same 25-byte record READ_RF_CH returns
 
 AUDIO_CMDS = {0x00, 0x03}   # received audio
 TRANSMIT_CMD = 0x09         # audio the radio is itself sending
@@ -294,6 +296,148 @@ def parse_position(buf):
     return pos
 
 
+# ---- Channels: the record the radio keeps for each -----------------------------
+# 25 bytes, as READ_RF_CH returns after its status byte and WRITE_RF_CH takes
+# (HTCommander's RadioChannelInfo): the slot, the transmit and receive
+# frequencies in hertz with the modulation in each one's top two bits, the
+# transmit and receive sub-audio tones, two bytes of flags, and a ten-byte name.
+
+RECORD = 25
+MODULATIONS = ("FM", "AM", "DMR")
+MAX_HZ = (1 << 30) - 1
+
+
+def tone_name(v):
+    """A sub-audio tone as the radio keeps it, as text: CTCSS in hundredths of
+    a hertz (1000 and up) is "127.3", DCS by its code's digits (below 1000) is
+    "D023", and 0, no tone, is ""."""
+    if not v:
+        return ""
+    if v >= 1000:
+        return f"{v / 100:.1f}"
+    return f"D{v:03d}"
+
+
+def tone_value(text):
+    """The other way: "127.3" (CTCSS, in hertz), "D023" (DCS), or "" for none."""
+    s = str(text or "").strip().upper()
+    if not s:
+        return 0
+    if s.startswith("D"):
+        code = s[1:]
+        if len(code) != 3 or any(c not in "01234567" for c in code):
+            raise ValueError(f"{text} isn't a DCS code")
+        return int(code)
+    try:
+        hz = float(s)
+    except ValueError:
+        raise ValueError(f"{text} isn't a tone: CTCSS in hertz, or D and a DCS code") from None
+    if not 60.0 <= hz <= 260.0:
+        raise ValueError(f"{text} Hz isn't a CTCSS tone")
+    return round(hz * 100)
+
+
+def decode_channel(rec):
+    """Everything one channel record holds, and the record itself (as "raw",
+    so it can be written back exactly, bits this doesn't model included)."""
+    rec = bytes(rec)
+
+    def freq(at):
+        return ((rec[at] & 0x3F) << 24) | (rec[at + 1] << 16) | (rec[at + 2] << 8) | rec[at + 3]
+
+    flags, more = rec[13], rec[14]
+    name = rec[15:25].split(b"\x00")[0].decode("utf-8", "replace").strip()
+    mod = rec[5] >> 6
+    return {
+        "id": rec[0],
+        "name": name,
+        "rx_hz": freq(5),
+        "tx_hz": freq(1),
+        "mod": MODULATIONS[mod] if mod < len(MODULATIONS) else "FM",
+        "bandwidth": "wide" if flags & 0x10 else "narrow",
+        "rx_tone": tone_name((rec[11] << 8) | rec[12]),
+        "tx_tone": tone_name((rec[9] << 8) | rec[10]),
+        "scan": bool(flags & 0x80),
+        "power": "high" if flags & 0x40 else "medium" if flags & 0x02 else "low",
+        "talk_around": bool(flags & 0x20),
+        "tx_disable": bool(flags & 0x01),
+        "mute": bool(more & 0x10),
+        "empty": not name and not freq(5),
+        "raw": rec.hex(),
+    }
+
+
+def _number(value, what, low, high):
+    if isinstance(value, bool) or not isinstance(value, int) or not low <= value <= high:
+        raise ValueError(f"{what} must be a whole number from {low} to {high}")
+    return value
+
+
+def encode_channel(ch):
+    """The record for a channel described by its fields, as decode_channel
+    gives them. Built from nothing, as HTCommander's channel import builds one:
+    flags not given are off (de-emphasis stays on). A receive frequency of 0
+    is an empty slot, the way the radio keeps one."""
+    slot = _number(ch.get("id"), "a channel's slot", 0, 255)
+    rx = _number(ch.get("rx_hz") or 0, "a receive frequency", 0, MAX_HZ)
+    if not rx:
+        return bytes([slot]) + bytes(RECORD - 1)
+    tx = _number(ch.get("tx_hz") or rx, "a transmit frequency", 1, MAX_HZ)
+    mod = str(ch.get("mod") or "FM").upper()
+    if mod not in ("FM", "AM"):
+        raise ValueError(f"a channel is FM or AM here, not {mod}")
+    rec = bytearray(RECORD)
+    rec[0] = slot
+    rec[1:5] = tx.to_bytes(4, "big")
+    rec[5:9] = rx.to_bytes(4, "big")
+    rec[1] |= MODULATIONS.index(mod) << 6
+    rec[5] |= MODULATIONS.index(mod) << 6
+    rec[9:11] = tone_value(ch.get("tx_tone")).to_bytes(2, "big")
+    rec[11:13] = tone_value(ch.get("rx_tone")).to_bytes(2, "big")
+    power = ch.get("power") or "high"
+    if power not in ("high", "medium", "low"):
+        raise ValueError("power is high, medium or low")
+    bandwidth = ch.get("bandwidth") or "wide"
+    if bandwidth not in ("wide", "narrow"):
+        raise ValueError("bandwidth is wide or narrow")
+    rec[13] = ((0x80 if ch.get("scan") else 0) | (0x40 if power == "high" else 0)
+               | (0x20 if ch.get("talk_around") else 0) | (0x10 if bandwidth == "wide" else 0)
+               | (0x02 if power == "medium" else 0) | (0x01 if ch.get("tx_disable") else 0))
+    rec[14] = 0x10 if ch.get("mute") else 0
+    name = str(ch.get("name") or "").strip()
+    if any(not 32 <= ord(c) < 127 for c in name) or len(name) > 10:
+        raise ValueError(f"{name!r}: a channel's name is up to ten plain letters, digits and signs")
+    rec[15:15 + len(name)] = name.encode("ascii")
+    return bytes(rec)
+
+
+def channel_record(ch):
+    """What to write for one channel: a record as it was read ("raw", for
+    putting a backup back exactly), or one built from its fields."""
+    if ch.get("raw"):
+        try:
+            rec = bytes.fromhex(str(ch["raw"]))
+        except ValueError:
+            raise ValueError("a channel's raw record isn't hex") from None
+        if len(rec) != RECORD:
+            raise ValueError(f"a channel's record is {RECORD} bytes")
+        if ch.get("id") is not None and _number(ch["id"], "a channel's slot", 0, 255) != rec[0]:
+            rec = bytes([ch["id"]]) + rec[1:]
+        return rec
+    return encode_channel(ch)
+
+
+def same_channel(a, b):
+    """Whether two records describe the same channel: everything decoded, or
+    both empty (an empty slot's other bits are whatever the radio left)."""
+    da, db = decode_channel(a), decode_channel(b)
+    if da["empty"] and db["empty"]:
+        return da["id"] == db["id"]
+    da.pop("raw")
+    db.pop("raw")
+    return da == db
+
+
 class LinkControls:
     """The radio controls, for a backend that keeps a RadioLink per radio in
     `self.links` (BlueZ and Bumble alike)."""
@@ -309,6 +453,12 @@ class LinkControls:
 
     def control(self, mac, action, value):
         return self._link(mac).control(action, value)
+
+    def read_region(self, mac, region=None):
+        return self._link(mac).read_region(region)
+
+    def write_region(self, mac, region, channels):
+        return self._link(mac).write_region(region, channels)
 
 
 class RadioLink:
@@ -338,9 +488,14 @@ class RadioLink:
         self.channels = {}             # index -> {name, rx_hz, ...}
         self.channel = None            # the one the radio is on now
         self.channels_region = None    # the region the channel table was read for
+        self.channel_count = 0         # slots in each region
         self.region_count = 0
         self._region_names = None
         self.position = None           # the radio's GPS fix, when it has one
+        # Set while channels are read or written in another region: the radio
+        # is moved there and back, which the status poll mustn't take for a
+        # region changed on the radio and read the table for
+        self.editing = threading.Event()
 
     # -- control channel ---------------------------------------------------
 
@@ -419,6 +574,7 @@ class RadioLink:
         count = info["channel_count"] if info else parse_channel_count(reply)
         if not count:
             return
+        self.channel_count = count
         # Read for the region the radio is on now: channel ids are indexes into
         # the current region's table
         st = self.status()
@@ -529,21 +685,132 @@ class RadioLink:
             v = int(value)
             if not 0 <= v < max(self.region_count, 1):
                 raise ValueError(f"region is 0 to {self.region_count - 1}")
-            self.request(gaia(CMD_SET_REGION, [v]), reply=False)
-            # No reply: watch the status until the radio reports the new region
-            for _ in range(10):
-                time.sleep(0.3)
-                st = self.status()
-                if st and st["region"] == v:
-                    break
-            else:
-                raise RuntimeError("the radio didn't move to that region")
+            self._set_region(v)
             # Said first, so the status poll doesn't read the table a second time
             self.channels_region = v
             self.read_channels()
         else:
             raise ValueError(f"unknown control {action}")
         return self.info()
+
+    def _set_region(self, v):
+        """Move the radio to region v, and wait until it says it's there."""
+        self.request(gaia(CMD_SET_REGION, [v]), reply=False)
+        # No reply: watch the status until the radio reports the new region
+        for _ in range(10):
+            time.sleep(0.3)
+            st = self.status()
+            if st and st["region"] == v:
+                return
+        raise RuntimeError("the radio didn't move to that region")
+
+    # -- reading and writing whole channels -------------------------------
+
+    def read_record(self, slot):
+        """One slot's 25-byte record as the radio has it now, or None.
+
+        Checked to be the slot asked for: replies are matched by command, so a
+        late answer to an earlier READ_RF_CH would otherwise pass for this one.
+        """
+        for _ in range(2):
+            m = unframe(self.request(read_rf_ch_frame(slot)))
+            if m is not None and len(m) >= 5 + RECORD and m[5] == slot:
+                return bytes(m[5:5 + RECORD])
+        return None
+
+    def _slots(self):
+        if not self.channel_count:
+            info = parse_dev_info(self.request(GET_DEV_INFO))
+            if info:
+                self.channel_count = info["channel_count"]
+                self.region_count = info["region_count"]
+        if not self.channel_count:
+            raise RuntimeError("the radio didn't say how many channels it holds")
+        return self.channel_count
+
+    @contextlib.contextmanager
+    def in_region(self, region):
+        """Do something in one region: the radio is moved there if it's on
+        another, and back afterwards. Yields the region it was on."""
+        st = self.status()
+        if st is None:
+            raise RuntimeError("the radio didn't answer")
+        here = st["region"]
+        if region is None or region == here:
+            yield here
+            return
+        if not 0 <= region < max(self.region_count, 1):
+            raise ValueError(f"region is 0 to {max(self.region_count, 1) - 1}")
+        self.editing.set()
+        try:
+            self._set_region(region)
+            yield here
+        finally:
+            try:
+                self._set_region(here)
+            finally:
+                self.editing.clear()
+
+    def read_region(self, region=None):
+        """Every slot of one region, programmed or not, read from the radio now:
+        what a backup keeps."""
+        count = self._slots()
+        with self.in_region(region) as here:
+            records = []
+            for slot in range(count):
+                if self.stop.is_set():
+                    raise RuntimeError("the radio disconnected")
+                rec = self.read_record(slot)
+                if rec is None:
+                    raise RuntimeError(f"the radio didn't send channel {slot + 1}")
+                records.append(rec)
+        region = here if region is None else region
+        return {"region": region, "name": self._region_name(region), "count": count,
+                "channels": [decode_channel(r) for r in records]}
+
+    def _region_name(self, region):
+        names = self.region_names()
+        return names[region] if 0 <= region < len(names) else ""
+
+    def write_region(self, region, channels):
+        """Write channels into slots of one region, each read back to see the
+        radio kept it as sent (HTCommander reads one back after writing it, too).
+
+        `channels` are records as read ({"raw"}, putting a backup back) or
+        fields, as decode_channel gives them. A slot the radio refuses or
+        changes is reported, and the rest are still written. The region's
+        table is read again afterwards when it's the one the radio is on, so
+        transmissions are filed under the new names.
+        """
+        records = [channel_record(ch) for ch in channels]
+        if len({r[0] for r in records}) != len(records):
+            raise ValueError("a slot is given twice")
+        count = self._slots()
+        for rec in records:
+            if rec[0] >= count:
+                raise ValueError(f"the radio has {count} channels in a region; there's no channel {rec[0] + 1}")
+        results = []
+        with self.in_region(region) as here:
+            for rec in records:
+                if self.stop.is_set():
+                    raise RuntimeError("the radio disconnected")
+                reply = self.request(gaia(WRITE_RF_CH, rec))
+                if reply and unframe(reply) is None:
+                    results.append({"id": rec[0], "ok": False, "error": "the radio refused it"})
+                    continue
+                back = self.read_record(rec[0])
+                if back is None:
+                    results.append({"id": rec[0], "ok": False, "error": "the radio didn't send it back"})
+                elif not same_channel(back, rec):
+                    results.append({"id": rec[0], "ok": False, "channel": decode_channel(back),
+                                    "error": "the radio kept something other than what was sent"})
+                else:
+                    results.append({"id": rec[0], "ok": True, "channel": decode_channel(back)})
+        if region is None or region == here:
+            self.channels_region = here
+            self.read_channels()
+        region = here if region is None else region
+        return {"region": region, "name": self._region_name(region), "results": results}
 
     # -- finding the channels ---------------------------------------------
 
@@ -639,7 +906,8 @@ class RadioLink:
             # Another region is another table of channels: the index the radio
             # reports would otherwise be looked up in the old one, and every
             # transmission after the switch filed under the wrong name
-            if st is not None and self.channels_region is not None and st["region"] != self.channels_region:
+            if (st is not None and not self.editing.is_set() and self.channels_region is not None
+                    and st["region"] != self.channels_region):
                 self.channels_region = st["region"]
                 try:
                     self.read_channels()

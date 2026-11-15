@@ -305,11 +305,26 @@
   <div id="controls-body"></div>
   <p id="controls-status" class="meta"></p>
 </dialog>
+<dialog id="channels">
+  <div class="row"><h2 id="channels-title">Channels</h2><button id="channels-close">Close</button></div>
+  <div class="row wrap">
+    <label>Region <select id="ch-region"></select></label>
+    <button id="ch-reread">Read again</button>
+    <button id="ch-backup">Back up this region</button>
+  </div>
+  <p id="channels-status" class="meta" role="status"></p>
+  <div class="scroll-x"><table class="slots" id="ch-table"></table></div>
+  <h3>Backups</h3>
+  <p class="meta">AirScribe backs a region up before it writes to it, and before it puts a backup back,
+    so either can be undone. <strong>Put back</strong> writes every slot of the region as it was.</p>
+  <ul id="ch-backups" class="backup-list"></ul>
+</dialog>
 <script src="app.js" type="module"></script>
 <script src="insights.js" type="module"></script>
 <script src="map.js" type="module"></script>
 <script src="admin.js" type="module"></script>
 <script src="users.js" type="module"></script>
 <script src="logins.js" type="module"></script>
+<script src="channels.js" type="module"></script>
 </body>
 </html>

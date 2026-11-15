@@ -49,6 +49,14 @@ export class Store {
       -- radio gives the channel, as the feed's channel filter uses
       CREATE TABLE IF NOT EXISTS channel_places (
         name TEXT PRIMARY KEY, lat REAL NOT NULL, lon REAL NOT NULL, updated_at INTEGER NOT NULL);
+      -- A radio's channels as they were: every slot of one region, each as the
+      -- radio's own record, taken before AirScribe writes over them (or when an
+      -- admin asks), so they can be put back exactly
+      CREATE TABLE IF NOT EXISTS channel_backups (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        mac TEXT NOT NULL, region INTEGER NOT NULL, region_name TEXT,
+        label TEXT NOT NULL, created_at INTEGER NOT NULL, channels TEXT NOT NULL);
+      CREATE INDEX IF NOT EXISTS channel_backups_mac ON channel_backups(mac, id DESC);
     `);
     this.migrate();
   }
@@ -531,6 +539,64 @@ export class Store {
    */
   clearChannelPlace(name) {
     return this.db.prepare('DELETE FROM channel_places WHERE name = ?').run(name).changes > 0;
+  }
+
+  /**
+   * Put a channel on the map unless it's there already: for channels written
+   * from a listing, whose place an admin may have set more exactly by hand.
+   * It shows on the map once a transmission comes in on it.
+   * @param {string} name - The channel's name, as the radio has it.
+   * @param {number} lat - Latitude.
+   * @param {number} lon - Longitude.
+   * @returns {boolean} Whether it was placed.
+   */
+  placeChannelIfUnplaced(name, lat, lon) {
+    return this.db
+      .prepare('INSERT INTO channel_places (name, lat, lon, updated_at) VALUES (?, ?, ?, ?) ON CONFLICT(name) DO NOTHING')
+      .run(name, lat, lon, Date.now()).changes > 0;
+  }
+
+  /**
+   * Keep a region's channels. Each radio keeps its newest 50.
+   * @param {{mac: string, region: number, regionName?: string, label: string, channels: object[]}} b - The backup.
+   * @returns {object} It, as channelBackups lists one.
+   */
+  addChannelBackup({ mac, region, regionName = '', label, channels }) {
+    const { lastInsertRowid } = this.db
+      .prepare('INSERT INTO channel_backups (mac, region, region_name, label, created_at, channels) VALUES (?, ?, ?, ?, ?, ?)')
+      .run(mac, region, regionName || '', label, Date.now(), JSON.stringify(channels));
+    this.db.prepare(`DELETE FROM channel_backups WHERE mac = ? AND id NOT IN
+                       (SELECT id FROM channel_backups WHERE mac = ? ORDER BY id DESC LIMIT 50)`).run(mac, mac);
+    return this.channelBackups(mac).find((b) => b.id === Number(lastInsertRowid));
+  }
+
+  /**
+   * @param {string} mac - The radio.
+   * @returns {object[]} Its backups, newest first: when, which region, and the channels' names.
+   */
+  channelBackups(mac) {
+    return this.db.prepare('SELECT * FROM channel_backups WHERE mac = ? ORDER BY id DESC').all(mac).map((row) => {
+      const channels = JSON.parse(row.channels).filter((c) => !c.empty);
+      return { id: row.id, mac: row.mac, region: row.region, region_name: row.region_name, label: row.label,
+        created_at: row.created_at, programmed: channels.length, names: channels.map((c) => c.name || '').slice(0, 30) };
+    });
+  }
+
+  /**
+   * @param {number} id - A backup.
+   * @returns {object | undefined} It, with every slot.
+   */
+  channelBackup(id) {
+    const row = this.db.prepare('SELECT * FROM channel_backups WHERE id = ?').get(id);
+    return row && { ...row, channels: JSON.parse(row.channels) };
+  }
+
+  /**
+   * @param {number} id - A backup.
+   * @returns {boolean} Whether there was one to delete.
+   */
+  deleteChannelBackup(id) {
+    return this.db.prepare('DELETE FROM channel_backups WHERE id = ?').run(id).changes > 0;
   }
 
   /**

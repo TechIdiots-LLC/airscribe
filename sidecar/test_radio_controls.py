@@ -29,10 +29,17 @@ def coord(v):
 class FakeRadio:
     """A UV-Pro's control channel, as far as these tests need it."""
 
-    def __init__(self):
+    def __init__(self, slots=None):
         self.region = 0
         self.regions = ["Local", "Travel"]
         self.tables = {0: ["Holden PD", "Rutld FD", "W1BIM"], 1: ["Boston FD", "Mass SP"]}
+        # Whole records, made from the names when first asked for; `slots`
+        # gives each region that many, the rest empty, as a real radio has
+        self.slots = slots
+        self.records = {}
+        self.take_channels = True     # False: a write is answered but not kept
+        self.channel_status = 0       # a WRITE_RF_CH reply's status
+        self.mangle = None            # changes a record as it's kept
         # channel_a 1, channel_b 2, squelch 3, and bytes that must survive a write
         self.settings = bytearray([0x12, 0x43] + [0x5D, 0xA1, 0x01, 0x0C, 0x20, 0x00, 0x00, 0x00]
                                   + [0x78, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00])
@@ -73,13 +80,16 @@ class FakeRadio:
         if cmd == 4:
             n = len(self.regions)
             return reply(4, 0, [0x1A, 0x00, 0x01, 0x01, 0x00, 0x05, (n >> 4) & 0x03, ((n & 0x0F) << 4) | 0x02,
-                                len(self.tables[self.region]), 0x10])
+                                self.slots or len(self.tables[self.region]), 0x10])
         if cmd == 13:
-            names = self.tables[self.region]
-            i = p[0]
-            name = names[i].encode() if i < len(names) else b""
-            freq = (460387500 + i * 1000000).to_bytes(4, "big") if name else bytes(4)
-            return reply(13, 0, bytes([i]) + freq + freq + bytes(4) + bytes([0x80, 0x00]) + name.ljust(10, b"\x00"))
+            return reply(13, 0, self.region_records()[p[0]])
+        if cmd == 14:
+            if self.channel_status:
+                return reply(14, self.channel_status)
+            if self.take_channels:
+                rec = bytes(p)
+                self.region_records()[rec[0]] = self.mangle(rec) if self.mangle else rec
+            return reply(14, 0, bytes([p[0]]))
         if cmd == 10:
             return reply(10, 0, self.settings)
         if cmd == 11:
@@ -102,6 +112,18 @@ class FakeRadio:
             lat, lon = self.position
             return reply(76, 0, coord(lat) + coord(lon) + bytes([0, 190, 0, 0, 0, 0]) + bytes(6))
         return reply(cmd, 1)   # notSupported
+
+    def region_records(self):
+        """The current region's slots, each a 25-byte record."""
+        if self.region not in self.records:
+            names = self.tables[self.region]
+            recs = []
+            for i in range(max(self.slots or 0, len(names))):
+                name = names[i].encode() if i < len(names) else b""
+                freq = (460387500 + i * 1000000).to_bytes(4, "big") if name else bytes(4)
+                recs.append(bytes([i]) + freq + freq + bytes(4) + bytes([0x80, 0x00]) + name.ljust(10, b"\x00"))
+            self.records[self.region] = recs
+        return self.records[self.region]
 
     def sendall(self, data):
         cmd = (data[6] << 8) | data[7]

@@ -55,6 +55,12 @@
   never matched by e-mail; one not linked yet is linked by signing in with your password, within 10 minutes. Each
   provider is turned on in **Admin → Sign-in providers** with its own OAuth app's client ID and secret, and the page
   shows the redirect URI to register (docs/linked-logins.md). OAuth 2 code flow on the server, PKCE for Google.
+- **A radio's channels, backed up and written:** an admin's **Channels** on a connected radio shows every slot of a
+  region as the radio has it (frequencies, tones, FM or AM and bandwidth, transmit on or off, scan), in any region.
+  **Back up this region** keeps it, and **Put back** writes every slot back exactly as it was. A write backs the
+  region up first and reads each channel back from the radio to check it took. AirScribe writes channels that
+  transmit only in the 2 m and 70 cm ham bands; anything else is receive-only (docs/channels.md). Command layouts
+  follow HTCommander; tested against the simulator and a stand-in for the radio, not yet on a UV-Pro.
 - **Insights:** a view beside the feed, for the last day, week, month or everything, for one radio or channel:
   a word cloud of what was said (common English words and a model's own annotations such as "(static)" left out;
   unit and call numbers kept), transmissions per hour or day, busy hours by weekday, and each channel's

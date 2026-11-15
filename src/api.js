@@ -7,6 +7,7 @@ import { createAuth, readCookie } from './auth.js';
 import { PROVIDERS } from './logins.js';
 import { PUBLISH_DEFAULTS, publicCutoff, publishable, publicView } from './publish.js';
 import { insights } from './insights.js';
+import { checkChannels } from './channels.js';
 
 const PUBLIC = fileURLToPath(new URL('../public', import.meta.url));
 
@@ -495,6 +496,65 @@ export function createApp({ manager, store, sidecar, config, dataDir, updates, c
     }
     if (!CONTROLS[action](value)) return res.status(400).json({ error: `that isn't a ${action} the radio takes` });
     res.json(await manager.control(mac, action, value));
+  }));
+
+  // ---- A radio's channels: read, written, backed up and put back ----------
+  // Admins only. Every write backs up the region first, and so does putting a
+  // backup back, so each can be undone. The radio link's errors are 502s.
+  const admin = auth.requireRole('admin');
+  const fromRadio = (p) => p.catch((e) => {
+    throw e.status ? e : refuse(e.message, 502);
+  });
+  const macOf = (req) => {
+    const mac = normalizeMac(req.params.mac);
+    if (!mac || !store.radio(mac)) throw refuse('unknown radio', 404);
+    return mac;
+  };
+  const regionOf = (v) => {
+    if (v === undefined || v === null || v === '') return null;
+    const n = Number(v);
+    if (!Number.isInteger(n) || n < 0 || n > 63) throw refuse('region is a whole number from 0', 400);
+    return n;
+  };
+  const backupOf = (req, mac) => {
+    const b = store.channelBackup(Number(req.params.id));
+    if (!b || b.mac !== mac) throw refuse('no backup by that number for this radio', 404);
+    return b;
+  };
+  // Every slot of a region, read from the radio and kept
+  const backUp = async (mac, region, label) => {
+    const read = await fromRadio(manager.readChannels(mac, region));
+    return store.addChannelBackup({ mac, region: read.region, regionName: read.name, label, channels: read.channels });
+  };
+  api.get('/radios/:mac/channels', admin, answer((req) => fromRadio(manager.readChannels(macOf(req), regionOf(req.query.region)))));
+  api.put('/radios/:mac/channels', admin, answer(async (req) => {
+    const mac = macOf(req);
+    const channels = checkChannels(req.body?.channels);
+    const region = regionOf(req.body?.region);
+    const label = String(req.body?.label ?? '').trim().slice(0, 100) ||
+      `Before writing ${channels.length} channel${channels.length === 1 ? '' : 's'}`;
+    const backup = await backUp(mac, region, label);
+    const wrote = await fromRadio(manager.writeChannels(mac, backup.region, channels));
+    return { ...wrote, backup };
+  }));
+  api.get('/radios/:mac/backups', admin, answer((req) => store.channelBackups(macOf(req))));
+  api.post('/radios/:mac/backups', admin, answer((req) => {
+    const label = String(req.body?.label ?? '').trim().slice(0, 100) || 'Backed up by hand';
+    return backUp(macOf(req), regionOf(req.body?.region), label);
+  }));
+  api.get('/radios/:mac/backups/:id', admin, answer((req) => backupOf(req, macOf(req))));
+  api.post('/radios/:mac/backups/:id/restore', admin, answer(async (req) => {
+    const mac = macOf(req);
+    const b = backupOf(req, mac);
+    const backup = await backUp(mac, b.region, `Before putting back “${b.label}”`);
+    const wrote = await fromRadio(manager.writeChannels(mac, b.region, b.channels.map((c) => ({ id: c.id, raw: c.raw }))));
+    return { ...wrote, backup };
+  }));
+  api.delete('/radios/:mac/backups/:id', admin, answer((req) => {
+    const mac = macOf(req);
+    backupOf(req, mac);
+    store.deleteChannelBackup(Number(req.params.id));
+    return { ok: true };
   }));
 
   // The Map view's base maps, and whether channels can be looked up (Find)

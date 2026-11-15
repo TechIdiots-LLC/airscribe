@@ -191,6 +191,28 @@ export class Manager extends EventEmitter {
   }
 
   /**
+   * Every slot of one region, programmed or not, read from the radio now. The
+   * radio is moved to the region to read it and back.
+   * @param {string} mac - The radio.
+   * @param {number|null} region - Which region; null for the one it's on.
+   * @returns {Promise<{region: number, name: string, count: number, channels: object[]}>} Each slot's channel.
+   */
+  readChannels(mac, region = null) {
+    return this.sidecar.call('channels', { mac, region });
+  }
+
+  /**
+   * Write channels into slots of one region, each read back from the radio.
+   * @param {string} mac - The radio.
+   * @param {number|null} region - Which region; null for the one it's on.
+   * @param {object[]} channels - Records as read ({id, raw}) or checked fields (src/channels.js).
+   * @returns {Promise<{region: number, name: string, results: object[]}>} What each slot holds now.
+   */
+  writeChannels(mac, region, channels) {
+    return this.sidecar.call('write_channels', { mac, region, channels });
+  }
+
+  /**
    * @param {string} mac - Radio MAC.
    * @returns {Segmenter} That radio's segmenter, created on first use.
    */

@@ -89,6 +89,20 @@ dialog#controls::backdrop { background: rgba(0, 0, 0, .5); }
 .controls .range { display: flex; align-items: center; gap: 8px; }
 .controls .range input { flex: 1; }
 .controls output { min-width: 2ch; text-align: right; font-variant-numeric: tabular-nums; }
+/* A radio's channels: every slot of a region, and backups of them */
+dialog#channels { border: 1px solid var(--line); border-radius: 10px; background: var(--bg); color: var(--fg);
+  padding: 16px 20px; width: min(820px, calc(100vw - 32px)); max-height: calc(100vh - 32px); }
+dialog#channels::backdrop { background: rgba(0, 0, 0, .5); }
+dialog#channels > .row h2 { flex: 1; }
+table.slots { width: 100%; border-collapse: collapse; font-size: 13px; margin: 8px 0; }
+table.slots th, table.slots td { text-align: left; padding: 4px 8px; border-bottom: 1px solid var(--line); white-space: nowrap; }
+table.slots th { color: var(--muted); font-weight: 500; }
+table.slots .num { text-align: right; font-variant-numeric: tabular-nums; }
+table.slots tr.empty td { color: var(--muted); }
+table.slots tr.changed td { background: color-mix(in srgb, var(--accent) 12%, transparent); }
+table.slots tr.failed td { background: color-mix(in srgb, var(--bad) 14%, transparent); }
+.backup-list li .row { gap: 8px; }
+.backup-list li strong { flex: 1; }
 /* The header's views: Feed, Insights, Admin */
 .views { display: flex; gap: 4px; }
 .views button.active { border-color: var(--accent); color: var(--accent); }

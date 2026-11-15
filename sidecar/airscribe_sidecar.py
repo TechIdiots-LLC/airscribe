@@ -33,7 +33,7 @@ import time
 
 import sbc
 from btinfo import is_radio, parse_devices
-from bluez import LinkControls, RadioLink
+from bluez import LinkControls, RadioLink, channel_record, decode_channel, encode_channel
 
 RATE = 32000  # radio audio: 32 kHz, 16-bit, mono
 CHUNK_MS = 100
@@ -88,14 +88,23 @@ class SimBackend:
         for mac in list(self.active):
             self.disconnect(mac)
 
-    # A pretend radio's controls, so the page can be tried with no radio
-    SIM_REGIONS = ["Local", "Travel"]
+    # A pretend radio's controls, so the page can be tried with no radio. Its
+    # channels are kept as the radio keeps them, 25-byte records, 30 slots to a
+    # region as on a UV-Pro, so writing and backups go through the same code.
+    SIM_REGIONS = ["Local", "Travel", "Region 3"]
+    SIM_SLOTS = 30
     SIM_TABLES = [
-        [{"id": 0, "name": "Holden PD", "rx_hz": 460387500, "tx_hz": 465387500, "scan": True},
-         {"id": 1, "name": "Rutld FD", "rx_hz": 154250000, "tx_hz": 154250000, "scan": True},
-         {"id": 2, "name": "W1BIM", "rx_hz": 146970000, "tx_hz": 146370000, "scan": False}],
-        [{"id": 0, "name": "Boston FD", "rx_hz": 483162500, "tx_hz": 483162500, "scan": True},
-         {"id": 1, "name": "Mass SP", "rx_hz": 155475000, "tx_hz": 155475000, "scan": True}],
+        [{"id": 0, "name": "Holden PD", "rx_hz": 460387500, "tx_hz": 465387500, "scan": True,
+          "bandwidth": "narrow", "rx_tone": "127.3", "tx_tone": "127.3"},
+         {"id": 1, "name": "Rutld FD", "rx_hz": 154250000, "tx_hz": 154250000, "scan": True,
+          "bandwidth": "narrow", "tx_disable": True},
+         {"id": 2, "name": "W1BIM", "rx_hz": 146970000, "tx_hz": 146370000, "scan": False,
+          "rx_tone": "", "tx_tone": "114.8"}],
+        [{"id": 0, "name": "Boston FD", "rx_hz": 483162500, "tx_hz": 483162500, "scan": True,
+          "bandwidth": "narrow", "tx_disable": True},
+         {"id": 1, "name": "Mass SP", "rx_hz": 155475000, "tx_hz": 155475000, "scan": True,
+          "bandwidth": "narrow", "tx_disable": True}],
+        [],
     ]
 
     def _sim(self, mac):
@@ -103,17 +112,61 @@ class SimBackend:
             raise RuntimeError(f"{mac} isn't connected")
         if not hasattr(self, "controls"):
             self.controls = {}
-        return self.controls.setdefault(mac, {
-            "settings": {"channel_a": 0, "channel_b": 1, "scan": False, "dual": 0, "squelch": 3},
-            "volume": 7, "region": 0, "position": {"lat": 42.3601, "lon": -71.8551, "alt_m": 190,
-                                                  "speed": 0, "heading": 0},
-        })
+        if mac not in self.controls:
+            tables = []
+            for table in self.SIM_TABLES:
+                slots = [encode_channel({"id": i}) for i in range(self.SIM_SLOTS)]
+                for ch in table:
+                    slots[ch["id"]] = encode_channel(ch)
+                tables.append(slots)
+            self.controls[mac] = {
+                "settings": {"channel_a": 0, "channel_b": 1, "scan": False, "dual": 0, "squelch": 3},
+                "volume": 7, "region": 0, "tables": tables,
+                "position": {"lat": 42.3601, "lon": -71.8551, "alt_m": 190, "speed": 0, "heading": 0},
+            }
+        return self.controls[mac]
+
+    def _table(self, s, region):
+        """A region's programmed channels, as the radio's channel table has them."""
+        return [{k: c[k] for k in ("id", "name", "rx_hz", "tx_hz", "scan")}
+                for c in map(decode_channel, s["tables"][region]) if not c["empty"]]
 
     def radio_info(self, mac):
         s = self._sim(mac)
         return {"settings": dict(s["settings"]), "volume": s["volume"], "region": s["region"],
-                "regions": list(self.SIM_REGIONS), "channels": self.SIM_TABLES[s["region"]],
+                "regions": list(self.SIM_REGIONS), "channels": self._table(s, s["region"]),
                 "scanning": s["settings"]["scan"], "position": s["position"]}
+
+    def _region(self, s, region):
+        region = s["region"] if region is None else int(region)
+        if not 0 <= region < len(self.SIM_REGIONS):
+            raise ValueError(f"region is 0 to {len(self.SIM_REGIONS) - 1}")
+        return region
+
+    def read_region(self, mac, region=None):
+        s = self._sim(mac)
+        region = self._region(s, region)
+        time.sleep(0.2)   # a real radio takes a few seconds; the page should show it's waiting
+        return {"region": region, "name": self.SIM_REGIONS[region], "count": self.SIM_SLOTS,
+                "channels": [decode_channel(r) for r in s["tables"][region]]}
+
+    def write_region(self, mac, region, channels):
+        s = self._sim(mac)
+        region = self._region(s, region)
+        records = [channel_record(ch) for ch in channels]
+        if len({r[0] for r in records}) != len(records):
+            raise ValueError("a slot is given twice")
+        for rec in records:
+            if rec[0] >= self.SIM_SLOTS:
+                raise ValueError(f"the radio has {self.SIM_SLOTS} channels in a region; there's no channel {rec[0] + 1}")
+        results = []
+        for rec in records:
+            s["tables"][region][rec[0]] = rec
+            results.append({"id": rec[0], "ok": True, "channel": decode_channel(rec)})
+        time.sleep(0.2)
+        if region == s["region"]:
+            emit({"event": "channels", "mac": mac, "region": region, "channels": self._table(s, region)})
+        return {"region": region, "name": self.SIM_REGIONS[region], "results": results}
 
     def control(self, mac, action, value):
         s = self._sim(mac)
@@ -132,7 +185,7 @@ class SimBackend:
             s["settings"]["dual"] = 1 if value else 0
         elif action in ("channel_a", "channel_b"):
             v = int(value)
-            if not any(c["id"] == v for c in self.SIM_TABLES[s["region"]]):
+            if not any(c["id"] == v for c in self._table(s, s["region"])):
                 raise ValueError(f"channel {v} isn't programmed in this region")
             s["settings"][action] = v
         elif action == "region":
@@ -141,7 +194,7 @@ class SimBackend:
                 raise ValueError(f"region is 0 to {len(self.SIM_REGIONS) - 1}")
             s["region"] = v
             s["settings"]["channel_a"] = s["settings"]["channel_b"] = 0
-            emit({"event": "channels", "mac": mac, "region": v, "channels": self.SIM_TABLES[v]})
+            emit({"event": "channels", "mac": mac, "region": v, "channels": self._table(s, v)})
         else:
             raise ValueError(f"unknown control {action}")
         return self.radio_info(mac)
@@ -203,6 +256,12 @@ class Unavailable:
         raise RuntimeError(self.reason)
 
     def control(self, _mac, _action, _value):
+        raise RuntimeError(self.reason)
+
+    def read_region(self, _mac, _region=None):
+        raise RuntimeError(self.reason)
+
+    def write_region(self, _mac, _region, _channels):
         raise RuntimeError(self.reason)
 
     def shutdown(self):
@@ -360,6 +419,12 @@ def main():
                 result = backend.radio_info(req["mac"])
             elif cmd == "control":
                 result = backend.control(req["mac"], req["action"], req.get("value"))
+            # Whole channels: every slot of a region read (for a backup), or
+            # some written and each read back
+            elif cmd == "channels":
+                result = backend.read_region(req["mac"], req.get("region"))
+            elif cmd == "write_channels":
+                result = backend.write_region(req["mac"], req.get("region"), req["channels"])
             elif cmd == "ping":
                 result = "pong"
             else:
