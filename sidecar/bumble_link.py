@@ -32,6 +32,18 @@ SCAN_SECONDS = 8
 RADIO_NAMES = ("UV-PRO", "UV-50PRO", "GA-5WB", "DB50-B", "RT-660", "VR-N7")
 
 
+def dongle_hint(error):
+    """What to do about a dongle that won't open, going by libusb's error."""
+    text = str(error)
+    if "ACCESS" in text:
+        return ("This user may not open it: give the container's device entry the airscribe group "
+                "(Proxmox: GID in CT), or use a udev rule on the host. See docs/proxmox.md.")
+    if "BUSY" in text:
+        return ("Something else holds it: the host's btusb driver, or another program "
+                "such as tools/probe-bumble.py or AirScribe itself.")
+    return "Is it passed in, and has the host's btusb let go of it? See docs/proxmox.md."
+
+
 def _mac(address):
     """A Bumble address as AA:BB:CC:DD:EE:FF, without its /P type suffix."""
     return str(address).split("/")[0].upper()
@@ -351,8 +363,7 @@ class BumbleBackend:
             except Exception as e:
                 raise RuntimeError(
                     f"could not open the Bluetooth dongle {transport}: {type(e).__name__} {e}. "
-                    "Is it passed in, and has the host's btusb let go of it? "
-                    "See docs/proxmox.md") from e
+                    f"{dongle_hint(e)}") from e
         self.stack = stack
 
     def scan(self):

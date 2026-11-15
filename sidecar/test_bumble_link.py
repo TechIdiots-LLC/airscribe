@@ -201,6 +201,18 @@ class BumbleBackendTests(unittest.TestCase):
         self.assertIsNone(self.radio.audio, "the audio channel was handed back")
 
 
+class DongleHintTests(unittest.TestCase):
+    """Needs no Bumble: the advice for each way a dongle fails to open."""
+
+    def test_each_libusb_failure_gets_its_own_advice(self):
+        from bumble_link import dongle_hint
+        # What 113 gave the service's user before its device entry had the group
+        self.assertIn("GID in CT", dongle_hint("LIBUSB_ERROR_ACCESS [-3]"))
+        self.assertIn("btusb driver", dongle_hint("LIBUSB_ERROR_BUSY [-6]"))
+        # No dongle at all, as in a container that wasn't given one
+        self.assertIn("passed in", dongle_hint("LIBUSB_ERROR_OTHER [-99]"))
+
+
 class UnavailableTests(unittest.TestCase):
     def test_a_backend_that_could_not_start_says_why_for_every_command(self):
         import airscribe_sidecar as sidecar

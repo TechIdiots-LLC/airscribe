@@ -37,6 +37,7 @@ import time
 
 sys.path.insert(0, os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "sidecar"))
 from bluez import GET_HT_STATUS, parse_ht_status  # noqa: E402
+from bumble_link import dongle_hint  # noqa: E402
 from htframe import FrameReader  # noqa: E402
 
 SETTLE = 0.6  # the radio needs a moment to free a channel after a session ends
@@ -356,7 +357,11 @@ async def main():
         logging.basicConfig(level=logging.DEBUG)
 
     print(f"opening {args.transport} ...")
-    async with await transport.open_transport(args.transport) as t:
+    try:
+        t = await transport.open_transport(args.transport)
+    except Exception as e:
+        raise SystemExit(f"\ncould not open {args.transport}: {type(e).__name__} {e}\n{dongle_hint(e)}")
+    async with t:
         dev = device.Device.with_hci("AirScribe", hci.Address("F0:F1:F2:F3:F4:F5"),
                                      t.source, t.sink)
         dev.classic_enabled = True
