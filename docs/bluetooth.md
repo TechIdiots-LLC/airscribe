@@ -375,8 +375,15 @@ Tested against a fake radio on Bumble's virtual controller
 holding control open, a transmission arriving as one run and decoding, a
 radio closing a channel, dropping and being reconnected, and a clean
 disconnect. The virtual controller can't encrypt, so encryption is only
-proven by the probe on the real radio. **The backend itself has not yet
-run against a real radio.**
+proven by the probe on the real radio.
+
+**Then against the real UV-Pro, in LXC 113 on pve1** (unprivileged, the CSR
+dongle passed in with the `airscribe` group, Bumble 0.0.236 in a venv, the
+probe's pairing key copied to `/var/lib/airscribe/bumble-keys.json`): it
+connected, and the page showed the radio receiving with its RSSI, battery
+(99%) and channel name (W1BIM, 146.970 MHz) read from the radio's own table,
+and recorded its transmissions as clips (1.1 s and 22 s). Everything above
+Bluetooth behaved as it does over BlueZ.
 
 ## The UV-Pro
 

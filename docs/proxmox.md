@@ -71,8 +71,8 @@ The kernel refuses Bluetooth sockets to anything outside the host's own network 
 so BlueZ inside one cannot reach a radio however the adapter is passed in, and the template's default `bluez` backend
 reports `bluetoothctl unavailable`. Use the **`bumble`** backend instead: Bumble, a Bluetooth stack in Python, drives a
 USB dongle directly. `tools/probe-bumble.py` paired with a UV-Pro, found its channels and captured its audio from inside
-an unprivileged container this way ([bluetooth.md](bluetooth.md#through-bumble-in-an-lxc-container)). The backend
-itself has been tested against a fake radio, not yet a real one.
+an unprivileged container this way ([bluetooth.md](bluetooth.md#through-bumble-in-an-lxc-container)), and the backend
+then connected to it, read its battery and channel names, and recorded its transmissions.
 
 Give the container the dongle as a USB device. On the host:
 

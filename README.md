@@ -26,7 +26,7 @@ npm run simulate        # fake radio + mock transcriber, no hardware needed
 | Pluggable transcription: sherpa-onnx, whisper.cpp (per clip or a warm whisper-server), any command, mock | working; not yet run against a real model |
 | Intel GPU transcription through OpenVINO or whisper.cpp's Vulkan backend | run against real models on a CPU; not yet on a GPU |
 | Proxmox LXC template and .deb, built and boot-tested by GitLab CI | working |
-| Radios from an LXC container: the `bumble` backend, a USB dongle without the system's Bluetooth | probe proven against a real UV-Pro in a container; the backend tested against a fake radio, see [docs/proxmox.md](docs/proxmox.md) |
+| Radios from an LXC container: the `bumble` backend, a USB dongle without the system's Bluetooth | working: in an unprivileged Proxmox container it connected to a real UV-Pro and recorded its transmissions, see [docs/proxmox.md](docs/proxmox.md) |
 | Admin → Updates: install a newer release from the browser | working against local releases; see [docs/updating.md](docs/updating.md) |
 | Radio registry, keyed by MAC, HTCommander model table | working |
 | Python sidecar protocol + simulator | working, tested end to end |
