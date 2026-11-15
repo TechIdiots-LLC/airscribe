@@ -147,16 +147,21 @@ dialog#controls::backdrop { background: rgba(0, 0, 0, .5); }
 .ch-marker.playing .dot, .ch-group.playing .badge { box-shadow: 0 0 0 3px #fff, 0 0 12px 4px var(--accent); }
 .ch-marker.hl .dot { transform: scale(1.5); }
 .ch-group.hl .badge { transform: scale(1.2); }
-.ch-marker.hl, .ch-group.hl, .ch-marker.playing, .ch-group.playing { z-index: 4; }
 /* What a channel said, above its marker for a few seconds */
 .ch-marker .bubble, .ch-group .bubble { display: none; position: absolute; bottom: calc(100% + 8px); left: 50%;
-  transform: translateX(-50%); width: max-content; max-width: 240px; padding: 4px 8px; border-radius: 8px;
+  transform: translateX(-50%); width: max-content; max-width: 220px; padding: 4px 8px; border-radius: 8px;
   background: var(--card); color: var(--fg); border: 1px solid var(--line); box-shadow: 0 2px 8px rgba(0, 0, 0, .35);
   font: 13px/1.35 system-ui, sans-serif; white-space: normal; overflow-wrap: anywhere; pointer-events: none; }
-.saying .bubble { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 4; line-clamp: 4; overflow: hidden;
+.saying .bubble { display: -webkit-box; -webkit-box-orient: vertical; -webkit-line-clamp: 3; line-clamp: 3; overflow: hidden;
   animation: say .3s ease-out; }
-.ch-marker.saying, .ch-group.saying { z-index: 3; }
 @keyframes say { from { opacity: 0; transform: translate(-50%, 4px); } to { opacity: 1; transform: translateX(-50%); } }
+/* Which is drawn over which: the markers over the words, so a channel beside
+   one speaking isn't hidden for as long as it speaks (the list has the words
+   too); what's pointed at or playing over everything; a popup over that */
+.ch-marker, .ch-group, .radio-marker { z-index: 2; }
+.ch-marker.saying, .ch-group.saying { z-index: 1; }
+.ch-marker.hl, .ch-group.hl, .ch-marker.playing, .ch-group.playing { z-index: 4; }
+#mapview .maplibregl-popup { z-index: 5; }
 .ch-group-list { max-height: 260px; overflow-y: auto; }
 .ch-group-list li { padding: 4px 0; border-bottom: 1px solid var(--line); }
 .ch-group-list li:last-child { border-bottom: 0; }
