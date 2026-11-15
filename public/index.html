@@ -37,10 +37,12 @@
     </div>
   </section>
   <section id="feed-panel">
-    <div class="row">
+    <div class="row wrap">
       <h2>Transmissions</h2>
       <select id="filter-radio"><option value="">All radios</option></select>
       <input id="search" type="search" placeholder="Search all transmissions…">
+      <label class="toggle" title="Leave out transmissions shown as “(no speech recognised)”, such as a radio’s chirp">
+        <input type="checkbox" id="hide-silent"> Hide no speech</label>
       <a id="export" class="export" download>Export</a>
     </div>
     <ul id="feed"></ul>
@@ -55,6 +57,23 @@
   <div class="panel">
     <div class="row"><h3>Updates</h3><button id="updates-check">Check now</button></div>
     <div id="updates"><p class="meta">Loading…</p></div>
+  </div>
+  <div class="panel">
+    <div class="row"><h3>Storage</h3></div>
+    <div id="storage-summary"><p class="meta">Loading…</p></div>
+    <h4>Delete transmissions</h4>
+    <div class="row wrap">
+      <label>Older than <input id="purge-days" type="number" min="1" step="1" placeholder="any age"> days</label>
+      <label class="toggle"><input type="checkbox" id="purge-silent"> only those with no speech recognised</label>
+      <button id="purge-preview">Preview</button>
+    </div>
+    <div id="purge-result"></div>
+    <h4>Delete automatically</h4>
+    <div class="row wrap">
+      <label>Keep transmissions for <input id="keep-days" type="number" min="1" step="1" placeholder="ever"> days</label>
+      <button id="keep-save">Save</button>
+    </div>
+    <p class="meta" id="keep-status"></p>
   </div>
 </section>
 <script src="app.js" type="module"></script>

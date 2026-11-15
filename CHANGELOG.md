@@ -18,6 +18,11 @@
   50 of 1,234"). The search box and the radio filter ask the server, so they cover the whole history rather than
   the rows that happened to be loaded, and Export takes everything they match. A transmission arriving or being
   transcribed redraws only its own row, so a clip being played isn't stopped by another arriving.
+- **Cleanup:** **Hide no speech** in the feed leaves out transmissions shown as "(no speech recognised)", such as a
+  radio's chirp; it's remembered per browser, and Export follows it. An admin can **Delete** a transmission from its
+  row, with its transcripts and audio. **Admin → Storage** shows how much is kept, deletes by age and/or no speech
+  after showing what would go, and can keep only the last N days automatically (off until set). A transcription
+  queued or running for a deleted clip saves nothing.
 - **Transcription on the GPU, confirmed:** the `openvino` engine runs on an Arc A750 from an unprivileged Proxmox
   container, with Ubuntu 24.04's own Intel compute runtime; docs/proxmox.md has the steps as they were run.
 - **Template:** new containers have the `en_US.UTF-8` locale, so `pct enter` no longer brings locale warnings to

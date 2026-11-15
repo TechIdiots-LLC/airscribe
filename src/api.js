@@ -107,7 +107,7 @@ const PUBLIC_CLIP = /^\/public\/transmissions\/\d+\/(audio|text)$/;
  * @param {import('./updates.js').Updates} [o.updates] - Admin → Updates.
  * @returns {import('express').Express} The app.
  */
-export function createApp({ manager, store, sidecar, config, dataDir, updates }) {
+export function createApp({ manager, store, sidecar, config, dataDir, updates, cleanup }) {
   const app = express();
   const auth = createAuth(config);
   app.use(express.json({ limit: '32kb' }));
@@ -289,6 +289,8 @@ export function createApp({ manager, store, sidecar, config, dataDir, updates })
   api.get('/transmissions', (req, res) => {
     const mac = req.query.mac ? normalizeMac(String(req.query.mac)) : undefined;
     const q = req.query.q ? String(req.query.q) : undefined;
+    // speech=1 leaves out what the feed shows as "(no speech recognised)"
+    const speech = req.query.speech === '1';
     let before;
     if (req.query.before) {
       const m = /^(\d+)\.(\d+)$/.exec(String(req.query.before));
@@ -297,8 +299,8 @@ export function createApp({ manager, store, sidecar, config, dataDir, updates })
     }
     const n = Math.min(Math.max(Number(req.query.limit) || 100, 1), 500);
     // One more than asked for says whether there is another page
-    const rows = store.transmissions({ mac, q, before, limit: n + 1, max: 501 });
-    res.set('X-Total-Count', String(store.countTransmissions({ mac, q })));
+    const rows = store.transmissions({ mac, q, speech, before, limit: n + 1, max: 501 });
+    res.set('X-Total-Count', String(store.countTransmissions({ mac, q, speech })));
     if (rows.length > n) {
       rows.length = n;
       const last = rows[n - 1];
@@ -347,6 +349,7 @@ export function createApp({ manager, store, sidecar, config, dataDir, updates })
     const rows = store.transmissions({
       mac,
       q: req.query.q && String(req.query.q),
+      speech: req.query.speech === '1',
       limit: req.query.limit ?? EXPORT_MAX,
       max: EXPORT_MAX,
     });
@@ -416,6 +419,34 @@ export function createApp({ manager, store, sidecar, config, dataDir, updates })
       if (error) return res.status(400).json({ error });
       res.json(updates.report());
     });
+  }
+
+  // ---- Deleting: admins only, and never on the public listener ---------
+  // One transmission, from its row in the feed: the row, its transcripts and
+  // its audio. Open pages are told to take it away.
+  api.delete('/transmissions/:id', auth.requireRole('admin'), (req, res) => {
+    const id = Number(req.params.id);
+    if (!Number.isInteger(id) || !store.hasTransmission(id)) return res.status(404).json({ error: 'not found' });
+    res.json(manager.deleteTransmissions([id]));
+  });
+
+  // Admin → Storage
+  if (cleanup) {
+    const admin = auth.requireRole('admin');
+    const answer = (fn) => (req, res) => {
+      try {
+        res.json(fn(req.body ?? {}));
+      } catch (e) {
+        res.status(400).json({ error: e.message });
+      }
+    };
+    api.get('/admin/storage', admin, (req, res) => res.json(cleanup.report()));
+    api.post('/admin/storage/preview', admin, answer((b) => cleanup.preview(b)));
+    api.post('/admin/storage/delete', admin, answer((b) => cleanup.purge(b)));
+    api.put('/admin/storage/retention', admin, answer((b) => {
+      cleanup.setRetentionDays(b.days);
+      return cleanup.report();
+    }));
   }
 
   api.get('/events', (req, res) => {

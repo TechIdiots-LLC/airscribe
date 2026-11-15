@@ -24,6 +24,7 @@ class FakeStore {
   }
   transcripts(id) { return [...(this.scripts.get(id)?.values() ?? [])]; }
   transmission(id) { return { ...this.rows.get(id), transcripts: this.transcripts(id) }; }
+  hasTransmission(id) { return this.rows.has(id); }
   needingTranscript(engine) {
     return [...this.rows.values()].filter(
       (r) => this.scripts.get(r.id)?.get(engine)?.status !== 'done',

@@ -42,6 +42,9 @@ export class Store {
         created_at INTEGER NOT NULL,
         UNIQUE(transmission_id, engine));
       CREATE INDEX IF NOT EXISTS transcripts_tx ON transcripts(transmission_id);
+      -- Settings changed from the page rather than the settings file, which
+      -- the service may only read: so far, how long to keep transmissions.
+      CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT);
     `);
     this.migrate();
   }
@@ -77,6 +80,10 @@ export class Store {
       }
     }
     this.migrateTranscripts(columns);
+    // whisper.cpp's "heard nothing" marker, stored as text before the engines
+    // dropped it: without this, those clips would never count as no speech
+    this.db.exec(`UPDATE transcripts SET text = trim(replace(text, '[BLANK_AUDIO]', ''))
+                   WHERE text LIKE '%[BLANK_AUDIO]%'`);
   }
 
   /**
@@ -358,10 +365,15 @@ export class Store {
    *   publicOnly?: boolean, notAfter?: number}} f - Filters.
    * @returns {{where: string[], args: any[]}} Conditions and their values.
    */
-  #filters({ mac, q, group, channel, publicOnly, notAfter } = {}) {
+  #filters({ mac, q, group, channel, publicOnly, notAfter, speech } = {}) {
     const where = ['1 = 1'];
     const args = [];
     if (mac) (where.push('t.mac = ?'), args.push(mac));
+    if (speech) {
+      const none = this.#noSpeech();
+      where.push(`NOT ${none.sql}`);
+      args.push(...none.args);
+    }
     if (group) (where.push('r."group" = ?'), args.push(group));
     if (channel) (where.push('t.channel_name = ?'), args.push(channel));
     // The publishing gate applied in the query rather than after it, so the
@@ -378,6 +390,100 @@ export class Store {
       args.push(`%${q}%`, `%${q}%`);
     }
     return { where, args };
+  }
+
+  /**
+   * "No speech": the transcript the feed shows, the default engine's, is
+   * finished and empty, which the page shows as "(no speech recognised)". A
+   * clip still being transcribed, or never, doesn't count.
+   * @returns {{sql: string, args: any[]}} A condition on `t`.
+   */
+  #noSpeech() {
+    if (!this.defaultEngine) return { sql: '(0)', args: [] };
+    return {
+      sql: `EXISTS (SELECT 1 FROM transcripts x WHERE x.transmission_id = t.id AND x.engine = ?
+                       AND x.status = 'done' AND trim(coalesce(x.text, '')) = '')`,
+      args: [this.defaultEngine],
+    };
+  }
+
+  /**
+   * Transmissions a cleanup would delete, oldest first.
+   * @param {{before?: number, noSpeech?: boolean, limit?: number}} f - Started before this
+   *   time (ms), and/or only those with no speech.
+   * @returns {{id: number, audio_file: string, started_at: number}[]} The rows.
+   */
+  purgeCandidates({ before, noSpeech, limit = 1e9 } = {}) {
+    const where = ['1 = 1'];
+    const args = [];
+    if (before !== undefined) (where.push('t.started_at < ?'), args.push(before));
+    if (noSpeech) {
+      const none = this.#noSpeech();
+      where.push(none.sql);
+      args.push(...none.args);
+    }
+    return this.db
+      .prepare(`SELECT t.id, t.audio_file, t.started_at FROM transmissions t
+                 WHERE ${where.join(' AND ')} ORDER BY t.started_at, t.id LIMIT ?`)
+      .all(...args, limit);
+  }
+
+  /**
+   * Delete transmissions and their transcripts, in one transaction. The audio
+   * files are the caller's to remove: it gets their paths back.
+   * @param {number[]} ids - Transmissions to delete.
+   * @returns {{id: number, audio_file: string}[]} What was deleted.
+   */
+  deleteTransmissions(ids) {
+    const gone = [];
+    this.db.exec('BEGIN');
+    try {
+      for (let i = 0; i < ids.length; i += 500) {
+        const chunk = ids.slice(i, i + 500);
+        const marks = chunk.map(() => '?').join(',');
+        gone.push(...this.db.prepare(`SELECT id, audio_file FROM transmissions WHERE id IN (${marks})`).all(...chunk));
+        this.db.prepare(`DELETE FROM transcripts WHERE transmission_id IN (${marks})`).run(...chunk);
+        this.db.prepare(`DELETE FROM transmissions WHERE id IN (${marks})`).run(...chunk);
+      }
+      this.db.exec('COMMIT');
+    } catch (e) {
+      this.db.exec('ROLLBACK');
+      throw e;
+    }
+    return gone;
+  }
+
+  /**
+   * @param {number} id - Transmission id.
+   * @returns {boolean} Whether it (still) exists.
+   */
+  hasTransmission(id) {
+    return Boolean(this.db.prepare('SELECT 1 FROM transmissions WHERE id = ?').get(id));
+  }
+
+  /** @returns {{count: number, oldest: number|null, newest: number|null}} How much is kept. */
+  storageStats() {
+    return this.db
+      .prepare('SELECT COUNT(*) AS count, MIN(started_at) AS oldest, MAX(started_at) AS newest FROM transmissions')
+      .get();
+  }
+
+  /**
+   * @param {string} key - Setting name.
+   * @returns {string | null} Its value, or null when unset.
+   */
+  setting(key) {
+    return this.db.prepare('SELECT value FROM settings WHERE key = ?').get(key)?.value ?? null;
+  }
+
+  /**
+   * @param {string} key - Setting name.
+   * @param {string | null} value - New value; null removes it.
+   * @returns {void}
+   */
+  setSetting(key, value) {
+    if (value === null || value === undefined) this.db.prepare('DELETE FROM settings WHERE key = ?').run(key);
+    else this.db.prepare('INSERT INTO settings (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value').run(key, String(value));
   }
 
   /**

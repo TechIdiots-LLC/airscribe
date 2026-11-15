@@ -29,6 +29,7 @@ class FakeStore {
   }
   needingTranscript() { return []; }
   transmission(id) { return this.rows.get(id); }
+  hasTransmission(id) { return this.rows.has(id); }
 }
 
 /** @returns {object} A Manager wired to fakes, plus the events it emits. */

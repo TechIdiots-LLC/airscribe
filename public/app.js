@@ -81,6 +81,11 @@ let feedTotal = 0;       // how many match the filter, for "50 of 1,234"
 let feedSeq = 0;         // the latest load: a slower, earlier answer is dropped
 let pagedBack = false;   // older pages were asked for: keep them
 const nodes = new Map(); // id -> its <li>, so one row is redrawn, not the feed
+let role = null;         // who signed in: an admin may delete
+
+// "Hide no speech" is remembered per browser
+const HIDE_KEY = 'airscribe.hideSilent';
+try { $('hide-silent').checked = localStorage.getItem(HIDE_KEY) === '1'; } catch { /* storage blocked */ }
 
 function renderRadios() {
   const list = $('radios');
@@ -224,7 +229,8 @@ function renderTx(t) {
                   src: url(`/api/transmissions/${t.id}/audio`) }),
     el('div', { className: 'links' },
       el('a', { href: url(`/api/transmissions/${t.id}/audio?download`) }, 'Download audio'),
-      t.text ? el('a', { href: url(`/api/transmissions/${t.id}/text`) }, 'Download text') : ''),
+      t.text ? el('a', { href: url(`/api/transmissions/${t.id}/text`) }, 'Download text') : '',
+      role === 'admin' ? el('button', { className: 'link danger', onclick: () => deleteTx(t) }, 'Delete') : ''),
   );
   li.dataset.at = String(t.started_at);
   li.dataset.id = String(t.id);
@@ -289,6 +295,7 @@ async function loadFeed({ more = false } = {}) {
   const q = $('search').value.trim();
   if (mac) params.set('mac', mac);
   if (q) params.set('q', q);
+  if ($('hide-silent').checked) params.set('speech', '1');
   if (more && feedCursor) params.set('before', feedCursor);
   const res = await request(`/transmissions?${params}`);
   const rows = await res.json();
@@ -319,9 +326,51 @@ function matchesFilter(t) {
   const mac = $('filter-radio').value;
   const q = $('search').value.trim().toLowerCase();
   if (mac && t.mac !== mac) return false;
+  // Hiding no speech: a live clip joins once it has words, rather than
+  // showing while it's transcribed and vanishing if it turns out a chirp
+  if ($('hide-silent').checked && !(t.text ?? '').trim()) return false;
   if (!q) return true;
   return [t.channel_name, t.text, ...(t.transcripts ?? []).map((s) => s.text)]
     .some((s) => (s ?? '').toLowerCase().includes(q));
+}
+
+/**
+ * @param {object} t - A transmission.
+ * @returns {boolean} Whether the transcript it shows is finished and empty:
+ *   "(no speech recognised)", as the server decides for "Hide no speech".
+ */
+const silent = (t) => (t.transcripts ?? []).find((s) => s.engine === t.engine)?.status === 'done'
+  && !(t.text ?? '').trim();
+
+/**
+ * Take a row out of the feed: deleted, or no longer matching.
+ * @param {number} id - The transmission.
+ * @returns {void}
+ */
+function removeRow(id) {
+  if (!txs.has(id)) return;
+  txs.delete(id);
+  nodes.get(id)?.remove();
+  nodes.delete(id);
+  feedTotal = Math.max(0, feedTotal - 1);
+  renderFeedFoot();
+}
+
+/**
+ * Delete one transmission, its transcripts and its audio. Admins only; the
+ * server checks that too.
+ * @param {object} t - The transmission.
+ * @returns {Promise<void>}
+ */
+async function deleteTx(t) {
+  const radio = radios.find((r) => r.mac === t.mac)?.name ?? t.mac;
+  const when = new Date(t.started_at).toLocaleString();
+  if (!confirm(`Delete this ${(t.duration_ms / 1000).toFixed(1)}s transmission from ${radio} at ${when}, ` +
+               'with its transcripts and audio? This can’t be undone.')) return;
+  try {
+    await api(`/transmissions/${t.id}`, { method: 'DELETE' });
+    removeRow(t.id);   // the server tells every open page too
+  } catch (e) { alert(e.message); }
 }
 
 /**
@@ -333,6 +382,8 @@ function matchesFilter(t) {
  */
 function onTransmission(t) {
   if (txs.has(t.id)) {
+    // Transcribed as no speech while they're hidden: it goes
+    if ($('hide-silent').checked && silent(t)) return removeRow(t.id);
     txs.set(t.id, t);
     placeRow(t);
     return;
@@ -368,6 +419,7 @@ function refreshExport() {
   const params = new URLSearchParams({ format: 'csv' });
   if (mac) params.set('mac', mac);
   if (q) params.set('q', q);
+  if ($('hide-silent').checked) params.set('speech', '1');
   $('export').href = url(`/api/transmissions/export?${params}`);
   $('export').title = 'Every engine’s transcript for every transmission matching the filter, as CSV';
 }
@@ -375,6 +427,10 @@ function refreshExport() {
 const reload = () => loadFeed().catch((e) => { $('feed-count').textContent = e.message; });
 let searchTimer = null;
 $('filter-radio').onchange = reload;
+$('hide-silent').onchange = () => {
+  try { localStorage.setItem(HIDE_KEY, $('hide-silent').checked ? '1' : '0'); } catch { /* storage blocked */ }
+  reload();
+};
 // Asked of the server, so wait for a pause in the typing
 $('search').oninput = () => { clearTimeout(searchTimer); searchTimer = setTimeout(reload, 300); };
 $('feed-more').onclick = async () => {
@@ -390,6 +446,8 @@ function listen() {
   es.onmessage = (m) => {
     const u = JSON.parse(m.data);
     if (u.type === 'transmission') onTransmission(u);
+    else if (u.type === 'deleted') u.ids.forEach(removeRow);
+    else if (u.type === 'purged') reload();   // a large cleanup: start the feed again
     else if (u.type === 'status' || u.type === 'activity') {
       const r = radios.find((x) => x.mac === u.mac);
       if (r) { Object.assign(r, u); delete r.type; renderRadios(); }
@@ -471,6 +529,8 @@ async function boot() {
     showLogin(session, stale ? 'The saved API token was not accepted. Sign in again.' : '');
     return;
   }
+  // Before the feed draws, so an admin's rows have their Delete
+  role = session?.role ?? null;
   try {
     for (const m of await api('/models')) models.set(m.id, m);
     await loadRadios();

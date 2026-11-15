@@ -25,6 +25,7 @@ class FakeStore {
   }
   needingTranscript() { return []; }
   transmission(id) { return this.rows.get(id); }
+  hasTransmission(id) { return this.rows.has(id); }
 }
 
 test('simulated radio -> one clip -> transcript, end to end through the Python sidecar', { timeout: 40000 }, async () => {

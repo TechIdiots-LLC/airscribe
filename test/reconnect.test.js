@@ -21,7 +21,7 @@ function make(connectBehaviour = async () => {}) {
   const manager = new Manager({
     sidecar,
     store: {
-      radios: () => [], addTransmission: () => 1, transmission: () => ({}),
+      radios: () => [], addTransmission: () => 1, transmission: () => ({}), hasTransmission: () => true,
       saveTranscript() {}, needingTranscript: () => [],
     },
     engine: { name: 'mock', transcribe: async () => ({ text: '' }) },

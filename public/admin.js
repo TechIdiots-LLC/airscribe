@@ -1,4 +1,4 @@
-// Admin: for now, Updates (docs/updating.md). Shown only to an admin; the
+// Admin: Updates (docs/updating.md) and Storage. Shown only to an admin; the
 // server enforces that regardless.
 const $ = (id) => document.getElementById(id);
 const el = (tag, props = {}, ...kids) => {
@@ -123,11 +123,91 @@ async function load(check = false) {
   }
 }
 
+// ---- Storage ---------------------------------------------------------------
+
+/**
+ * @param {number} n - Bytes.
+ * @returns {string} The size, readably.
+ */
+function size(n) {
+  if (n >= 1e9) return `${(n / 1e9).toFixed(1)} GB`;
+  if (n >= 1e6) return `${(n / 1e6).toFixed(1)} MB`;
+  if (n >= 1e3) return `${Math.round(n / 1e3)} kB`;
+  return `${n} bytes`;
+}
+const day = (ms) => new Date(ms).toLocaleDateString();
+const plural = (n, one) => `${n.toLocaleString()} ${one}${n === 1 ? '' : 's'}`;
+
+function renderStorage(r) {
+  $('storage-summary').replaceChildren(el('p', {},
+    r.count ? `${plural(r.count, 'transmission')}, ${day(r.oldest)} to ${day(r.newest)}. ` : 'No transmissions yet. ',
+    `Audio ${size(r.clipBytes)}, database ${size(r.databaseBytes)}.`));
+  $('keep-days').value = r.retentionDays ?? '';
+  const last = r.lastSweep;
+  $('keep-status').textContent = r.retentionDays
+    ? `Transmissions older than ${plural(r.retentionDays, 'day')} are deleted every hour.` +
+      (last ? ` Last run ${new Date(last.at).toLocaleString()}: ${plural(last.deleted, 'transmission')} deleted (${size(last.bytes)}).` : '')
+    : 'Off: transmissions are kept until they’re deleted here.';
+}
+
+async function loadStorage() {
+  try {
+    renderStorage(await api('/admin/storage'));
+  } catch (e) {
+    $('storage-summary').replaceChildren(el('p', { className: 'tx-text error' }, e.message));
+  }
+}
+
+/** @returns {{olderThanDays: string|null, noSpeech: boolean}} What the delete form asks for. */
+const purgeAsk = () => ({ olderThanDays: $('purge-days').value.trim() || null, noSpeech: $('purge-silent').checked });
+
+// Deleting is shown before it's done: Preview says what would go, and only
+// its own button, for exactly that, deletes. Changing the form takes it away.
+$('purge-preview').onclick = async () => {
+  const ask = purgeAsk();
+  try {
+    const p = await api('/admin/storage/preview', { method: 'POST', body: ask });
+    if (!p.count) return $('purge-result').replaceChildren(el('p', { className: 'meta' }, 'Nothing matches.'));
+    $('purge-result').replaceChildren(el('div', { className: 'notice' },
+      `This deletes ${plural(p.count, 'transmission')} with their transcripts and ${size(p.bytes)} of audio, `,
+      `from ${day(p.oldest)} to ${day(p.newest)}. `,
+      el('button', { className: 'danger', onclick: () => purge(ask, p.count) }, `Delete ${p.count.toLocaleString()}`)));
+  } catch (e) {
+    $('purge-result').replaceChildren(el('p', { className: 'tx-text error' }, e.message));
+  }
+};
+for (const id of ['purge-days', 'purge-silent']) $(id).oninput = () => $('purge-result').replaceChildren();
+
+async function purge(ask, count) {
+  if (!confirm(`Delete ${plural(count, 'transmission')}, with their transcripts and audio? This can’t be undone.`)) return;
+  try {
+    const r = await api('/admin/storage/delete', { method: 'POST', body: ask });
+    $('purge-result').replaceChildren(el('p', { className: 'notice done' },
+      `Deleted ${plural(r.deleted, 'transmission')}; ${size(r.bytes)} of audio freed.`));
+    loadStorage();
+  } catch (e) {
+    $('purge-result').replaceChildren(el('p', { className: 'tx-text error' }, e.message));
+  }
+}
+
+$('keep-save').onclick = async () => {
+  try {
+    renderStorage(await api('/admin/storage/retention', {
+      method: 'PUT', body: { days: $('keep-days').value.trim() || null },
+    }));
+  } catch (e) {
+    alert(e.message);
+  }
+};
+
 function show(admin) {
   $('admin').hidden = !admin;
   $('main').hidden = admin;
   $('admin-toggle').textContent = admin ? 'Back to radios' : 'Admin';
-  if (admin) load();
+  if (admin) {
+    load();
+    loadStorage();
+  }
 }
 
 $('admin-toggle').onclick = () => show($('admin').hidden);

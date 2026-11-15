@@ -1,6 +1,6 @@
 import { EventEmitter } from 'node:events';
-import { existsSync, mkdirSync, writeFileSync } from 'node:fs';
-import { join } from 'node:path';
+import { existsSync, mkdirSync, statSync, unlinkSync, writeFileSync } from 'node:fs';
+import { join, resolve, sep } from 'node:path';
 import { Segmenter } from './segmenter.js';
 import { encodeWav, halveRate } from './wav.js';
 
@@ -258,14 +258,59 @@ export class Manager extends EventEmitter {
    */
   async runJob({ id, engineName, wav }) {
     const engine = this.engines.get(engineName);
-    if (!engine) return;
+    if (!engine || !this.store.hasTransmission(id)) return;
+    let result;
     try {
       const { text } = await engine.transcribe(wav);
-      this.store.saveTranscript(id, engineName, { status: 'done', text });
+      result = { status: 'done', text };
     } catch (e) {
-      this.store.saveTranscript(id, engineName, { status: 'error', error: e.message });
+      result = { status: 'error', error: e.message };
     }
+    // Deleted while it was being read: there is nothing to attach the
+    // transcript to, and nothing for the page to show
+    if (!this.store.hasTransmission(id)) return;
+    this.store.saveTranscript(id, engineName, result);
     this.emit('update', { type: 'transmission', ...this.store.transmission(id) });
+  }
+
+  /**
+   * Delete transmissions: their rows, their transcripts and both audio files.
+   *
+   * Queued transcriptions of them are dropped first, and one being read right
+   * now saves nothing when it finishes (runJob checks), so a deleted clip
+   * can't return as an orphaned transcript. Open pages are told which rows to
+   * take away, or, after a large cleanup, to load the feed again.
+   * @param {number[]} ids - Transmissions to delete.
+   * @returns {{deleted: number, bytes: number}} How many, and the disk space freed.
+   */
+  deleteTransmissions(ids) {
+    const doomed = new Set(ids);
+    this.jobs = this.jobs.filter((j) => !doomed.has(j.id));
+    const gone = this.store.deleteTransmissions([...doomed]);
+    const root = resolve(this.dataDir, 'clips');
+    let bytes = 0;
+    for (const { audio_file: clip } of gone) {
+      for (const name of [clip, clip.replace('.wav', '.16k.wav')]) {
+        // Written by this server, but resolved under clips/ anyway
+        const file = resolve(root, name);
+        if (!file.startsWith(root + sep)) continue;
+        try {
+          // eslint-disable-next-line security/detect-non-literal-fs-filename -- path from our own row, checked above
+          bytes += statSync(file).size;
+          // eslint-disable-next-line security/detect-non-literal-fs-filename -- as above
+          unlinkSync(file);
+        } catch {
+          // already gone: deleting what's left is the point
+        }
+      }
+    }
+    if (gone.length) {
+      const deletedIds = gone.map((g) => g.id);
+      this.emit('update', deletedIds.length <= 500
+        ? { type: 'deleted', ids: deletedIds }
+        : { type: 'purged', count: deletedIds.length });
+    }
+    return { deleted: gone.length, bytes };
   }
 
   /**
