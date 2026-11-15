@@ -7,12 +7,26 @@
 <link rel="stylesheet" href="style.css">
 </head>
 <body>
+<div class="overlay" id="login" hidden>
+  <form class="card" id="login-form">
+    <h1>AirScribe</h1>
+    <h2>Sign in</h2>
+    <div class="field" id="login-user-field" hidden>
+      <label for="login-user">Username</label>
+      <input id="login-user" autocomplete="username">
+    </div>
+    <div class="field">
+      <label for="login-pass" id="login-pass-label">Password</label>
+      <input id="login-pass" type="password" autocomplete="current-password">
+    </div>
+    <p class="meta" id="login-hint"></p>
+    <p class="error" id="login-error"></p>
+    <button type="submit">Sign in</button>
+  </form>
+</div>
 <header><h1>AirScribe</h1><span id="conn" class="pill">connecting…</span>
-  <span class="spacer"></span><button id="admin-toggle" hidden>Admin</button></header>
-<section id="signin" hidden>
-  <h2>Sign in</h2>
-  <div id="signin-body"></div>
-</section>
+  <span class="spacer"></span><button id="admin-toggle" hidden>Admin</button>
+  <button id="logout" hidden>Sign out</button></header>
 <main id="main" hidden>
   <section id="radios-panel">
     <div class="row"><h2>Radios</h2><button id="scan">Scan for radios</button></div>

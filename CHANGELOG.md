@@ -29,5 +29,10 @@
 
 ### 🐞 Bug fixes
 - _...Add new stuff here..._
+- **Signing in has its own page.** The sign-in form no longer sits above radios and transmissions that can't be used
+  yet; it covers the page until it's done, asks for a username only when one is set and for an API token where only
+  tokens are, and a Sign out button joins the header.
+- A radio that stopped answering is reconnected by the server's retry, instead of the retry finding the dead link and
+  doing nothing.
 - Upgrading a database from before transcripts had their own table no longer drops a finished transcript that
   didn't record which engine made it; it's kept as `unknown`.

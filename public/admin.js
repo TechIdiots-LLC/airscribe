@@ -137,15 +137,7 @@ $('updates-check').onclick = async () => {
   $('updates-check').disabled = false;
 };
 
-// Offer Admin once signed in as an admin. app.js signs in; this asks who we are
-// until it has, and stops there.
-(async function offer() {
-  for (let i = 0; i < 600; i++) {
-    try {
-      const s = await api('/session');
-      if (s.role === 'admin') { $('admin-toggle').hidden = false; return; }
-      if (s.role) return;   // a viewer: nothing here for them
-    } catch { /* not yet */ }
-    await new Promise((r) => setTimeout(r, 2000));
-  }
-})();
+// Offer Admin to an admin, once app.js has signed in and says who we are
+document.addEventListener('airscribe:signed-in', (e) => {
+  $('admin-toggle').hidden = e.detail?.role !== 'admin';
+});

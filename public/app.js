@@ -234,75 +234,93 @@ function listen() {
 }
 
 /**
- * Ask for a token instead of failing silently.
+ * The sign-in page, covering everything else until it's done.
  *
- * The page itself is served without one — it has to be, or this could never
- * be reached — so a 401 means the API wants a credential and nothing has
- * offered it yet.
+ * The page itself is served without a credential (it has to be, or this
+ * could never be reached), so the server is asked first whether one is
+ * needed, and nothing behind this is drawn until it has been given.
+ * @param {object} [session] - /api/session's answer: what to ask for.
  * @param {string} [message] - Why the last attempt failed.
  * @returns {void}
  */
-function showSignIn(message) {
-  const input = el('input', { type: 'password', id: 'token-input',
-                              placeholder: 'Password or API token',
-                              autocomplete: 'current-password' });
-  const submit = async () => {
-    const value = input.value.trim();
-    if (!value) return;
-    // Try a session first: a password is not a token, and where only tokens
-    // are configured the server accepts one in the same field. A session
-    // means nothing is kept in this browser's storage.
-    try {
-      const res = await fetch(url('/api/login'), {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ password: value }),
-      });
-      if (res.ok) {
-        token = '';
-        rememberToken('');
-        return boot();
-      }
-    } catch {
-      /* fall through to using it as a token */
-    }
-    token = value;
-    rememberToken(value);
-    boot();
-  };
-  input.onkeydown = (e) => { if (e.key === 'Enter') submit(); };
-  $('signin-body').replaceChildren(
-    el('p', { className: 'meta' },
-      message || 'This server requires a token. It is the one set in auth.tokens in its config.'),
-    el('div', { className: 'row' }, input, el('button', { onclick: submit }, 'Sign in')),
-  );
-  $('signin').hidden = false;
-  $('main').hidden = true;
-  input.focus();
+function showLogin(session = {}, message = '') {
+  $('login-user-field').hidden = !session.username;
+  // Where only API tokens are set there is no password to ask for, and the
+  // same box takes a token
+  const tokensOnly = session.passwordLogin === false;
+  $('login-pass-label').textContent = tokensOnly ? 'API token' : 'Password';
+  $('login-hint').textContent = tokensOnly
+    ? 'This server is guarded by API tokens: one from auth.tokens in its settings.'
+    : 'A new Proxmox container leaves its first password in /root/airscribe-first-login.txt.';
+  $('login-error').textContent = message;
+  $('login').hidden = false;
+  (session.username && !$('login-user').value ? $('login-user') : $('login-pass')).focus();
 }
 
-/** @returns {Promise<void>} Loads everything, or asks for a token. */
+$('login-form').onsubmit = async (event) => {
+  event.preventDefault();
+  $('login-error').textContent = '';
+  try {
+    // A session cookie for a password or a token alike, so nothing is kept
+    // in this browser's storage
+    const res = await fetch('/api/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username: $('login-user').value, password: $('login-pass').value }),
+    });
+    if (!res.ok) {
+      $('login-error').textContent = res.status === 401
+        ? 'Not accepted. Check it and try again.'
+        : (await res.json().catch(() => ({}))).error || res.statusText;
+      $('login-pass').select();
+      return;
+    }
+    $('login-pass').value = '';
+    token = '';
+    rememberToken('');
+    $('login').hidden = true;
+    boot();
+  } catch (e) {
+    $('login-error').textContent = e.message;
+  }
+};
+
+$('logout').onclick = async () => {
+  await fetch('/api/logout', { method: 'POST' }).catch(() => {});
+  rememberToken('');
+  location.reload();
+};
+
+/** @returns {Promise<void>} Asks who we are, then loads everything or asks to sign in. */
 async function boot() {
+  let session = null;
+  try {
+    session = await api('/session');
+  } catch {
+    // An unreachable server is reported by the loads below
+  }
+  if (session?.guarded && !session.authenticated) {
+    // A stored token that no longer works is worse than none
+    const stale = Boolean(token);
+    token = '';
+    rememberToken('');
+    showLogin(session, stale ? 'The saved API token was not accepted. Sign in again.' : '');
+    return;
+  }
   try {
     for (const m of await api('/models')) models.set(m.id, m);
     await loadRadios();
     await loadFeed();
   } catch (e) {
-    if (e.status === 401) {
-      rememberToken('');   // a stored token that no longer works is worse than none
-      showSignIn(token ? 'That token was not accepted. Try another.' : undefined);
-      return;
-    }
+    if (e.status === 401) return showLogin(session ?? {});
     $('conn').textContent = 'error';
     $('conn').className = 'pill bad';
-    $('signin-body').replaceChildren(el('p', { className: 'tx-text error' }, e.message));
-    $('signin').hidden = false;
-    $('main').hidden = true;
-    return;
+    $('feed').replaceChildren(el('li', { className: 'tx-text error' }, e.message));
   }
-  $('signin').hidden = true;
+  $('logout').hidden = !session?.guarded;
   $('main').hidden = false;
   listen();
+  document.dispatchEvent(new CustomEvent('airscribe:signed-in', { detail: session }));
 }
 
 boot();

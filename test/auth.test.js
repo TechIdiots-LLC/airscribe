@@ -206,3 +206,11 @@ test('logging out ends the session', () => {
   a.logout(req({ cookie }), res());
   assert.equal(a.roleOf(req({ cookie })), null);
 });
+
+test('the session says what the sign-in page should ask for', () => {
+  const ask = (auth) => { const r = res(); build(auth).session(req(), r); return r.body; };
+  const pw = ask({ passwordHash: hashPassword('correct horse') });
+  assert.deepEqual([pw.guarded, pw.authenticated, pw.passwordLogin, pw.username], [true, false, true, false]);
+  assert.equal(ask({ tokens: ['t'] }).passwordLogin, false, 'only tokens: ask for a token, not a password');
+  assert.equal(ask({ username: 'op', passwordHash: hashPassword('x') }).username, true);
+});

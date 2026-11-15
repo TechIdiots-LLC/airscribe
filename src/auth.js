@@ -299,7 +299,13 @@ export function createAuth(config) {
     /** @param {import('express').Request} req - The request. @param {import('express').Response} res - The response. @returns {void} */
     session(req, res) {
       const role = roleOf(req);
-      res.json({ guarded, role, authenticated: Boolean(role) });
+      // What the sign-in page should ask for: a username only when one is
+      // set, and "API token" rather than "password" when only tokens are
+      res.json({
+        guarded, role, authenticated: Boolean(role),
+        passwordLogin: Boolean(auth.passwordHash || auth.password),
+        username: Boolean(auth.username),
+      });
     },
     /** @param {import('express').Request} req - The request. @param {import('express').Response} res - The response. @returns {void} */
     logout(req, res) {
