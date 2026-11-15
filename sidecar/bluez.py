@@ -192,22 +192,28 @@ class RadioLink:
         in the socket to corrupt the next.
         """
         with self.lock:
+            # close() clears self.ctrl from another thread; a poll in flight
+            # then finds no channel, which is the same as a dead one
+            ctrl = self.ctrl
+            if ctrl is None:
+                return b""
             try:
-                self.ctrl.settimeout(3)
-                self.ctrl.sendall(frame)
-                head = self._recv_exactly(4)
+                ctrl.settimeout(3)
+                ctrl.sendall(frame)
+                head = self._recv_exactly(ctrl, 4)
                 if len(head) < 4 or head[0] != 0xFF:
                     return b""
                 # header(4) + group/command(4) + payload + optional checksum
                 rest = 4 + head[3] + (head[2] & 1)
-                return head + self._recv_exactly(rest)
+                return head + self._recv_exactly(ctrl, rest)
             except OSError:
                 return b""
 
-    def _recv_exactly(self, n):
+    @staticmethod
+    def _recv_exactly(sock, n):
         buf = b""
         while len(buf) < n:
-            chunk = self.ctrl.recv(n - len(buf))
+            chunk = sock.recv(n - len(buf))
             if not chunk:
                 break
             buf += chunk
@@ -367,9 +373,10 @@ class RadioLink:
             run = bytearray()
             open_run = False
 
-        while not self.stop.is_set():
+        sock = self.audio   # close() clears self.audio from another thread
+        while sock is not None and not self.stop.is_set():
             try:
-                data = self.audio.recv(8192)
+                data = sock.recv(8192)
             except (TimeoutError, socket.timeout):
                 continue
             except OSError:

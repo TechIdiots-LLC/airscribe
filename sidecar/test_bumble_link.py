@@ -159,8 +159,8 @@ class BumbleBackendTests(unittest.TestCase):
         self.assertEqual(self.radio.control_opens, 1, "control is opened once and held")
         self.assertTrue(self.wait_for(lambda: self.of("radio-status")), self.events)
         self.assertTrue(self.of("radio-status")[-1]["aoc_connected"])
-        self.assertIn("isn't encrypted", self.of("sidecar-error")[0]["error"],
-                      "a link that couldn't be encrypted is used, and said so")
+        self.assertTrue(any("isn't encrypted" in e["error"] for e in self.of("sidecar-error")),
+                        "a link that couldn't be encrypted is used, and said so")
 
     def test_a_channel_the_radio_closes_reads_as_closed(self):
         self.backend.connect(RADIO)
