@@ -1,7 +1,7 @@
 import { spawn } from 'node:child_process';
 import { SherpaEngine } from './sherpa.js';
 import { OpenVinoEngine } from './openvino.js';
-import { WhisperServerEngine } from './whisper-server.js';
+import { WhisperServerEngine, cleanWhisperText } from './whisper-server.js';
 
 /**
  * A speech-to-text engine turns a WAV file (16 kHz mono) into text.
@@ -54,7 +54,7 @@ const ENGINES = {
     transcribe: async (wav) => {
       const args = ['-m', c.model, '-f', wav, '-nt', '-np'];
       if (c.language) args.push('-l', c.language);
-      return { text: await run(c.binary ?? 'whisper-cli', args) };
+      return { text: cleanWhisperText(await run(c.binary ?? 'whisper-cli', args)) };
     },
   }),
 

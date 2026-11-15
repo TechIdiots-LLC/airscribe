@@ -20,6 +20,18 @@ const DEVICE_LINES = [
   /^whisper_init_with_params_no_state: use gpu\b/,
 ];
 
+/**
+ * whisper.cpp's text as a transcript: one line, and without its
+ * `[BLANK_AUDIO]` marker, which is whisper.cpp saying it heard nothing. Left
+ * in, it read as text: two of LXC 113's clips were stored as "[BLANK_AUDIO]"
+ * rather than shown as having no speech.
+ * @param {string} text - What whisper.cpp printed or returned.
+ * @returns {string} The transcript, '' when there was no speech.
+ */
+export function cleanWhisperText(text) {
+  return String(text ?? '').replace(/\[BLANK_AUDIO\]/gi, ' ').replace(/\s+/g, ' ').trim();
+}
+
 /** @returns {Promise<number>} A free loopback port. */
 function freePort() {
   return new Promise((resolve, reject) => {
@@ -210,7 +222,7 @@ export class WhisperServerEngine {
       throw new Error(`whisper-server answered without a transcript: ${body.slice(0, 300)}`);
     }
     // One line per segment; a clip's transcript is one line
-    return { text: msg.text.replace(/\s+/g, ' ').trim() };
+    return { text: cleanWhisperText(msg.text) };
   }
 
   /** @returns {void} */

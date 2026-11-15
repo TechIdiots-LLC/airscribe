@@ -4,7 +4,7 @@ import { createServer } from 'node:http';
 import { existsSync, mkdtempSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { WhisperServerEngine } from '../src/stt/whisper-server.js';
+import { WhisperServerEngine, cleanWhisperText } from '../src/stt/whisper-server.js';
 import { createEngine, createEngines } from '../src/stt/index.js';
 
 const dir = mkdtempSync(join(tmpdir(), 'whisper-server-'));
@@ -41,6 +41,7 @@ writeFileSync(fake, `
       process.exit(1);
     }
     if (mode === 'fail') { res.statusCode = 500; return res.end('{"error":"failed to process audio"}'); }
+    if (mode === 'blank') return res.end(JSON.stringify({ text: ' [BLANK_AUDIO]\\n' }));
     const form = await new Response(req, { headers: { 'content-type': req.headers['content-type'] } }).formData();
     const fields = {};
     for (const [k, v] of form) fields[k] = typeof v === 'string' ? v : 'file:' + v.name + ':' + v.size;
@@ -149,6 +150,18 @@ test("the server's error becomes the clip's error", async () => {
   } finally {
     e.stop();
   }
+});
+
+test("whisper.cpp's [BLANK_AUDIO] is no speech, not a transcript", async () => {
+  const e = engineWith({ args: ['--fake', 'blank'] });
+  try {
+    assert.deepEqual(await e.transcribe(wav), { text: '' });
+  } finally {
+    e.stop();
+  }
+  assert.equal(cleanWhisperText(' [BLANK_AUDIO]\n'), '');
+  assert.equal(cleanWhisperText('[BLANK_AUDIO] Copy that.\n [blank_audio]'), 'Copy that.', 'around real words too');
+  assert.equal(cleanWhisperText(' (static) '), '(static)', "an annotation of its own is kept: it's honest");
 });
 
 test('with a url it uses that server and starts nothing', async () => {
