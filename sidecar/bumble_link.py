@@ -21,7 +21,7 @@ import socket
 import threading
 
 import sbc
-from bluez import RadioLink
+from bluez import LinkControls, RadioLink
 
 CONNECT_SECONDS = 20
 PAIR_SECONDS = 60       # the first connection pairs, which can wait on the radio
@@ -349,7 +349,7 @@ def _release(sock):
     sock.close()
 
 
-class BumbleBackend:
+class BumbleBackend(LinkControls):
     """The sidecar's `bumble` backend: the same commands as BluezBackend."""
 
     def __init__(self, emit, transport="usb:0", keys=None, control_ch=None, audio_ch=None,

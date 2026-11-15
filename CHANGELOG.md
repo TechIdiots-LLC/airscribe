@@ -18,6 +18,11 @@
   50 of 1,234"). The search box and the radio filter ask the server, so they cover the whole history rather than
   the rows that happened to be loaded, and Export takes everything they match. A transmission arriving or being
   transcribed redraws only its own row, so a clip being played isn't stopped by another arriving.
+- **Radio controls:** an admin's **Controls** on a connected radio read its region (by name), channel, dual watch and
+  second channel, scan, squelch, volume and GPS fix from the radio, and change any of them. A settings change sends
+  back the radio's own block with only that changed, then reads it again and says if the radio didn't take it.
+  Changing region reads that region's channels. A radio with a GPS fix appears on the Map. Command layouts follow
+  HTCommander's protocol reference.
 - **Map:** a view with each channel where an admin placed it (Place, then click the map; drag to move). A channel
   lights up while one of the radios is receiving on it and pulses when its transmission has been saved; its popup
   shows what it said lately and opens the feed on it. Base maps are MapLibre styles (`map.styles`), by default the
@@ -44,6 +49,9 @@
 
 ### 🐞 Bug fixes
 - _...Add new stuff here..._
+- Switching a radio to another region no longer leaves transmissions filed under the old region's channel names:
+  the channel list is read again when the radio reports a different region. The radio link also matches each reply
+  to its request, so a command the radio doesn't answer can't put every later answer out by one.
 - **Signing in has its own page.** The sign-in form no longer sits above radios and transmissions that can't be used
   yet; it covers the page until it's done, asks for a username only when one is set and for an API token where only
   tokens are, and a Sign out button joins the header.

@@ -37,6 +37,8 @@ let channels = [];
 let placing = null;       // the channel the next click on the map places
 const markers = new Map(); // channel name -> {marker, element}
 const liveBy = new Map();  // radio mac -> the channel it is receiving on now
+const radioMarkers = new Map(); // radio mac -> marker, where its GPS puts it
+const radioNames = new Map();   // radio mac -> the name it was given
 const pulsed = new Set();  // transmissions already pulsed for, so each pulses once
 
 document.addEventListener('airscribe:signed-in', (e) => { role = e.detail?.role ?? null; });
@@ -101,6 +103,11 @@ async function loadChannels(fit) {
   }
   for (const c of placed) placeMarker(c);
   renderSide(placed);
+  // The radios themselves, where their GPS puts them
+  for (const r of await api('/radios')) {
+    radioNames.set(r.mac, r.name);
+    if (r.position) placeRadio(r.mac, r.position);
+  }
   if (fit && placed.length) {
     const b = new maplibregl.LngLatBounds();
     for (const c of placed) b.extend([c.lon, c.lat]);
@@ -138,6 +145,25 @@ function placeMarker(c) {
   markers.set(c.name, { marker, element, channel: c });
   // Receiving already when it was drawn
   if ([...liveBy.values()].includes(c.name)) element.classList.add('live');
+}
+
+/**
+ * A radio where its own GPS puts it: a square, to tell it from the channels.
+ * @param {string} mac - The radio.
+ * @param {{lat: number, lon: number}} pos - Its fix.
+ * @returns {void}
+ */
+function placeRadio(mac, pos) {
+  if (!map || !Number.isFinite(pos?.lat) || !Number.isFinite(pos?.lon)) return;
+  const have = radioMarkers.get(mac);
+  if (have) {
+    have.setLngLat([pos.lon, pos.lat]);
+    return;
+  }
+  const name = radioNames.get(mac) ?? mac;
+  const element = el('div', { className: 'radio-marker', title: `${name}: from its GPS` },
+    el('span', { className: 'square' }), el('span', { className: 'label' }, name));
+  radioMarkers.set(mac, new maplibregl.Marker({ element, anchor: 'center' }).setLngLat([pos.lon, pos.lat]).addTo(map));
 }
 
 const mhz = (hz) => (hz ? `${(hz / 1e6).toFixed(4)} MHz` : '');
@@ -245,6 +271,7 @@ document.addEventListener('airscribe:activity', (e) => {
   const now = liveBy.get(a.mac);
   if (before && before !== now && ![...liveBy.values()].includes(before)) setLive(before, false);
   if (now) setLive(now, true);
+  if (a.position) placeRadio(a.mac, a.position);
 });
 
 // A transmission saved: one pulse, the first time it is heard of

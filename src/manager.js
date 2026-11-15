@@ -79,6 +79,14 @@ export class Manager extends EventEmitter {
         this.setActivity(e.mac, {
           rx: !!e.in_rx, tx: !!e.in_tx, rssi: e.rssi, channel: e.channel,
           ...(e.battery === undefined || e.battery === null ? {} : { battery: e.battery }),
+          ...(e.region === undefined ? {} : { region: e.region }),
+          ...(e.scanning === undefined ? {} : { scanning: !!e.scanning }),
+        });
+        break;
+      // Where the radio's own GPS puts it, while it has a fix
+      case 'radio-position':
+        this.setActivity(e.mac, {
+          position: { lat: e.lat, lon: e.lon, alt_m: e.alt_m, speed: e.speed, heading: e.heading, at: Date.now() },
         });
         break;
       case 'audio-start':
@@ -139,7 +147,9 @@ export class Manager extends EventEmitter {
     // how anyone watching can tell the radio is being polled at all, and
     // whether it is hearing anything.
     if (prev.rx === next.rx && prev.tx === next.tx && prev.rssi === next.rssi
-        && prev.battery === next.battery && prev.channel === next.channel) return;
+        && prev.battery === next.battery && prev.channel === next.channel
+        && prev.region === next.region && prev.scanning === next.scanning
+        && prev.position?.lat === next.position?.lat && prev.position?.lon === next.position?.lon) return;
     this.state.set(mac, next);
     // A radio going flat is the one failure nothing on this side can recover
     // from, so it is said out loud once per threshold crossed rather than
@@ -155,7 +165,29 @@ export class Manager extends EventEmitter {
       type: 'activity', mac, rx: next.rx, tx: next.tx,
       rssi: next.rssi, battery: next.battery, channel: next.channel,
       channelName: this.channels.get(mac)?.get(next.channel)?.name ?? null,
+      region: next.region, scanning: next.scanning, position: next.position,
     });
+  }
+
+  /**
+   * What a radio's controls show, read from the radio now.
+   * @param {string} mac - A connected radio.
+   * @returns {Promise<object>} Settings, volume, regions, the channel table, position.
+   */
+  radioControls(mac) {
+    return this.sidecar.call('radio', { mac });
+  }
+
+  /**
+   * Change one thing on a radio: volume, squelch, scan, dual, channel_a,
+   * channel_b or region.
+   * @param {string} mac - A connected radio.
+   * @param {string} action - What to change.
+   * @param {number|boolean} value - To what.
+   * @returns {Promise<object>} The controls' new state.
+   */
+  control(mac, action, value) {
+    return this.sidecar.call('control', { mac, action, value });
   }
 
   /**

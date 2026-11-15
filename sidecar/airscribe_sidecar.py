@@ -33,7 +33,7 @@ import time
 
 import sbc
 from btinfo import is_radio, parse_devices
-from bluez import RadioLink
+from bluez import LinkControls, RadioLink
 
 RATE = 32000  # radio audio: 32 kHz, 16-bit, mono
 CHUNK_MS = 100
@@ -88,6 +88,64 @@ class SimBackend:
         for mac in list(self.active):
             self.disconnect(mac)
 
+    # A pretend radio's controls, so the page can be tried with no radio
+    SIM_REGIONS = ["Local", "Travel"]
+    SIM_TABLES = [
+        [{"id": 0, "name": "Holden PD", "rx_hz": 460387500, "tx_hz": 465387500, "scan": True},
+         {"id": 1, "name": "Rutld FD", "rx_hz": 154250000, "tx_hz": 154250000, "scan": True},
+         {"id": 2, "name": "W1BIM", "rx_hz": 146970000, "tx_hz": 146370000, "scan": False}],
+        [{"id": 0, "name": "Boston FD", "rx_hz": 483162500, "tx_hz": 483162500, "scan": True},
+         {"id": 1, "name": "Mass SP", "rx_hz": 155475000, "tx_hz": 155475000, "scan": True}],
+    ]
+
+    def _sim(self, mac):
+        if mac not in self.active:
+            raise RuntimeError(f"{mac} isn't connected")
+        if not hasattr(self, "controls"):
+            self.controls = {}
+        return self.controls.setdefault(mac, {
+            "settings": {"channel_a": 0, "channel_b": 1, "scan": False, "dual": 0, "squelch": 3},
+            "volume": 7, "region": 0, "position": {"lat": 42.3601, "lon": -71.8551, "alt_m": 190,
+                                                  "speed": 0, "heading": 0},
+        })
+
+    def radio_info(self, mac):
+        s = self._sim(mac)
+        return {"settings": dict(s["settings"]), "volume": s["volume"], "region": s["region"],
+                "regions": list(self.SIM_REGIONS), "channels": self.SIM_TABLES[s["region"]],
+                "scanning": s["settings"]["scan"], "position": s["position"]}
+
+    def control(self, mac, action, value):
+        s = self._sim(mac)
+        limits = {"volume": 15, "squelch": 9}
+        if action in limits:
+            v = int(value)
+            if not 0 <= v <= limits[action]:
+                raise ValueError(f"{action} is 0 to {limits[action]}")
+            if action == "volume":
+                s["volume"] = v
+            else:
+                s["settings"]["squelch"] = v
+        elif action == "scan":
+            s["settings"]["scan"] = bool(value)
+        elif action == "dual":
+            s["settings"]["dual"] = 1 if value else 0
+        elif action in ("channel_a", "channel_b"):
+            v = int(value)
+            if not any(c["id"] == v for c in self.SIM_TABLES[s["region"]]):
+                raise ValueError(f"channel {v} isn't programmed in this region")
+            s["settings"][action] = v
+        elif action == "region":
+            v = int(value)
+            if not 0 <= v < len(self.SIM_REGIONS):
+                raise ValueError(f"region is 0 to {len(self.SIM_REGIONS) - 1}")
+            s["region"] = v
+            s["settings"]["channel_a"] = s["settings"]["channel_b"] = 0
+            emit({"event": "channels", "mac": mac, "region": v, "channels": self.SIM_TABLES[v]})
+        else:
+            raise ValueError(f"unknown control {action}")
+        return self.radio_info(mac)
+
     def _run(self, mac, stop):
         emit({"event": "status", "mac": mac, "state": "connected", "rssi": 9})
         n = CHUNK_MS * RATE // 1000
@@ -141,11 +199,17 @@ class Unavailable:
     def disconnect(self, _mac):
         raise RuntimeError(self.reason)
 
+    def radio_info(self, _mac):
+        raise RuntimeError(self.reason)
+
+    def control(self, _mac, _action, _value):
+        raise RuntimeError(self.reason)
+
     def shutdown(self):
         pass
 
 
-class BluezBackend:
+class BluezBackend(LinkControls):
     """Linux/BlueZ. Holds one RadioLink per connected radio."""
 
     def __init__(self, control_ch=None, audio_ch=None):
@@ -291,6 +355,11 @@ def main():
                 result = backend.connect(req["mac"])
             elif cmd == "disconnect":
                 result = backend.disconnect(req["mac"])
+            # The radio's controls: what they read now, and changing one
+            elif cmd == "radio":
+                result = backend.radio_info(req["mac"])
+            elif cmd == "control":
+                result = backend.control(req["mac"], req["action"], req.get("value"))
             elif cmd == "ping":
                 result = "pong"
             else:

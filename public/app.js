@@ -131,7 +131,8 @@ function renderRadios() {
         el('div', { className: 'actions' },
           el('button', { onclick: () => act(r.mac, connected ? 'disconnect' : 'connect') }, connected ? 'Disconnect' : 'Connect'),
           el('button', { onclick: () => rename(r) }, 'Rename'),
-          el('button', { onclick: () => remove(r) }, 'Remove')),
+          el('button', { onclick: () => remove(r) }, 'Remove'),
+          connected && role === 'admin' ? el('button', { onclick: () => openControls(r) }, 'Controls') : ''),
       );
     }),
   );
@@ -161,6 +162,78 @@ async function rename(r) {
     renderFeed();   // past transmissions take the new name too
   } catch (e) { alert(e.message); }
 }
+// ---- A radio's controls ------------------------------------------------------
+// Read from the radio when opened, and again after each change, which the
+// radio is asked to confirm: what's shown is what it has, not what was asked.
+
+const mhz = (hz) => (hz ? `${(hz / 1e6).toFixed(4)}` : '');
+
+/** @param {object} r - The radio. @returns {Promise<void>} */
+async function openControls(r) {
+  $('controls-title').textContent = r.name;
+  $('controls-body').replaceChildren(el('p', { className: 'meta' }, 'Reading the radio…'));
+  $('controls-status').textContent = '';
+  $('controls').showModal();
+  try {
+    renderControls(r, await api(`/radios/${r.mac}/controls`));
+  } catch (e) {
+    $('controls-body').replaceChildren(el('p', { className: 'tx-text error' }, e.message));
+  }
+}
+$('controls-close').onclick = () => $('controls').close();
+
+/**
+ * @param {object} r - The radio.
+ * @param {object} info - What the radio reports: settings, volume, regions, channels, position.
+ * @returns {void}
+ */
+function renderControls(r, info) {
+  const s = info.settings;
+  const send = async (action, value) => {
+    for (const input of $('controls-body').querySelectorAll('select, input')) input.disabled = true;
+    $('controls-status').textContent = 'Sending to the radio…';
+    try {
+      renderControls(r, await api(`/radios/${r.mac}/controls`, { method: 'POST', body: { action, value } }));
+      $('controls-status').textContent = 'The radio has it.';
+    } catch (e) {
+      $('controls-status').textContent = e.message;
+      try { renderControls(r, await api(`/radios/${r.mac}/controls`)); } catch { /* the message says enough */ }
+    }
+  };
+  const channelSelect = (id, current, enabled = true) => el('select', {
+    id, disabled: !enabled,
+    onchange: (e) => send(id === 'ctl-a' ? 'channel_a' : 'channel_b', Number(e.target.value)),
+  }, ...info.channels.map((c) => el('option', { value: c.id, selected: c.id === current },
+    `${c.id + 1}. ${c.name || '(no name)'}${c.rx_hz ? ` · ${mhz(c.rx_hz)}` : ''}`)));
+  const range = (id, action, max, value) => {
+    const out = el('output', {}, String(value ?? '?'));
+    const input = el('input', { id, type: 'range', min: 0, max, step: 1, value: value ?? 0,
+      oninput: () => { out.textContent = input.value; },
+      onchange: () => send(action, Number(input.value)) });
+    return el('span', { className: 'range' }, input, out);
+  };
+  const region = info.regions.length
+    ? el('select', { id: 'ctl-region', onchange: (e) => send('region', Number(e.target.value)) },
+      ...info.regions.map((name, i) => el('option', { value: i, selected: i === info.region }, name || `Region ${i + 1}`)))
+    : el('span', {}, info.region === null || info.region === undefined ? '?' : `Region ${info.region + 1}`);
+  const p = info.position;
+  $('controls-body').replaceChildren(el('div', { className: 'controls' },
+    el('label', { htmlFor: 'ctl-region' }, 'Region'), region,
+    el('label', { htmlFor: 'ctl-a' }, 'Channel'), channelSelect('ctl-a', s.channel_a),
+    el('label', { htmlFor: 'ctl-dual' }, 'Dual watch'),
+    el('span', {}, el('input', { id: 'ctl-dual', type: 'checkbox', checked: s.dual !== 0,
+      onchange: (e) => send('dual', e.target.checked) })),
+    el('label', { htmlFor: 'ctl-b' }, 'Second channel'), channelSelect('ctl-b', s.channel_b, s.dual !== 0),
+    el('label', { htmlFor: 'ctl-scan' }, 'Scan'),
+    el('span', {}, el('input', { id: 'ctl-scan', type: 'checkbox', checked: s.scan,
+      onchange: (e) => send('scan', e.target.checked) })),
+    el('label', { htmlFor: 'ctl-squelch' }, 'Squelch'), range('ctl-squelch', 'squelch', 9, s.squelch),
+    el('label', { htmlFor: 'ctl-volume' }, 'Volume'), range('ctl-volume', 'volume', 15, info.volume),
+    el('span', { className: 'meta' }, 'GPS'),
+    el('span', { className: 'meta' }, p ? `${p.lat.toFixed(5)}, ${p.lon.toFixed(5)}${p.alt_m ? ` · ${p.alt_m} m` : ''}` : 'no fix'),
+  ));
+}
+
 async function remove(r) {
   if (confirm(`Remove ${r.name}? Its past transmissions are kept.`)) { await api(`/radios/${r.mac}`, { method: 'DELETE' }); await loadRadios(); }
 }

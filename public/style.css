@@ -54,7 +54,7 @@ audio { width: 100%; height: 32px; }
 .links a { color: var(--accent); font-size: 13px; margin-right: 12px; }
 .export { color: var(--accent); font-size: 13px; text-decoration: none; border: 1px solid var(--line); border-radius: 6px; padding: 5px 10px; white-space: nowrap; }
 .export:hover { border-color: var(--accent); }
-.actions { display: flex; gap: 6px; margin-top: 6px; }
+.actions { display: flex; flex-wrap: wrap; gap: 6px; margin-top: 6px; }
 .spacer { flex: 1; }
 /* The transmission "Play new" is playing */
 li.playing { border-color: var(--accent); box-shadow: 0 0 0 1px var(--accent); }
@@ -72,6 +72,16 @@ button.link.danger { color: var(--bad); }
 .links { display: flex; flex-wrap: wrap; gap: 0 12px; align-items: baseline; }
 .links a { margin-right: 0; }
 #admin { max-width: 900px; margin: 0 auto; padding: 16px; }
+/* A radio's controls */
+dialog#controls { border: 1px solid var(--line); border-radius: 10px; background: var(--bg); color: var(--fg);
+  padding: 16px 20px; width: min(460px, calc(100vw - 32px)); }
+dialog#controls::backdrop { background: rgba(0, 0, 0, .5); }
+.controls { display: grid; grid-template-columns: auto minmax(0, 1fr); gap: 10px 14px; align-items: center; margin: 8px 0; }
+.controls label { color: var(--muted); font-size: 13px; }
+.controls select { width: 100%; }
+.controls .range { display: flex; align-items: center; gap: 8px; }
+.controls .range input { flex: 1; }
+.controls output { min-width: 2ch; text-align: right; font-variant-numeric: tabular-nums; }
 /* The header's views: Feed, Insights, Admin */
 .views { display: flex; gap: 4px; }
 .views button.active { border-color: var(--accent); color: var(--accent); }
@@ -115,6 +125,12 @@ button.link.danger { color: var(--bad); }
 #mapview .maplibregl-popup-anchor-left .maplibregl-popup-tip { border-right-color: var(--card); }
 #mapview .maplibregl-popup-anchor-right .maplibregl-popup-tip { border-left-color: var(--card); }
 .ch-popup { font-size: 13px; padding-right: 12px; }
+/* A radio, where its own GPS puts it */
+.radio-marker { position: relative; width: 14px; height: 14px; }
+.radio-marker .square { position: absolute; inset: 0; border-radius: 3px; background: var(--ok); border: 2px solid #fff;
+  box-shadow: 0 0 3px rgba(0, 0, 0, .7); }
+.radio-marker .label { position: absolute; left: 18px; top: -3px; white-space: nowrap; font: 600 12px system-ui, sans-serif;
+  color: #fff; text-shadow: 0 0 3px #000, 0 0 3px #000, 0 0 2px #000; pointer-events: none; }
 .ch-latest { margin: 6px 0; }
 .ch-latest li { background: none; border: 0; padding: 2px 0; margin: 0; }
 /* Insights */

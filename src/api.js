@@ -234,6 +234,41 @@ export function createApp({ manager, store, sidecar, config, dataDir, updates, c
     res.status(204).end();
   });
 
+  // A radio's controls: admins only, as everything that changes a radio is.
+  // Checked here as well as on the radio's side, so a bad value is a clear
+  // 400 rather than a message from the radio link.
+  const CONTROLS = {
+    volume: (v) => Number.isInteger(v) && v >= 0 && v <= 15,
+    squelch: (v) => Number.isInteger(v) && v >= 0 && v <= 9,
+    scan: (v) => typeof v === 'boolean',
+    dual: (v) => typeof v === 'boolean',
+    channel_a: (v) => Number.isInteger(v) && v >= 0 && v <= 255,
+    channel_b: (v) => Number.isInteger(v) && v >= 0 && v <= 255,
+    region: (v) => Number.isInteger(v) && v >= 0 && v <= 63,
+  };
+  const radioFor = (req, res) => {
+    const mac = normalizeMac(req.params.mac);
+    if (!mac || !store.radio(mac)) {
+      res.status(404).json({ error: 'unknown radio' });
+      return null;
+    }
+    return mac;
+  };
+  api.get('/radios/:mac/controls', auth.requireRole('admin'), wrap(async (req, res) => {
+    const mac = radioFor(req, res);
+    if (mac) res.json(await manager.radioControls(mac));
+  }));
+  api.post('/radios/:mac/controls', auth.requireRole('admin'), wrap(async (req, res) => {
+    const mac = radioFor(req, res);
+    if (!mac) return;
+    const { action, value } = req.body ?? {};
+    if (!Object.hasOwn(CONTROLS, action)) {
+      return res.status(400).json({ error: `action is one of ${Object.keys(CONTROLS).join(', ')}` });
+    }
+    if (!CONTROLS[action](value)) return res.status(400).json({ error: `that isn't a ${action} the radio takes` });
+    res.json(await manager.control(mac, action, value));
+  }));
+
   // The Map view's base maps
   api.get('/map', (req, res) => res.json({ styles: config.map?.styles ?? [] }));
 

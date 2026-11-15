@@ -97,7 +97,14 @@ class FakeRadio:
         closes_on_disc(dlc)
         self.control_opens += 1
 
-        def reply(_data):
+        def reply(data):
+            # Answered by command, as a radio does: RadioLink matches each
+            # reply to its request, so a status reply to anything else is no
+            # answer at all
+            cmd = ((data[6] << 8) | data[7]) if len(data) >= 8 else 0x14
+            if cmd != 0x14:
+                dlc.write(bytes([0xFF, 0x01, 0x00, 0x01, 0x00, 0x02, 0x80 | (cmd >> 8), cmd & 0xFF, 0x01]))
+                return
             st = bytearray(IDLE)
             if self.audio is not None:
                 st[10] |= 0x02
