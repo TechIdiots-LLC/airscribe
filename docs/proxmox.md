@@ -67,11 +67,46 @@ it. The package adds the service account to `render`. Then set up OpenVINO or wh
 
 ## Radios over Bluetooth
 
-**Not working in a container yet.** The kernel refuses Bluetooth sockets to anything outside the host's own network
-namespace, which an LXC container is, so BlueZ inside one cannot reach a radio however the adapter is passed in.
-The route being tested is a Bluetooth stack that drives a USB dongle directly instead of through the kernel:
-`tools/probe-bumble.py`. Until that lands as a backend, run AirScribe for real radios on a machine with its own
-Bluetooth ([installing.md](installing.md)).
+**AirScribe can't reach a radio from a container yet**, but the way it will has been shown to work. The kernel
+refuses Bluetooth sockets to anything outside the host's own network namespace, which an LXC container is, so BlueZ
+inside one cannot reach a radio however the adapter is passed in. Bumble, a Bluetooth stack that drives a USB dongle
+directly, can: `tools/probe-bumble.py` paired with a UV-Pro, found its channels and captured its audio from inside an
+unprivileged container ([bluetooth.md](bluetooth.md#through-bumble-in-an-lxc-container)). Until that is a backend,
+run AirScribe for real radios on a machine with its own Bluetooth ([installing.md](installing.md)).
+
+To try the probe, give the container the dongle as a USB device. On the host:
+
+```sh
+lsusb                                              # find the dongle: bus, device and ID
+echo "blacklist btusb" > /etc/modprobe.d/no-btusb.conf && rmmod btusb   # the host lets go of it
+```
+
+`btusb` is the host's driver for every Bluetooth dongle, so this turns off the host's own Bluetooth too. Then either
+add the device in the container's **Resources → Add → Device** as `/dev/bus/usb/<bus>/<device>` (the number changes if
+it's unplugged; this is the way that was tried), or, to survive that, add to `/etc/pve/lxc/<id>.conf`:
+
+```
+lxc.cgroup2.devices.allow: c 189:* rwm
+lxc.mount.entry: /dev/bus/usb dev/bus/usb none bind,optional,create=dir
+```
+
+and let the container open it, with the dongle's ID from `lsusb`:
+
+```sh
+echo 'SUBSYSTEM=="usb", ATTRS{idVendor}=="0a12", ATTRS{idProduct}=="0001", MODE="0666"' \
+  > /etc/udev/rules.d/90-airscribe-bt.rules
+udevadm control --reload && udevadm trigger
+```
+
+Restart the container, then in it:
+
+```sh
+apt update && apt install -y python3-venv libatomic1
+python3 -m venv /opt/bumble && /opt/bumble/bin/pip install bumble
+P="/opt/bumble/bin/python /opt/airscribe/tools/probe-bumble.py --transport usb:0A12:0001"
+$P --info && $P --scan
+$P <radio MAC>            # pairs (radio in pairing mode the first time), finds the channels, captures 45 s
+```
 
 ## Updating
 

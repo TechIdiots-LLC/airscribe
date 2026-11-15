@@ -20,7 +20,8 @@
   Mesa's driver rather than Intel's runtime (docs/transcription.md).
 - **`tools/probe-bumble.py`:** reaches a radio through Bumble, a Bluetooth stack in Python that drives a USB dongle
   directly, to find out whether the radio link can work on Windows and in a container without the system's
-  Bluetooth.
+  Bluetooth. In an unprivileged Proxmox container it paired with a UV-Pro, found its channels and captured its
+  audio (docs/bluetooth.md); docs/proxmox.md has the steps.
 
 ### 🐞 Bug fixes
 - _...Add new stuff here..._

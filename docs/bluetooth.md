@@ -303,6 +303,46 @@ GAIA query while the others stay silent, and the audio channel announces
 itself by flipping `is_aoc_connected`. That is more dependable than `sdptool`,
 needs no D-Bus profile registration, and works identically on both platforms.
 
+## Through Bumble, in an LXC container
+
+BlueZ can't work in a container: the kernel refuses Bluetooth sockets outside
+the host's own network namespace. [Bumble](https://github.com/google/bumble)
+drives a USB dongle itself, through libusb, so the kernel's Bluetooth is never
+involved. [tools/probe-bumble.py](../tools/probe-bumble.py) tried it in an
+unprivileged Ubuntu 24.04 container on Proxmox (pve1), with a CSR dongle
+passed in as a USB device (docs/proxmox.md), against the UV-Pro. **Everything
+worked:**
+
+| step | result |
+| --- | --- |
+| open the dongle | `0a12:0001`, HCI/LMP 6 (Bluetooth 4.0), address `00:1A:7D:DA:71:13` |
+| scan | the radio answered as `UV-PRO` |
+| pair, then encrypt | accepted on the first connection; the key in `bumble-keys.json` was reused after that |
+| control channel | answered GAIA: 4 on the first connection, 1 on the next |
+| audio channel | 2, which flipped `is_aoc_connected`, as on every host so far |
+| 45 s capture | 517 kB, 1,658 audio frames, parsed by `sidecar/htframe.py` |
+
+The capture had no `0x01` end marker because the radio was receiving for the
+whole 45 seconds (`in_rx` and `squelch` set, RSSI 10 to 11 on every poll),
+not because markers are missing.
+
+What it took, beyond Bumble itself (`pip install bumble` in a venv):
+
+- **On the host, `btusb` must let go of the dongle.** A container can't take it
+  from the host's driver. Blacklisting `btusb` does that, and also turns off
+  any other Bluetooth adapter on the host.
+- **`libatomic1`.** Bumble uses its own copy of libusb, which needs it, and
+  the template's minimal Ubuntu doesn't have it.
+- **The rules above hold.** A `--control 4` run straight after `--discover`
+  was refused, and the next full discovery found control on 1. Probe, hold,
+  and power-cycle the radio when it refuses.
+
+`00:1A:7D:DA:71:13` is the address most CSR clones share. One per radio is
+fine; two near the same radio would look like the same device.
+
+Bumble also supports the TP-Link UB500 (Realtek RTL8761B), which needs its
+firmware loaded each time it starts (`bumble-rtk-fw-download`). Not tried yet.
+
 ## The UV-Pro
 
 This project is developed against a **BTech UV-Pro**, the radio BenLink was
