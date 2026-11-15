@@ -238,12 +238,16 @@ export function createApp({ manager, store, sidecar, config, dataDir, updates })
     res.status(201).json(store.radio(mac));
   });
 
-  // Publishing is a deliberate act, separate from adding a radio.
+  // Renaming, and publishing, which is a deliberate act separate from adding a radio.
   api.patch('/radios/:mac', auth.requireRole('admin'), (req, res) => {
     const mac = normalizeMac(req.params.mac);
     if (!mac || !store.radio(mac)) return res.status(404).json({ error: 'unknown radio' });
+    // The name is how a radio is told apart in the feed: two radios scan in
+    // with the same one ("UV-PRO"), so a blank name is refused, not stored.
+    const name = req.body?.name === undefined ? undefined : String(req.body.name).trim();
+    if (name === '') return res.status(400).json({ error: 'a radio needs a name' });
     res.json(store.updateRadio(mac, {
-      name: req.body?.name,
+      name,
       public: req.body?.public,
       group: req.body?.group,
     }));

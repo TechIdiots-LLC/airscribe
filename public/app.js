@@ -103,6 +103,7 @@ function renderRadios() {
           : '',
         el('div', { className: 'actions' },
           el('button', { onclick: () => act(r.mac, connected ? 'disconnect' : 'connect') }, connected ? 'Disconnect' : 'Connect'),
+          el('button', { onclick: () => rename(r) }, 'Rename'),
           el('button', { onclick: () => remove(r) }, 'Remove')),
       );
     }),
@@ -115,6 +116,23 @@ function renderRadios() {
 
 async function act(mac, what) {
   try { await api(`/radios/${mac}/${what}`, { method: 'POST' }); } catch (e) { alert(e.message); }
+}
+/**
+ * Give a radio its own name. Radios of one model scan in with the same name,
+ * and the feed labels each transmission with it, so two UV-Pros can't be told
+ * apart until one is renamed. A prompt rather than editing in place: the list
+ * redraws on every status poll, which would take an input box away mid-typing.
+ * @param {object} r - The radio.
+ * @returns {Promise<void>}
+ */
+async function rename(r) {
+  const name = prompt(`New name for ${r.name} (${r.mac}):`, r.name);
+  if (name === null || !name.trim() || name.trim() === r.name) return;
+  try {
+    await api(`/radios/${r.mac}`, { method: 'PATCH', body: { name: name.trim() } });
+    await loadRadios();
+    renderFeed();   // past transmissions take the new name too
+  } catch (e) { alert(e.message); }
 }
 async function remove(r) {
   if (confirm(`Remove ${r.name}? Its past transmissions are kept.`)) { await api(`/radios/${r.mac}`, { method: 'DELETE' }); await loadRadios(); }

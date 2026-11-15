@@ -12,6 +12,8 @@
 - **`tools/probe-bumble.py` in a container:** in an unprivileged Proxmox container it paired with a UV-Pro, found
   its channels and captured its audio (docs/bluetooth.md; docs/proxmox.md has the steps). A capture is also saved
   as raw SBC, which ffmpeg turns into a WAV, and a dongle or channel that won't open says why.
+- **Rename a radio:** a Rename button on each radio, so two of the same model, which scan in with the same name, can
+  be told apart. The feed, the radio filter and exports show the new name, past transmissions included.
 - **Transcription on the GPU, confirmed:** the `openvino` engine runs on an Arc A750 from an unprivileged Proxmox
   container, with Ubuntu 24.04's own Intel compute runtime; docs/proxmox.md has the steps as they were run.
 - **Template:** new containers have the `en_US.UTF-8` locale, so `pct enter` no longer brings locale warnings to

@@ -73,3 +73,29 @@ test('API adds a radio, rejects bad input, and enforces tokens', { skip: !sqlite
     server.close();
   }
 });
+
+test('a radio can be renamed, but not to nothing', { skip: !sqlite }, async () => {
+  const { Store } = await import('../src/store.js');
+  const { createApp } = await import('../src/api.js');
+  const { EventEmitter } = await import('node:events');
+  const store = new Store(':memory:');
+  store.saveRadio({ mac: '38:D2:00:01:56:51', name: 'UV-PRO', model: 'uv-pro' });
+  const manager = Object.assign(new EventEmitter(), { radios: () => store.radios() });
+  const app = createApp({ manager, store, sidecar: {}, config: { host: '127.0.0.1', auth: { tokens: ['secret'] } }, dataDir: '.' });
+  const server = app.listen(0, '127.0.0.1');
+  await new Promise((r) => server.once('listening', r));
+  const url = `http://127.0.0.1:${server.address().port}/api/radios/38:D2:00:01:56:51`;
+  const patch = (body) => fetch(url, { method: 'PATCH', body: JSON.stringify(body),
+    headers: { 'content-type': 'application/json', authorization: 'Bearer secret' } });
+  try {
+    const res = await patch({ name: '  Fire dispatch  ' });
+    assert.equal(res.status, 200);
+    assert.equal((await res.json()).name, 'Fire dispatch', 'trimmed');
+    assert.equal((await patch({ name: '   ' })).status, 400, 'a blank name is refused');
+    assert.equal(store.radio('38:D2:00:01:56:51').name, 'Fire dispatch', 'and the old one kept');
+    assert.equal((await patch({ public: true })).status, 200, 'publishing alone still works');
+    assert.equal(store.radio('38:D2:00:01:56:51').name, 'Fire dispatch');
+  } finally {
+    server.close();
+  }
+});
