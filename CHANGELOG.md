@@ -7,7 +7,8 @@
   container, where the system's Bluetooth can't work, and in time Windows. The radio handling is the BlueZ backend's,
   unchanged; only the Bluetooth underneath differs. Set `sidecar.backend` to `bumble`, `sidecar.python` to a Python
   with Bumble, and `sidecar.transport` to the dongle (docs/proxmox.md). In an unprivileged Proxmox container it
-  connected to a UV-Pro, read its battery and channel names, and recorded its transmissions.
+  connected to a UV-Pro, read its battery and channel names, and recorded its transmissions; one dongle served two
+  UV-Pros at once.
 - **`tools/probe-bumble.py` in a container:** in an unprivileged Proxmox container it paired with a UV-Pro, found
   its channels and captured its audio (docs/bluetooth.md; docs/proxmox.md has the steps). A capture is also saved
   as raw SBC, which ffmpeg turns into a WAV, and a dongle or channel that won't open says why.

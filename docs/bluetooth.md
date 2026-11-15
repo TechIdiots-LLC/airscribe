@@ -385,6 +385,12 @@ connected, and the page showed the radio receiving with its RSSI, battery
 and recorded its transmissions as clips (1.1 s and 22 s). Everything above
 Bluetooth behaved as it does over BlueZ.
 
+**One dongle, two radios:** a second UV-Pro (`38:D2:00:01:56:21`) was then
+added and connected through the same CSR dongle while the first stayed
+connected, each with its own link, channels, battery and channel name, and
+transmissions kept arriving and being transcribed. Two radios that scan the
+same channels would each record the same transmission, as separate clips.
+
 ## The UV-Pro
 
 This project is developed against a **BTech UV-Pro**, the radio BenLink was
