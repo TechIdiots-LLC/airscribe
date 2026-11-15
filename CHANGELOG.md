@@ -61,6 +61,13 @@
   region up first and reads each channel back from the radio to check it took. AirScribe writes channels that
   transmit only in the 2 m and 70 cm ham bands; anything else is receive-only (docs/channels.md). Command layouts
   follow HTCommander; tested against the simulator and a stand-in for the radio, not yet on a UV-Pro.
+- **Stations near me:** in a radio's **Channels**, the county's RadioReference listings, nearest the ZIP code first;
+  open a group, tick its frequencies, and **Write** puts them into the region on show, from the first slot where
+  they fit into empty ones, after a backup. Each says whether the radio can take it (FM, FMN or AM, in its bands; not
+  P25 or other digital modes, nor low band or 800 MHz). They're written receive-only with the listing's tone, except
+  a ham repeater, which keeps its input and access tone; names are the alpha tags cut to ten characters, and can be
+  changed first. **Put them on the map** places each at its group's place, and the radio can then be switched to
+  that region and set scanning (docs/radioreference.md). Tested against the stand-in for RadioReference.
 - **Insights:** a view beside the feed, for the last day, week, month or everything, for one radio or channel:
   a word cloud of what was said (common English words and a model's own annotations such as "(static)" left out;
   unit and call numbers kept), transmissions per hour or day, busy hours by weekday, and each channel's

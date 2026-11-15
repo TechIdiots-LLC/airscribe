@@ -311,8 +311,29 @@
     <label>Region <select id="ch-region"></select></label>
     <button id="ch-reread">Read again</button>
     <button id="ch-backup">Back up this region</button>
+    <button id="ch-stations-open" hidden>Stations near me…</button>
   </div>
   <p id="channels-status" class="meta" role="status"></p>
+  <button id="st-listen" hidden>Switch the radio to this region and scan</button>
+  <section id="ch-stations" class="stations" hidden>
+    <div class="row"><h3 id="st-title">Stations near me</h3><button id="st-close" class="link">Close</button></div>
+    <p class="meta">From RadioReference, nearest first. Open a group and tick the frequencies to write; only analog
+      channels the radio can receive can be ticked. Each is written receive-only with the listing's tone, except a
+      ham repeater, which keeps its input frequency and tone.</p>
+    <ul id="st-groups" class="st-groups"></ul>
+    <button id="st-more" hidden>Show more</button>
+    <div id="st-pick" hidden>
+      <h3>To write, in this order</h3>
+      <ol id="st-picked" class="st-picked"></ol>
+      <div class="row wrap">
+        <label>From slot <input id="st-slot" type="number" min="1" value="1" style="width: 5em"></label>
+        <label><input id="st-place" type="checkbox" checked> Put them on the map</label>
+      </div>
+      <p id="st-preview" class="meta"></p>
+      <button id="st-write">Write</button>
+    </div>
+    <p class="credit">Data courtesy of <a href="https://www.radioreference.com" target="_blank" rel="noopener">RadioReference.com</a></p>
+  </section>
   <div class="scroll-x"><table class="slots" id="ch-table"></table></div>
   <h3>Backups</h3>
   <p class="meta">AirScribe backs a region up before it writes to it, and before it puts a backup back,

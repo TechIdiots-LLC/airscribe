@@ -146,6 +146,51 @@ test('looking a channel up: the licence\'s site on its frequency first, then its
   assert.equal(count('getZipcodeInfo'), 2, 'saving starts afresh');
 });
 
+test('stations near me: the county\'s groups nearest first, and what the radio can take of each', { skip: !sqlite }, async () => {
+  const { rr, calls } = await setUp();
+  rr.save({ ...ACCOUNT, zip: '01520' });
+
+  const near = await rr.nearby();
+  assert.deepEqual([near.area.zip, near.area.city, near.area.county], ['01520', 'Holden', 'Worcester']);
+  assert.deepEqual(near.groups.map((g) => g.where), ['Holden › Fire', 'Holden › Police', 'Paxton › Fire',
+    'Rutland › Fire', 'Rutland › Police', 'Aviation › Worcester Regional Airport', 'Amateur Radio › Repeaters'],
+  'nearest first, the one with no place of its own last');
+  const rutland = near.groups.find((g) => g.scid === 601);
+  assert.deepEqual([rutland.lat, rutland.lon, rutland.range, rutland.countyWide], [42.3695, -71.948, 3, false]);
+  assert.ok(rutland.km > 6 && rutland.km < 9, `about 7 km from Holden: ${rutland.km}`);
+  assert.equal(near.groups.at(-1).countyWide, true);
+  assert.equal(calls.filter((c) => c.method === 'getSubcatFreqs').length, 0, 'no group\'s frequencies until it\'s opened');
+
+  const fire = await rr.stations(601);
+  const [dispatch, p25, lowBand] = fire;
+  assert.deepEqual(dispatch.channel, { name: 'Rutland FD', rx_hz: 154250000, tx_hz: 154250000, mod: 'FM',
+    bandwidth: 'narrow', rx_tone: '', tx_tone: '', scan: true, power: 'low', tx_disable: true },
+  'receive-only, narrow from FMN, which getMode named');
+  assert.deepEqual([dispatch.ok, dispatch.mode, dispatch.descr], [true, 'FMN', 'Fire Dispatch']);
+  assert.deepEqual([p25.ok, p25.channel], [false, null]);
+  assert.match(p25.why, /P25 is digital/);
+  assert.match(lowBand.why, /33\.94 MHz is outside the radio’s bands/);
+
+  const [pd] = await rr.stations(602);
+  assert.equal(pd.channel.rx_tone, 'D023', 'a DCS code, from "023 DPL"');
+  const [tower] = await rr.stations(801);
+  assert.deepEqual([tower.channel.mod, tower.channel.bandwidth, tower.channel.rx_hz], ['AM', 'wide', 120500000], 'the airband in AM');
+  const [repeater] = await rr.stations(701);
+  assert.deepEqual(
+    [repeater.channel.rx_hz, repeater.channel.tx_hz, repeater.channel.rx_tone, repeater.channel.tx_tone,
+      repeater.channel.tx_disable, repeater.channel.power],
+    [146970000, 146370000, '', '114.8', false, 'high'],
+    'a ham repeater: its input and access tone to transmit with, none to receive');
+  const holden = await rr.stations(501);
+  assert.equal(holden[1].channel.name, 'Holden PD', 'a name cut to the radio\'s ten characters');
+
+  // Each mode named once, each group asked for once
+  const count = (m) => calls.filter((c) => c.method === m).length;
+  assert.equal(count('getMode'), 4, 'FMN, P25, FM and AM, each once');
+  await rr.stations(601);
+  assert.equal(count('getSubcatFreqs'), 5);
+});
+
 test('Find, through the API: admins only, and the account never comes back out', { skip: !sqlite }, async () => {
   const { Store } = await import('../src/store.js');
   const { RadioReference } = await import('../src/radioreference.js');
@@ -187,6 +232,15 @@ test('Find, through the API: admins only, and the account never comes back out',
     const found = await (await call('GET', '/channels/Holden%20PD/lookup', 'admin')).json();
     assert.equal(found.candidates[0].callsign, 'KZZ900');
     assert.equal((await call('GET', '/channels/Nowhere/lookup', 'admin')).status, 404);
+
+    // Stations near me, an admin's too
+    assert.equal((await call('GET', '/radioreference/nearby', 'viewer')).status, 403);
+    assert.equal((await call('GET', '/radioreference/groups/601', 'viewer')).status, 403);
+    const near = await (await call('GET', '/radioreference/nearby', 'admin')).json();
+    assert.equal(near.groups[0].where, 'Holden › Fire');
+    const group = await (await call('GET', '/radioreference/groups/601', 'admin')).json();
+    assert.equal(group[0].channel.name, 'Rutland FD');
+    assert.equal((await call('GET', '/radioreference/groups/x', 'admin')).status, 400);
 
     await call('PUT', '/admin/radioreference', 'admin', { password: 'wrong' });
     const refused = await call('POST', '/admin/radioreference/test', 'admin');

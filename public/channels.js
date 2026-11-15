@@ -46,6 +46,8 @@ function say(text, error = false) {
 /** Everything that talks to the radio, off while it's busy: one thing at a time. */
 function busy(on) {
   for (const b of $('channels').querySelectorAll('button:not(#channels-close), select')) b.disabled = on;
+  // Write stays off while what's picked can't be written
+  if (!on && picked.length) preview();
 }
 
 const regionName = (i, name) => name || regions[i] || `Region ${i + 1}`;
@@ -65,10 +67,14 @@ async function open(r) {
   $('ch-table').replaceChildren();
   $('ch-region').replaceChildren();
   $('ch-backups').replaceChildren();
+  $('ch-stations').hidden = true;
+  $('st-listen').hidden = true;
   $('channels').showModal();
   busy(true);
   say('Reading the radio…');
   loadBackups();
+  // Stations near me, when RadioReference is set up (the Map's Find needs the same)
+  api('/map').then((m) => { $('ch-stations-open').hidden = !m.lookup; }, () => { $('ch-stations-open').hidden = true; });
   try {
     const info = await api(`/radios/${r.mac}/controls`);
     regions = info.regions ?? [];
@@ -91,6 +97,8 @@ async function load(region) {
     shown = await api(`/radios/${radio.mac}/channels?region=${region}`);
     $('ch-region').value = String(shown.region);
     render();
+    slotTouched = false;
+    if (picked.length) renderPicked();
     const used = shown.channels.filter((c) => !c.empty).length;
     say(`${regionName(shown.region, shown.name)}: ${used} of ${shown.count} channels programmed.`);
   } catch (e) {
@@ -218,6 +226,238 @@ async function putBack(b) {
     }
     showWritten(res, 'Put back');
     await loadBackups();
+  } catch (e) {
+    say(e.message, true);
+  } finally {
+    busy(false);
+  }
+}
+
+// ---- Stations near me ---------------------------------------------------------
+// RadioReference's listings in the county, nearest first, each group's
+// frequencies asked for as it's opened. Those picked are written into the
+// region on show, from a slot, after the server backs the region up.
+
+let nearby = null;         // {area, groups}, once asked for
+let showing = 25;          // groups listed
+const stationsOf = new Map();   // scid -> its stations
+const picked = [];         // [{key, station, group, name}], in the order they'll be written
+let slotTouched = false;   // the slot was chosen by hand: don't move it
+
+const miles = (km) => {
+  const mi = km * 0.621371;
+  return mi < 10 ? `${mi.toFixed(1)} mi` : `${Math.round(mi)} mi`;
+};
+/** A name as the radio can show it: ten plain characters. */
+const radioName = (s) => String(s ?? '').replace(/[^\x20-\x7e]/g, '').replace(/\s+/g, ' ').trim().slice(0, 10).trim();
+
+$('ch-stations-open').onclick = () => openStations();
+$('st-close').onclick = () => { $('ch-stations').hidden = true; };
+$('st-more').onclick = () => { showing += 25; renderGroups(); };
+$('st-slot').oninput = () => { slotTouched = true; preview(); };
+$('st-write').onclick = () => writeStations();
+$('st-listen').onclick = () => listen();
+
+async function openStations() {
+  $('ch-stations').hidden = false;
+  if (!nearby) {
+    $('st-groups').replaceChildren(el('li', { className: 'meta' }, 'Asking RadioReference…'));
+    try {
+      nearby = await api('/radioreference/nearby');
+    } catch (e) {
+      $('st-groups').replaceChildren(el('li', { className: 'tx-text error' }, e.message));
+      return;
+    }
+  }
+  const a = nearby.area;
+  $('st-title').textContent = `Stations near ${a.zip}${a.city ? ` (${a.city})` : ''}${a.county ? `, ${a.county} County` : ''}`;
+  renderGroups();
+  renderPicked();
+}
+
+function renderGroups() {
+  $('st-groups').replaceChildren(...(nearby.groups.length
+    ? nearby.groups.slice(0, showing).map(groupItem)
+    : [el('li', { className: 'meta' }, 'RadioReference lists nothing in this county.')]));
+  $('st-more').hidden = nearby.groups.length <= showing;
+}
+
+function groupItem(g) {
+  const list = el('ul', { className: 'st-freqs', hidden: true });
+  const head = el('button', { className: 'link' }, g.where);
+  head.setAttribute('aria-expanded', 'false');
+  head.onclick = async () => {
+    const opening = list.hidden;
+    list.hidden = !opening;
+    head.setAttribute('aria-expanded', String(opening));
+    if (!opening || stationsOf.has(g.scid)) return;
+    list.replaceChildren(el('li', { className: 'meta' }, 'Asking RadioReference…'));
+    try {
+      stationsOf.set(g.scid, await api(`/radioreference/groups/${g.scid}`));
+    } catch (e) {
+      list.replaceChildren(el('li', { className: 'tx-text error' }, e.message));
+      return;
+    }
+    fillGroup(list, g);
+  };
+  if (stationsOf.has(g.scid)) fillGroup(list, g);
+  return el('li', {},
+    el('div', { className: 'row' }, head,
+      el('span', { className: 'meta' }, g.countyWide ? 'county-wide' : g.km === null ? '' : miles(g.km))),
+    list);
+}
+
+function fillGroup(list, g) {
+  const stations = stationsOf.get(g.scid);
+  list.replaceChildren(...(stations.length ? stations.map((s) => stationItem(s, g))
+    : [el('li', { className: 'meta' }, 'No frequencies listed.')]));
+}
+
+const keyOf = (s, g) => `${g.scid}:${s.fid ?? s.mhz}`;
+
+function stationItem(s, g) {
+  const key = keyOf(s, g);
+  const box = el('input', { type: 'checkbox', disabled: !s.ok, checked: picked.some((p) => p.key === key) });
+  box.onchange = () => (box.checked ? pick(s, g) : unpick(key));
+  const what = [mhz(s.mhz * 1e6), s.alpha, s.descr && s.descr !== s.alpha ? s.descr : '', s.tone, s.mode]
+    .filter(Boolean).join(' · ');
+  const li = el('li', { className: s.ok ? '' : 'off' },
+    el('label', {}, box, el('span', {}, what)),
+    !s.ok ? el('div', { className: 'meta' }, `Can’t be written: ${s.why}.`)
+      : s.toneNote ? el('div', { className: 'meta' }, s.toneNote) : '');
+  li.dataset.key = key;
+  return li;
+}
+
+/** Tick boxes follow the list of picked stations, wherever they're shown. */
+function syncBoxes() {
+  for (const li of $('st-groups').querySelectorAll('li[data-key]')) {
+    const box = li.querySelector('input');
+    if (box) box.checked = picked.some((p) => p.key === li.dataset.key);
+  }
+}
+
+function pick(s, g) {
+  // Two with one name would be one channel to the feed and the map: the
+  // second gets a number in its last place
+  let name = s.channel.name || radioName(s.descr) || mhz(s.mhz * 1e6);
+  for (let n = 2; picked.some((p) => p.name === name) && n < 100; n++) {
+    name = `${name.slice(0, 10 - String(n).length).trim()}${n}`;
+  }
+  picked.push({ key: keyOf(s, g), station: s, group: g, name });
+  renderPicked();
+}
+
+function unpick(key) {
+  const i = picked.findIndex((p) => p.key === key);
+  if (i >= 0) picked.splice(i, 1);
+  renderPicked();
+  syncBoxes();
+}
+
+/** The first slot where every picked station fits into empty slots, else the first. */
+function firstFree(n) {
+  const all = shown?.channels ?? [];
+  for (let i = 0; i + n <= all.length; i++) {
+    if (all.slice(i, i + n).every((c) => c.empty)) return i;
+  }
+  return 0;
+}
+
+function renderPicked() {
+  $('st-pick').hidden = !picked.length;
+  if (!picked.length) return;
+  $('st-picked').replaceChildren(...picked.map((p) => {
+    const name = el('input', { type: 'text', value: p.name, maxLength: 10, spellcheck: false });
+    name.setAttribute('aria-label', 'Name on the radio');
+    name.oninput = () => {
+      p.name = radioName(name.value);
+      preview();
+    };
+    return el('li', {}, name, ` ${mhz(p.station.channel.rx_hz)} MHz · ${p.group.where} `,
+      el('button', { className: 'link', onclick: () => unpick(p.key) }, 'Remove'));
+  }));
+  if (!slotTouched) $('st-slot').value = String(firstFree(picked.length) + 1);
+  $('st-slot').max = String(shown?.count ?? 30);
+  $('st-write').textContent = `Write ${plural(picked.length, 'station')}`;
+  preview();
+}
+
+/** Which slots the stations go in, what's there now, and whether it can be written. */
+function preview() {
+  if (!shown || !picked.length) return;
+  const n = picked.length;
+  const start = Number($('st-slot').value) - 1;
+  const where = regionName(shown.region, shown.name);
+  let problem = '';
+  if (!Number.isInteger(start) || start < 0 || start + n > shown.count) {
+    problem = `${where} has slots 1 to ${shown.count}: ${plural(n, 'station')} from slot ${start + 1} don’t fit.`;
+  } else if (picked.some((p) => !p.name)) {
+    problem = 'Each station needs a name for the radio.';
+  } else if (new Set(picked.map((p) => p.name)).size < n) {
+    problem = 'Two stations have the same name; the feed and the map would take them for one channel.';
+  }
+  if (problem) {
+    $('st-preview').textContent = problem;
+    $('st-preview').className = 'tx-text error';
+    $('st-write').disabled = true;
+    return;
+  }
+  const replaced = shown.channels.slice(start, start + n).filter((c) => !c.empty);
+  $('st-preview').className = 'meta';
+  $('st-preview').textContent = `Into ${where}, ${n === 1 ? `slot ${start + 1}` : `slots ${start + 1}–${start + n}`}: ` +
+    (replaced.length ? `replaces ${replaced.map((c) => `${c.id + 1}. ${c.name || '(no name)'}`).join(', ')}`
+      : 'empty now') + '. The region is backed up first.';
+  $('st-write').disabled = false;
+}
+
+async function writeStations() {
+  const n = picked.length;
+  const start = Number($('st-slot').value) - 1;
+  const place = $('st-place').checked;
+  const channels = picked.map((p, k) => ({
+    ...p.station.channel, id: start + k, name: p.name,
+    ...(place && p.group.lat !== null ? { lat: p.group.lat, lon: p.group.lon } : {}),
+  }));
+  busy(true);
+  $('st-write').disabled = true;
+  say(`Writing ${plural(n, 'station')} to the radio…`);
+  try {
+    const res = await api(`/radios/${radio.mac}/channels`, { method: 'PUT', body: {
+      region: shown.region, channels, label: `Before writing ${plural(n, 'station')} from RadioReference`,
+    } });
+    showWritten(res, 'Stations written');
+    if (res.placed) $('channels-status').textContent += ` ${plural(res.placed, 'channel')} put on the map.`;
+    if (res.results.some((r) => r.ok)) $('st-listen').hidden = false;
+    picked.length = 0;
+    slotTouched = false;
+    renderPicked();
+    syncBoxes();
+    await loadBackups();
+  } catch (e) {
+    say(e.message, true);
+  } finally {
+    busy(false);
+    preview();
+  }
+}
+
+/** Put the radio on the region just written, scanning its channels. */
+async function listen() {
+  busy(true);
+  const where = regionName(shown.region, shown.name);
+  say(`Moving the radio to ${where}…`);
+  try {
+    const now = await api(`/radios/${radio.mac}/controls`);
+    if (now.region !== shown.region) {
+      await api(`/radios/${radio.mac}/controls`, { method: 'POST', body: { action: 'region', value: shown.region } });
+    }
+    await api(`/radios/${radio.mac}/controls`, { method: 'POST', body: { action: 'scan', value: true } });
+    for (const o of $('ch-region').options) {
+      o.textContent = `${regionName(Number(o.value))}${Number(o.value) === shown.region ? ' (on now)' : ''}`;
+    }
+    $('st-listen').hidden = true;
+    say(`The radio is on ${where}, scanning its channels.`);
   } catch (e) {
     say(e.message, true);
   } finally {

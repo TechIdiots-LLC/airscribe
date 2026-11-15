@@ -38,6 +38,7 @@ npm run simulate        # fake radio + mock transcriber, no hardware needed
 | Signing in with Google, GitHub, Discord or Facebook, once linked | working against a stand-in provider; not yet against the real ones, see [docs/linked-logins.md](docs/linked-logins.md) |
 | Map → Find: a channel's place from RadioReference and the FCC licence | working against a stand-in for RadioReference's API; not yet with a real account, see [docs/radioreference.md](docs/radioreference.md) |
 | A radio's channels: every slot of a region read, written (read back to check), backed up and put back | working against the simulator and a stand-in for the radio; not yet on a real UV-Pro, see [docs/channels.md](docs/channels.md) |
+| Stations near me: RadioReference's listings for the county written to a radio, receive-only | working against the simulator and the stand-in for RadioReference; not yet with real listings, see [docs/radioreference.md](docs/radioreference.md#stations-near-me-writing-listings-to-a-radio) |
 | Public page, delayed publishing, RSS | design only, see [docs/publishing.md](docs/publishing.md) |
 | Digital modes (AFSK/IRC/file transfer) | design only, see [docs/digital-modes.md](docs/digital-modes.md) |
 

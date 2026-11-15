@@ -42,10 +42,33 @@ const WORCESTER = {
       { scid: 501, scName: 'Police', lat: 42.3526, lon: -71.8626, range: 3 },
       { scid: 502, scName: 'Fire', lat: 42.3526, lon: -71.8626, range: 3 }] },
     { cid: 2, cName: 'Paxton', subcats: [{ scid: 551, scName: 'Fire', lat: 42.3112, lon: -71.9278, range: 3 }] },
-    { cid: 3, cName: 'Rutland', subcats: [{ scid: 601, scName: 'Fire', lat: 42.3695, lon: -71.948, range: 3 }] },
+    { cid: 3, cName: 'Rutland', subcats: [
+      { scid: 601, scName: 'Fire', lat: 42.3695, lon: -71.948, range: 3 },
+      { scid: 602, scName: 'Police', lat: 42.3695, lon: -71.948, range: 3 }] },
     // A subcategory with no place of its own: the county's is offered instead
     { cid: 4, cName: 'Amateur Radio', subcats: [{ scid: 701, scName: 'Repeaters', lat: 0, lon: 0, range: 0 }] },
+    { cid: 5, cName: 'Aviation', subcats: [{ scid: 801, scName: 'Worcester Regional Airport', lat: 42.2673, lon: -71.8757, range: 5 }] },
   ],
+};
+
+// getSubcatFreqs. The mode as a number, which getMode names: the service's own
+// type allows either, and one that's a number is what getMode is for
+const MODES = { 1: 'FM', 2: 'FMN', 3: 'AM', 5: 'P25' };
+const SUBCAT_FREQS = {
+  501: [
+    { fid: 1, out: 460.3875, in: 465.3875, callsign: 'KZZ900', descr: 'Police Dispatch', alpha: 'Holden PD', tone: '127.3 PL', mode: '2', scid: 501 },
+    { fid: 2, out: 453.1, in: 0, callsign: '', descr: 'Police Car-to-Car', alpha: 'Holden PD 2', tone: '127.3 PL', mode: '2', scid: 501 }],
+  502: [
+    { fid: 3, out: 154.31, callsign: 'KZZ901', descr: 'Fire Dispatch', alpha: 'Holden FD', tone: '100.0 PL', mode: '2', scid: 502 },
+    { fid: 4, out: 154.28, callsign: '', descr: 'Fire Mutual Aid', alpha: 'Fire MA', tone: 'CSQ', mode: '2', scid: 502 }],
+  551: [{ fid: 5, out: 154.31, callsign: '', descr: 'Fireground', alpha: 'Paxton FG', tone: 'CSQ', mode: '2', scid: 551 }],
+  601: [
+    { fid: 6, out: 154.25, callsign: 'KZZ902', descr: 'Fire Dispatch', alpha: 'Rutland FD', tone: '', mode: '2', scid: 601 },
+    { fid: 7, out: 453.55, callsign: '', descr: 'Fire Talkaround', alpha: 'Rutland P25', tone: 'NAC 293', mode: '5', scid: 601 },
+    { fid: 8, out: 33.94, callsign: '', descr: 'Fire (low band)', alpha: 'Rutland LB', tone: '', mode: '1', scid: 601 }],
+  602: [{ fid: 9, out: 155.88, callsign: '', descr: 'Police Dispatch', alpha: 'Rutland PD', tone: '023 DPL', mode: '2', scid: 602 }],
+  701: [{ fid: 10, out: 146.97, in: 146.37, callsign: 'W1BIM', descr: 'W1BIM Repeater', alpha: 'W1BIM', tone: '114.8 PL', mode: '1', scid: 701 }],
+  801: [{ fid: 11, out: 120.5, callsign: '', descr: 'Tower', alpha: 'ORH Tower', tone: '', mode: '3', scid: 801 }],
 };
 
 const COUNTY_FREQS = {
@@ -119,6 +142,12 @@ function answer(method, p) {
     case 'fccGetCallsign':
       if (!FCC[p.callsign]) throw new Fault('Server', 'Callsign not found');
       return [FCC[p.callsign], 'fccCallsignDetails'];
+    case 'getSubcatFreqs':
+      if (!SUBCAT_FREQS[p.scid]) throw new Fault('Server', 'Invalid Subcategory ID');
+      return [SUBCAT_FREQS[p.scid], 'freq'];
+    case 'getMode':
+      if (!MODES[p.mode]) throw new Fault('Server', 'Invalid Mode ID');
+      return [[{ mode: p.mode, modeName: MODES[p.mode] }], 'mode'];
     default: throw new Fault('Client', `Operation '${method}' is not defined in the WSDL for this service`);
   }
 }

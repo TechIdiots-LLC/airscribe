@@ -6,6 +6,10 @@ its bandwidth, whether it transmits, and whether it's scanned. The region
 picker reads another region; the radio is moved there to read it and back
 again afterwards.
 
+**Stations near me** writes RadioReference's listings for the county to the
+radio, receive-only, after a backup: see
+[radioreference.md](radioreference.md#stations-near-me-writing-listings-to-a-radio).
+
 ## Backups
 
 **Back up this region** keeps every slot of the region, the empty ones too,

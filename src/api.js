@@ -533,9 +533,24 @@ export function createApp({ manager, store, sidecar, config, dataDir, updates, c
     const region = regionOf(req.body?.region);
     const label = String(req.body?.label ?? '').trim().slice(0, 100) ||
       `Before writing ${channels.length} channel${channels.length === 1 ? '' : 's'}`;
+    // A channel may come with a place (a station from a listing): it's put on
+    // the map under the name the radio kept, unless that name has one already
+    const places = new Map();
+    for (const c of req.body.channels) {
+      const lat = Number(c?.lat);
+      const lon = Number(c?.lon);
+      if (c?.lat != null && c?.lon != null && Number.isFinite(lat) && Math.abs(lat) <= 90 && Number.isFinite(lon) && Math.abs(lon) <= 180) {
+        places.set(c.id, { lat, lon });
+      }
+    }
     const backup = await backUp(mac, region, label);
     const wrote = await fromRadio(manager.writeChannels(mac, backup.region, channels));
-    return { ...wrote, backup };
+    let placed = 0;
+    for (const r of wrote.results ?? []) {
+      const p = places.get(r.id);
+      if (r.ok && p && r.channel?.name && store.placeChannelIfUnplaced(r.channel.name, p.lat, p.lon)) placed++;
+    }
+    return { ...wrote, backup, placed };
   }));
   api.get('/radios/:mac/backups', admin, answer((req) => store.channelBackups(macOf(req))));
   api.post('/radios/:mac/backups', admin, answer((req) => {
@@ -577,6 +592,13 @@ export function createApp({ manager, store, sidecar, config, dataDir, updates, c
       const c = store.channelsSeen().find((x) => x.name === String(req.params.name));
       if (!c) throw refuse('no transmission has come in on that channel', 404);
       return radioreference.lookup({ name: c.name, hz: c.hz });
+    }));
+    // Stations near me: the county's groups nearest first, then one group's frequencies
+    api.get('/radioreference/nearby', admin, answer(() => radioreference.nearby()));
+    api.get('/radioreference/groups/:scid', admin, answer((req) => {
+      const scid = Number(req.params.scid);
+      if (!Number.isInteger(scid) || scid <= 0) throw refuse('a group is a number', 400);
+      return radioreference.stations(scid);
     }));
   }
 

@@ -78,7 +78,8 @@ function fakeRadio() {
       for (const c of channels) {
         tables[region][c.id] = c.raw ? { id: c.id, raw: c.raw, name: 'restored', empty: false } : { ...c, empty: !c.rx_hz };
       }
-      return { region, name: ['Local', 'Travel'][region], results: channels.map((c) => ({ id: c.id, ok: true })) };
+      return { region, name: ['Local', 'Travel'][region],
+        results: channels.map((c) => ({ id: c.id, ok: true, channel: tables[region][c.id] })) };
     },
   });
   return { manager, calls, tables };
@@ -127,8 +128,11 @@ test('a radio\'s channels: read, written after a backup, and put back', { skip: 
     assert.match(bad.body.error, /can’t receive/);
     assert.equal(calls.length, 0);
     const wrote = await call('PUT', `/${MAC}/channels`, 'admin', {
-      region: 1, channels: [{ id: 2, name: 'Rutland FD', rx_hz: 154250000, bandwidth: 'narrow', rx_tone: '100.0 PL', scan: true }],
+      region: 1, channels: [{ id: 2, name: 'Rutland FD', rx_hz: 154250000, bandwidth: 'narrow', rx_tone: '100.0 PL', scan: true,
+        lat: 42.3695, lon: -71.948 }],
     });
+    assert.equal(wrote.body.placed, 1, 'put on the map, as the station came with a place');
+    assert.equal(store.placeChannelIfUnplaced('Rutland FD', 1, 1), false, 'under the name the radio kept');
     assert.equal(wrote.status, 200, JSON.stringify(wrote.body));
     assert.deepEqual(calls.map((c) => c[0]), ['read', 'write'], 'the region read for its backup, then written');
     assert.equal(calls[1][2], 1);

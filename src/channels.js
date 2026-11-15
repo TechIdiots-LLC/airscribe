@@ -103,6 +103,55 @@ export function checkChannel(c) {
   };
 }
 
+/** RadioReference's analog modes, as the radio plays them: modulation and bandwidth. */
+const ANALOG = { FM: ['FM', 'wide'], FMN: ['FM', 'narrow'], NFM: ['FM', 'narrow'], AM: ['AM', 'wide'] };
+
+/**
+ * A RadioReference listing as a station to write: whether the radio can
+ * receive it (and if not, why), and the channel to write for it.
+ *
+ * Outside the ham bands it's receive-only, with the listing's tone to open the
+ * squelch, as a scanner is programmed. A ham repeater gets its input frequency
+ * to transmit on and its tone to transmit with, but none to receive: the tone
+ * listed is the one it's accessed with, and it may not send one back.
+ * @param {object} f - The listing (a freq, as getSubcatFreqs gives it).
+ * @param {string} mode - Its mode's name: FM, FMN, AM, P25, ...
+ * @returns {object} The station.
+ */
+export function fromListing(f, mode) {
+  const rx = Math.round(Number(f.out) * 1e6);
+  const input = Number(f.in) ? Math.round(Number(f.in) * 1e6) : null;
+  const m = String(mode ?? '').trim();
+  const analog = ANALOG[m.toUpperCase()];
+  const band = receiveBand(rx);
+  let why = '';
+  if (!analog) why = m ? `${m} is digital or data, and the radio plays FM and AM` : 'RadioReference doesn’t say what mode it is';
+  else if (!band) why = `${Number(f.out)} MHz is outside the radio’s bands`;
+  else if (band.mod && band.mod !== analog[0]) why = `the ${band.name} is ${band.mod} only`;
+  let t = '';
+  let toneNote = '';
+  try {
+    t = tone(f.tone);
+  } catch {
+    toneNote = `${f.tone} isn’t a tone the radio takes, so it’s written with none`;
+  }
+  const ham = isHam(rx) && (input === null || isHam(input));
+  return {
+    fid: f.fid ?? null,
+    mhz: Number(f.out),
+    input: input === null ? null : Number(f.in),
+    alpha: f.alpha || '', descr: f.descr || '', tone: f.tone || '', mode: m, callsign: f.callsign || '',
+    ok: !why, why, toneNote,
+    channel: why ? null : {
+      name: radioName(f.alpha || f.descr),
+      rx_hz: rx, tx_hz: ham && input ? input : rx,
+      mod: analog[0], bandwidth: analog[1],
+      rx_tone: ham ? '' : t, tx_tone: ham ? t : '',
+      scan: true, power: ham ? 'high' : 'low', tx_disable: !ham,
+    },
+  };
+}
+
 /**
  * The channels of one write, each checked; no slot twice.
  * @param {unknown} list - The channels.

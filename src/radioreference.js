@@ -1,5 +1,6 @@
 import { call, list, struct, xsd, SoapFault } from './soap.js';
 import { VERSION } from './updates.js';
+import { fromListing } from './channels.js';
 
 const NS = 'http://api.radioreference.com/soap2';
 export const RR_ENDPOINT = 'https://api.radioreference.com/soap2/index.php';
@@ -310,6 +311,70 @@ export class RadioReference {
     }
     const listed = fixed.filter((s) => s.onFrequency);
     return (listed.length ? listed : fixed).slice(0, 3).map((s) => ({ ...s, licensee: d?.licensee || '' }));
+  }
+
+  /**
+   * The county's listings, nearest the ZIP code first: each subcategory (a
+   * town's fire department, say) with the place RadioReference gives it. Their
+   * frequencies are asked for as each one is opened (stations()), not all at
+   * once: a county can have hundreds.
+   * @returns {Promise<{area: object, groups: object[]}>} The area searched, and the groups.
+   */
+  async nearby() {
+    const home = await this.zipInfo();
+    const c = await this.county(home.ctid);
+    const county = point(c?.lat, c?.lon);
+    const groups = [];
+    for (const cat of list(c?.cats)) {
+      for (const sc of list(cat?.subcats)) {
+        if (!sc?.scid) continue;
+        const own = point(sc.lat, sc.lon);
+        const p = own ?? county;
+        groups.push({
+          scid: sc.scid,
+          where: [cat.cName, sc.scName].filter(Boolean).join(' › '),
+          lat: p?.lat ?? null, lon: p?.lon ?? null,
+          range: Number(own ? sc.range : c?.range) || null,
+          countyWide: !own,
+          km: p && home.lat !== null ? Math.round(km(home, p) * 10) / 10 : null,
+        });
+      }
+    }
+    // Nearest first; those with no place of their own (county-wide) after the towns
+    groups.sort((a, b) => Number(a.countyWide) - Number(b.countyWide) ||
+      (a.km ?? Infinity) - (b.km ?? Infinity) || a.where.localeCompare(b.where));
+    return {
+      area: { zip: home.zip, city: home.city, county: c?.countyName || '', lat: home.lat, lon: home.lon },
+      groups,
+    };
+  }
+
+  /**
+   * A mode's name. A listing may give its mode as a number, which getMode names.
+   * @param {unknown} mode - As the listing gives it.
+   * @returns {Promise<string>} FM, FMN, P25, ...; '' when it can't be named.
+   */
+  async modeName(mode) {
+    const s = String(mode ?? '').trim();
+    if (!/^\d+$/.test(s)) return s;
+    const got = await soft(this.cached(`mode:${s}`, () => this.rr('getMode', { mode: xsd.int(s) })));
+    return String(list(got)[0]?.modeName ?? '').trim();
+  }
+
+  /**
+   * One group's frequencies, each with whether the radio can receive it, and
+   * the channel to write for it (src/channels.js).
+   * @param {number} scid - The subcategory.
+   * @returns {Promise<object[]>} Stations, as fromListing gives them.
+   */
+  async stations(scid) {
+    const freqs = list(await this.cached(`subcat:${scid}`, () => this.rr('getSubcatFreqs', { scid: xsd.int(scid) })));
+    const out = [];
+    for (const f of freqs) {
+      if (!f || !Number(f.out)) continue;
+      out.push(fromListing(f, await this.modeName(f.mode)));
+    }
+    return out;
   }
 
   /**
