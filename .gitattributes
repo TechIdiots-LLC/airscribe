@@ -5,3 +5,6 @@
 *.png binary
 *.ico binary
 *.wav binary
+# Browser libraries copied verbatim from npm: never touched by any line-ending
+# rule, so they stay byte-identical to what was published (public/vendor/VENDORED.md)
+public/vendor/** -text
