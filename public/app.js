@@ -133,9 +133,10 @@ function renderRadios() {
           el('button', { onclick: () => rename(r) }, 'Rename'),
           el('button', { onclick: () => remove(r) }, 'Remove'),
           connected && role === 'admin' ? el('button', { onclick: () => openControls(r) }, 'Controls') : '',
-          // Its channels, backups of them, and stations to write (channels.js)
+          // Its channels, backups of them, and stations to write (channels.js).
+          // Not airscribe:channels, which is the server's update of a radio's channel table
           connected && role === 'admin'
-            ? el('button', { onclick: () => document.dispatchEvent(new CustomEvent('airscribe:channels', { detail: r })) }, 'Channels')
+            ? el('button', { onclick: () => document.dispatchEvent(new CustomEvent('airscribe:open-channels', { detail: r })) }, 'Channels')
             : ''),
       );
     }),

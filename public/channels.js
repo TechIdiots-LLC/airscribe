@@ -52,7 +52,9 @@ function busy(on) {
 
 const regionName = (i, name) => name || regions[i] || `Region ${i + 1}`;
 
-document.addEventListener('airscribe:channels', (e) => open(e.detail));
+// Its own event: airscribe:channels is the server's update of a radio's channel
+// table, passed on by app.js, and opening on that reopened this for no radio
+document.addEventListener('airscribe:open-channels', (e) => open(e.detail));
 $('channels-close').onclick = () => $('channels').close();
 $('ch-region').onchange = (e) => load(Number(e.target.value));
 $('ch-reread').onclick = () => load(shown?.region ?? Number($('ch-region').value));
@@ -366,7 +368,10 @@ function firstFree(n) {
 
 function renderPicked() {
   $('st-pick').hidden = !picked.length;
-  if (!picked.length) return;
+  if (!picked.length) {
+    $('st-picked').replaceChildren();
+    return;
+  }
   $('st-picked').replaceChildren(...picked.map((p) => {
     const name = el('input', { type: 'text', value: p.name, maxLength: 10, spellcheck: false });
     name.setAttribute('aria-label', 'Name on the radio');
