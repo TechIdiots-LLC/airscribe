@@ -83,8 +83,15 @@ echo "blacklist btusb" > /etc/modprobe.d/no-btusb.conf && rmmod btusb   # the ho
 
 `btusb` is the host's driver for every Bluetooth dongle, so this turns off the host's own Bluetooth too. Then either
 add the device in the container's **Resources → Add → Device** as `/dev/bus/usb/<bus>/<device>`, with **GID in CT** set
-to the `airscribe` group's id (`pct exec <id> -- getent group airscribe`) so the service can open it (the number
-changes if it's unplugged; this is the way that was tried), or, to survive that, add to `/etc/pve/lxc/<id>.conf`:
+to the `airscribe` group's id so the service can open it, or the same from the host's shell:
+
+```sh
+gid=$(pct exec <id> -- getent group airscribe | cut -d: -f3)
+pct set <id> -dev0 /dev/bus/usb/<bus>/<device>,gid=$gid
+```
+
+The device number changes if the dongle is unplugged (this is the way that was tried). To survive that, add to
+`/etc/pve/lxc/<id>.conf` instead:
 
 ```
 lxc.cgroup2.devices.allow: c 189:* rwm
