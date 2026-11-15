@@ -1,11 +1,11 @@
-// Which page is showing: the feed, Insights, the Map or Admin, one at a time. A
-// module of its own so every script shares the one switch.
-const VIEWS = ['main', 'insights', 'mapview', 'admin'];
+// Which page is showing: the feed, Insights, the Map, Admin or one's account,
+// one at a time. A module of its own so every script shares the one switch.
+const VIEWS = ['main', 'insights', 'mapview', 'admin', 'account'];
 
 /**
  * Show one view and hide the others. Pages that load on demand listen for
  * `airscribe:view`.
- * @param {string} name - 'main', 'insights', 'mapview' or 'admin'.
+ * @param {string} name - 'main', 'insights', 'mapview', 'admin' or 'account'.
  * @returns {void}
  */
 export function showView(name) {

@@ -659,7 +659,9 @@ function showLogin(session = {}, message = '') {
   $('login-pass-label').textContent = tokensOnly ? 'API token' : 'Password';
   $('login-hint').textContent = tokensOnly
     ? 'This server is guarded by API tokens: one from auth.tokens in its settings.'
-    : 'A new Proxmox container leaves its first password in /root/airscribe-first-login.txt.';
+    : session.accounts
+      ? 'Your account’s username and password. No account? Ask an admin for an invite link.'
+      : 'A new Proxmox container leaves its first password in /root/airscribe-first-login.txt.';
   $('login-error').textContent = message;
   $('login').hidden = false;
   (session.username && !$('login-user').value ? $('login-user') : $('login-pass')).focus();
@@ -699,8 +701,73 @@ $('logout').onclick = async () => {
   location.reload();
 };
 
+// ---- Joining with an invite link ---------------------------------------------
+// The link is the page with #invite=<token>: after the #, so it never reaches a
+// server's logs, and taken out of the address once it's used.
+
+/** @returns {string|null} The invite this page was opened with, if any. */
+const inviteToken = () => /^#invite=([A-Za-z0-9_-]{20,})$/.exec(location.hash)?.[1] ?? null;
+const dropInvite = () => history.replaceState(null, '', location.pathname + location.search);
+
+/** @param {string} invite - The token. @returns {Promise<void>} The join page, once the invite is checked. */
+async function showJoin(invite) {
+  $('join').hidden = false;
+  $('join-error').textContent = '';
+  $('join-fields').hidden = true;
+  $('join-submit').hidden = true;
+  $('join-about').textContent = 'Checking the invite…';
+  const res = await fetch(`/api/invite/${encodeURIComponent(invite)}`).catch(() => null);
+  const body = await res?.json().catch(() => ({}));
+  if (!res?.ok) {
+    $('join-about').textContent = body?.error ?? 'The invite couldn’t be checked: is AirScribe running?';
+    return;
+  }
+  $('join-about').textContent = `You’re invited to AirScribe as ${body.role === 'admin'
+    ? 'an admin, who can change everything'
+    : 'a viewer, who can read and listen to everything but change nothing'}. Choose a username and a password ` +
+    `(the invite works until ${new Date(body.expires_at).toLocaleString()}).`;
+  $('join-fields').hidden = false;
+  $('join-submit').hidden = false;
+  $('join-user').focus();
+}
+
+$('join-form').onsubmit = async (event) => {
+  event.preventDefault();
+  $('join-error').textContent = '';
+  if ($('join-pass').value !== $('join-pass2').value) {
+    $('join-error').textContent = 'The two passwords aren’t the same.';
+    return;
+  }
+  try {
+    const res = await fetch('/api/register', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ invite: inviteToken(), username: $('join-user').value, password: $('join-pass').value }),
+    });
+    if (!res.ok) {
+      $('join-error').textContent = (await res.json().catch(() => ({}))).error || res.statusText;
+      return;
+    }
+    $('join-pass').value = '';
+    $('join-pass2').value = '';
+    dropInvite();
+    $('join').hidden = true;
+    boot();
+  } catch (e) {
+    $('join-error').textContent = e.message;
+  }
+};
+
+$('join-signin').onclick = () => {
+  dropInvite();
+  $('join').hidden = true;
+  boot();
+};
+
 /** @returns {Promise<void>} Asks who we are, then loads everything or asks to sign in. */
 async function boot() {
+  const invite = inviteToken();
+  if (invite) return showJoin(invite);
   let session = null;
   try {
     session = await api('/session');

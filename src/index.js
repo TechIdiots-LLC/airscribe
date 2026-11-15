@@ -10,6 +10,7 @@ import { createApp } from './api.js';
 import { Updates, VERSION } from './updates.js';
 import { Cleanup } from './cleanup.js';
 import { RadioReference } from './radioreference.js';
+import { Accounts } from './accounts.js';
 
 const args = process.argv.slice(2);
 const flag = (n) => args.includes(n);
@@ -36,8 +37,6 @@ if (flag('--simulate')) {
   config.stt = { engine: 'mock' };
 }
 
-assertSafeToListen(config);
-
 const { engines, primary, extra } = createEngines(config.stt);
 // Which model is running should never be a guess.
 console.log(
@@ -45,6 +44,10 @@ console.log(
     ` (default: ${primary}${extra.length ? `, also: ${extra.join(', ')}` : ''})`,
 );
 const store = new Store(join(config.dataDir, 'airscribe.sqlite'), primary);
+// People's accounts and invites, beside the settings file's password and tokens
+const accounts = new Accounts(store.db);
+// An admin account counts as a credential, as one in the settings file does
+assertSafeToListen(config, { admins: accounts.admins() });
 // Bumble keeps its own pairing keys; beside the database, the one folder the service may write
 const sidecar = new Sidecar({ keys: join(config.dataDir, 'bumble-keys.json'), ...config.sidecar });
 const manager = new Manager({
@@ -68,7 +71,7 @@ const cleanup = new Cleanup({ manager, store, dataDir: config.dataDir });
 cleanup.start();
 // Map → Find: where a channel is, from RadioReference, once an admin sets it up
 const radioreference = new RadioReference({ store, config: config.radioreference });
-const app = createApp({ manager, store, sidecar, config, dataDir: config.dataDir, updates, cleanup, radioreference });
+const app = createApp({ manager, store, sidecar, config, dataDir: config.dataDir, updates, cleanup, radioreference, accounts });
 
 // Two listeners in front of one app when adminPort is set: the public one
 // serves only the public surface, and the admin one everything. Binding the

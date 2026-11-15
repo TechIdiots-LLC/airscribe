@@ -44,6 +44,12 @@
   name first and numbered on the map; **Place here** puts the channel there. It signs in with a RadioReference
   Premium account and an app key, set in **Admin → RadioReference**, where the password and key are never shown
   again (docs/radioreference.md). Tested against a stand-in for the API, not yet with a real account.
+- **Accounts and invites:** each person can have their own account, a viewer (reads everything, changes nothing)
+  or an admin. **Admin → Users** adds them, changes their role, sets a password, signs them out, turns them off or
+  deletes them, and makes **invite links**: one account each, with its role, for up to 30 days, kept only as a hash.
+  The name in the header opens **your account**, to change your password or sign out everywhere else. Five wrong
+  passwords lock an account for 15 minutes. Sign-ins now outlast a restart or an update. The settings file's
+  password and API tokens keep working beside accounts, the password as a way back in (docs/accounts.md).
 - **Insights:** a view beside the feed, for the last day, week, month or everything, for one radio or channel:
   a word cloud of what was said (common English words and a model's own annotations such as "(static)" left out;
   unit and call numbers kept), transmissions per hour or day, busy hours by weekday, and each channel's

@@ -27,6 +27,30 @@
     <button type="submit">Sign in</button>
   </form>
 </div>
+<div class="overlay" id="join" hidden>
+  <form class="card" id="join-form">
+    <h1>AirScribe</h1>
+    <h2>Join</h2>
+    <p class="meta" id="join-about"></p>
+    <div id="join-fields">
+      <div class="field">
+        <label for="join-user">Username</label>
+        <input id="join-user" autocomplete="username" maxlength="40" spellcheck="false">
+      </div>
+      <div class="field">
+        <label for="join-pass">Password (8 characters or more)</label>
+        <input id="join-pass" type="password" autocomplete="new-password">
+      </div>
+      <div class="field">
+        <label for="join-pass2">The password again</label>
+        <input id="join-pass2" type="password" autocomplete="new-password">
+      </div>
+    </div>
+    <p class="error" id="join-error"></p>
+    <button type="submit" id="join-submit">Make my account</button>
+    <button type="button" class="link" id="join-signin">I have an account: sign in instead</button>
+  </form>
+</div>
 <header><h1>AirScribe</h1><span id="conn" class="pill">connecting…</span>
   <nav class="views">
     <button data-view="main" class="active">Feed</button>
@@ -35,6 +59,7 @@
     <button id="admin-toggle" data-view="admin" hidden>Admin</button>
   </nav>
   <span class="spacer"></span>
+  <button id="account-toggle" data-view="account" title="Your account" hidden></button>
   <button id="logout" hidden>Sign out</button></header>
 <main id="main" hidden>
   <section id="radios-panel">
@@ -143,8 +168,51 @@
     </div>
   </aside>
 </section>
+<section id="account" hidden>
+  <div class="row"><h2 id="account-title">Your account</h2></div>
+  <div class="panel">
+    <div class="row"><h3>Password</h3></div>
+    <div class="row wrap">
+      <label>Current <input id="pw-current" type="password" autocomplete="current-password" size="14"></label>
+      <label>New <input id="pw-new" type="password" autocomplete="new-password" size="14"></label>
+      <label>Again <input id="pw-new2" type="password" autocomplete="new-password" size="14"></label>
+      <button id="pw-save">Change password</button>
+    </div>
+    <p class="meta" id="pw-status">Changing it signs out every other browser signed in to this account.</p>
+  </div>
+  <div class="panel">
+    <div class="row"><h3>Signed in elsewhere</h3></div>
+    <p class="meta">Signs out every other browser and device signed in to this account. This one stays signed in.</p>
+    <div class="row"><button id="sign-out-others">Sign out everywhere else</button></div>
+    <p class="meta" id="others-status"></p>
+  </div>
+</section>
 <section id="admin" hidden>
   <div class="row"><h2>Admin</h2></div>
+  <div class="panel">
+    <div class="row"><h3>Users</h3></div>
+    <div id="users-about"></div>
+    <ul id="users" class="user-list"></ul>
+    <h4>Invite someone</h4>
+    <p class="meta">An invite is a link that makes one account, as a viewer (reads everything, changes nothing) or an
+      admin. Send it to them; it works once.</p>
+    <div class="row wrap">
+      <label>As <select id="invite-role"><option value="viewer">viewer</option><option value="admin">admin</option></select></label>
+      <label>for <input id="invite-days" type="number" min="1" max="30" step="1" value="7"> days</label>
+      <label>Note <input id="invite-note" maxlength="100" placeholder="who it’s for" size="14"></label>
+      <button id="invite-make">Make an invite link</button>
+    </div>
+    <div id="invite-made"></div>
+    <ul id="invites" class="user-list"></ul>
+    <h4>Add an account</h4>
+    <div class="row wrap">
+      <label>Username <input id="user-name" maxlength="40" autocomplete="off" spellcheck="false" size="12"></label>
+      <label>Password <input id="user-pass" type="password" autocomplete="new-password" size="12"></label>
+      <label>As <select id="user-role"><option value="viewer">viewer</option><option value="admin">admin</option></select></label>
+      <button id="user-add">Add</button>
+    </div>
+    <p class="meta" id="users-status"></p>
+  </div>
   <div class="panel">
     <div class="row"><h3>Updates</h3><button id="updates-check">Check now</button></div>
     <div id="updates"><p class="meta">Loading…</p></div>
@@ -196,5 +264,6 @@
 <script src="insights.js" type="module"></script>
 <script src="map.js" type="module"></script>
 <script src="admin.js" type="module"></script>
+<script src="users.js" type="module"></script>
 </body>
 </html>

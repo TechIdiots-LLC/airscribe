@@ -113,16 +113,18 @@ export function isGuarded(auth = {}) {
  * The admin surface can key a transmitter's radio, rewrite the configuration
  * and read every unpublished transcript. Unguarded on a LAN address is not a
  * default worth having. The public listener is exempt: being reachable is
- * what it is for.
+ * what it is for. An admin account counts as a credential, as one in the
+ * settings file does.
  * @param {object} config - The whole config.
+ * @param {{admins?: number}} [o] - How many admin accounts there are.
  * @returns {void}
  */
-export function assertSafeToListen(config) {
+export function assertSafeToListen(config, { admins = 0 } = {}) {
   const adminHost = config.adminPort ? (config.adminHost ?? config.host) : config.host;
-  if (!isLoopback(adminHost) && !isGuarded(config.auth)) {
+  if (!isLoopback(adminHost) && !isGuarded(config.auth) && !admins) {
     throw new Error(
       `refusing to serve the admin surface on ${adminHost} with no credential; ` +
-        'set auth.password or auth.tokens, or bind adminHost to 127.0.0.1',
+        'set auth.password or auth.tokens, make an admin account, or bind adminHost to 127.0.0.1',
     );
   }
 }
@@ -148,7 +150,7 @@ export function tokenIndex(auth = {}) {
   return index;
 }
 
-/** Browser sessions, in memory: a restart signs everyone out. */
+/** Browser sessions, in memory, where there are no accounts to keep them with. */
 export class Sessions {
   constructor(ttl = SESSION_MS) {
     this.ttl = ttl;
@@ -198,61 +200,133 @@ export class Sessions {
  * @returns {string | null} Its value, or null.
  */
 export function readCookie(req, name) {
-  for (const part of String(req.headers.cookie ?? '').split(';')) {
+  for (const part of String(req.headers?.cookie ?? '').split(';')) {
     const at = part.indexOf('=');
     if (at < 0) continue;
-    if (part.slice(0, at).trim() === name) return decodeURIComponent(part.slice(at + 1).trim());
+    if (part.slice(0, at).trim() === name) {
+      try {
+        return decodeURIComponent(part.slice(at + 1).trim());
+      } catch {
+        return null;   // a mangled cookie is no cookie
+      }
+    }
   }
   return null;
 }
 
+/** Wrong passwords or tokens from one address before it's made to wait, and for how long. */
+const MISS_LIMIT = 20;
+const MISS_MS = 15 * 60 * 1000;
+
 /**
  * Authentication and authorisation for one node.
+ *
+ * Three ways in, checked in this order: an API token (scripts, and pages
+ * opened with ?token=), a browser session from signing in, and nothing at all
+ * on a node with no credential, which is loopback-only (assertSafeToListen).
+ * Signing in takes an account's username and password, or the settings file's
+ * password (the node's own admin, for getting back in), or where only tokens
+ * are set, a token.
  * @param {object} config - The whole config.
+ * @param {object} [o] - Optional parts.
+ * @param {import('./accounts.js').Accounts} [o.accounts] - People's accounts. Without them sessions live in memory.
+ * @param {() => object[]} [o.providers] - The sign-in providers turned on, for the sign-in page.
  * @returns {object} Middleware and handlers.
  */
-export function createAuth(config) {
+export function createAuth(config, { accounts = null, providers = () => [] } = {}) {
   const auth = config.auth ?? {};
   const tokens = tokenIndex(auth);
   const sessions = new Sessions();
-  const guarded = isGuarded(auth);
+  const configGuarded = isGuarded(auth);
+  /** @returns {boolean} Whether anything is needed to get in: a credential in the file, or an account. */
+  const guarded = () => configGuarded || (accounts?.count() ?? 0) > 0;
+  const misses = new Map();   // address -> {count, first}
+
+  const addressOf = (req) => req.ip ?? req.socket?.remoteAddress ?? '';
+  /** @returns {boolean} Whether this address has had too many wrong tries lately. */
+  function tooMany(req) {
+    const m = misses.get(addressOf(req));
+    return Boolean(m && Date.now() - m.first < MISS_MS && m.count >= MISS_LIMIT);
+  }
+  /** Count a wrong try from this address. */
+  function missed(req) {
+    const key = addressOf(req);
+    const m = misses.get(key);
+    if (!m || Date.now() - m.first >= MISS_MS) misses.set(key, { count: 1, first: Date.now() });
+    else m.count += 1;
+    if (misses.size > 10000) misses.delete(misses.keys().next().value);
+  }
+
+  /**
+   * Who this request is.
+   * @param {import('express').Request} req - The request.
+   * @returns {{role: string, user: {id: number, username: string, role: string}|null} | null} Or null for nobody.
+   */
+  function who(req) {
+    // Unguarded nodes are loopback-only, enforced at startup, so everyone
+    // reaching one is already on the machine.
+    if (!guarded()) return { role: 'admin', user: null };
+
+    const bearer = /^Bearer (.+)$/i.exec(req.get?.('authorization') ?? '')?.[1];
+    // The query string is not a preference: an EventSource and an <audio>
+    // element cannot set a header.
+    const presented = bearer ?? (typeof req.query?.token === 'string' ? req.query.token : null);
+    if (presented) {
+      const t = tokens.get(hashToken(presented));
+      return t ? { role: t.role, user: null } : null;
+    }
+    const sid = readCookie(req, SESSION_COOKIE);
+    if (!sid) return null;
+    if (accounts) return accounts.session(sid);
+    const s = sessions.get(sid);
+    return s ? { role: s.role, user: null } : null;
+  }
 
   /**
    * What role this request carries, if any.
    * @param {import('express').Request} req - The request.
    * @returns {string | null} A role name, or null.
    */
-  function roleOf(req) {
-    // Unguarded nodes are loopback-only, enforced at startup, so everyone
-    // reaching one is already on the machine.
-    if (!guarded) return 'admin';
-
-    const bearer = /^Bearer (.+)$/i.exec(req.get('authorization') ?? '')?.[1];
-    // The query string is not a preference: an EventSource and an <audio>
-    // element cannot set a header.
-    const presented = bearer ?? (typeof req.query.token === 'string' ? req.query.token : null);
-    if (presented) return tokens.get(hashToken(presented))?.role ?? null;
-
-    const sid = readCookie(req, SESSION_COOKIE);
-    return sid ? (sessions.get(sid)?.role ?? null) : null;
-  }
+  const roleOf = (req) => who(req)?.role ?? null;
 
   /**
-   * Require at least the given role.
+   * Require at least the given role. The request then carries `role`, and
+   * `user` when it's an account's.
    * @param {string} need - 'viewer' or 'admin'.
    * @returns {import('express').RequestHandler} The middleware.
    */
   function requireRole(need) {
     return (req, res, next) => {
-      const role = roleOf(req);
+      const w = who(req);
+      const role = w?.role ?? null;
       if (role && ROLES[role] >= ROLES[need]) {
         req.role = role;
+        req.user = w.user ?? null;
         return next();
       }
       res.status(role ? 403 : 401).json({
         error: role ? `this needs the ${need} role` : 'unauthorized',
       });
     };
+  }
+
+  /**
+   * Start a browser session and hand it to the browser.
+   * @param {import('express').Request} req - The request.
+   * @param {import('express').Response} res - The response.
+   * @param {{userId?: number|null, role: string}} whose - An account's, or a role's.
+   * @returns {string} The session id.
+   */
+  function startSession(req, res, { userId = null, role }) {
+    const id = accounts ? accounts.startSession({ userId, role }) : sessions.create(role);
+    res.cookie?.(SESSION_COOKIE, id, {
+      httpOnly: true,
+      sameSite: 'lax',
+      secure: req.secure,
+      path: '/',
+      maxAge: SESSION_MS,
+    });
+    return id;
   }
 
   /**
@@ -263,8 +337,23 @@ export function createAuth(config) {
    */
   function login(req, res) {
     const { username, password } = req.body ?? {};
-    let role = null;
+    if (tooMany(req)) return res.status(429).json({ error: 'too many tries from here: wait a few minutes' });
 
+    // An account's name is the account's: only its own password lets it in
+    if (accounts && username) {
+      try {
+        const user = accounts.signIn(username, password);
+        if (user) {
+          startSession(req, res, { userId: user.id, role: user.role });
+          return res.json({ ok: true, role: user.role, user: { id: user.id, username: user.username, role: user.role } });
+        }
+      } catch (e) {
+        if (e.status === 401) missed(req);
+        return res.status(e.status ?? 401).json({ error: e.message });
+      }
+    }
+
+    let role = null;
     if (password && auth.passwordHash && verifyPassword(password, auth.passwordHash)) {
       role = auth.role ?? 'admin';
     } else if (password && auth.password && same(password, auth.password)) {
@@ -277,40 +366,52 @@ export function createAuth(config) {
     // A username is checked only when one is configured.
     if (role && auth.username && username !== auth.username) role = null;
 
-    if (!role) return res.status(401).json({ error: 'not accepted' });
-    const id = sessions.create(role);
-    res.cookie?.(SESSION_COOKIE, id, {
-      httpOnly: true,
-      sameSite: 'lax',
-      secure: req.secure,
-      path: '/',
-      maxAge: SESSION_MS,
-    });
+    if (!role) {
+      missed(req);
+      return res.status(401).json({ error: 'not accepted' });
+    }
+    startSession(req, res, { role });
     res.json({ ok: true, role });
   }
 
   return {
-    guarded,
+    get guarded() { return guarded(); },
+    configGuarded,
     sessions,
     tokens,
+    who,
     roleOf,
     requireRole,
     login,
+    startSession,
+    tooMany,
+    missed,
+    /** @returns {string|null} The session id this request came with. */
+    sessionId: (req) => readCookie(req, SESSION_COOKIE),
     /** @param {import('express').Request} req - The request. @param {import('express').Response} res - The response. @returns {void} */
     session(req, res) {
-      const role = roleOf(req);
-      // What the sign-in page should ask for: a username only when one is
-      // set, and "API token" rather than "password" when only tokens are
+      const w = who(req);
+      const role = w?.role ?? null;
+      const hasAccounts = (accounts?.count() ?? 0) > 0;
+      // What the sign-in page should ask for: a username when there are
+      // accounts or one is set, and "API token" rather than "password" when
+      // tokens are all there is
       res.json({
-        guarded, role, authenticated: Boolean(role),
-        passwordLogin: Boolean(auth.passwordHash || auth.password),
-        username: Boolean(auth.username),
+        guarded: guarded(), role, authenticated: Boolean(role),
+        user: w?.user && accounts ? accounts.user(w.user.id) : null,
+        accounts: hasAccounts,
+        passwordLogin: Boolean(auth.passwordHash || auth.password) || hasAccounts,
+        username: Boolean(auth.username) || hasAccounts,
+        providers: providers(),
       });
     },
     /** @param {import('express').Request} req - The request. @param {import('express').Response} res - The response. @returns {void} */
     logout(req, res) {
       const sid = readCookie(req, SESSION_COOKIE);
-      if (sid) sessions.destroy(sid);
+      if (sid) {
+        sessions.destroy(sid);
+        accounts?.endSession(sid);
+      }
       res.clearCookie?.(SESSION_COOKIE, { path: '/' });
       res.json({ ok: true });
     },

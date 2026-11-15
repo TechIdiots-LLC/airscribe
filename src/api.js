@@ -20,6 +20,21 @@ const EXPORT_MAX = 50000;
 const wrap = (fn) => (req, res, next) => fn(req, res, next).catch((e) => res.status(502).json({ error: e.message }));
 
 /**
+ * A handler whose answer is what `fn` returns, and whose error is its message,
+ * with the status the error carries (400 for a bad request, 404, 409, ...).
+ * @param {Function} fn - (req, res) => an answer, or a promise of one.
+ * @returns {import('express').RequestHandler} The handler.
+ */
+const answer = (fn) => async (req, res) => {
+  try {
+    res.json(await fn(req, res));
+  } catch (e) {
+    res.status(e.status ?? 500).json({ error: e.message });
+  }
+};
+const refuse = (message, status) => Object.assign(new Error(message), { status });
+
+/**
  * One transmission as readable text: its context, then each engine's version.
  * @param {object} t - A transmission row.
  * @param {object[]} scripts - Its transcripts.
@@ -119,11 +134,12 @@ const PUBLIC_CLIP = /^\/public\/transmissions\/\d+\/(audio|text)$/;
  * @param {import('./updates.js').Updates} [o.updates] - Admin → Updates.
  * @param {import('./cleanup.js').Cleanup} [o.cleanup] - Admin → Storage.
  * @param {import('./radioreference.js').RadioReference} [o.radioreference] - Map → Find.
+ * @param {import('./accounts.js').Accounts} [o.accounts] - People's accounts and invites.
  * @returns {import('express').Express} The app.
  */
-export function createApp({ manager, store, sidecar, config, dataDir, updates, cleanup, radioreference }) {
+export function createApp({ manager, store, sidecar, config, dataDir, updates, cleanup, radioreference, accounts }) {
   const app = express();
-  const auth = createAuth(config);
+  const auth = createAuth(config, { accounts });
   app.use(express.json({ limit: '32kb' }));
   app.get('/healthz', (req, res) => res.json({ ok: true }));
 
@@ -171,6 +187,27 @@ export function createApp({ manager, store, sidecar, config, dataDir, updates, c
   api.post('/login', (req, res) => auth.login(req, res));
   api.post('/logout', (req, res) => auth.logout(req, res));
   api.get('/session', (req, res) => auth.session(req, res));
+
+  // Joining with an invite link: also before signing in, as it's how one
+  // gets an account to sign in with. A bad invite counts as a wrong try.
+  if (accounts) {
+    const invited = (req) => {
+      if (auth.tooMany(req)) throw refuse('too many tries from here: wait a few minutes', 429);
+      try {
+        return accounts.checkInvite(req.params?.token ?? req.body?.invite);
+      } catch (e) {
+        auth.missed(req);
+        throw e;
+      }
+    };
+    api.get('/invite/:token', answer((req) => invited(req)));
+    api.post('/register', answer((req, res) => {
+      invited(req);
+      const user = accounts.register(req.body ?? {});
+      auth.startSession(req, res, { userId: user.id, role: user.role });
+      return { ok: true, user };
+    }));
+  }
   // ---- the public surface -------------------------------------------
   // No credential: this is what the node has chosen to publish. Everything
   // here is filtered by the same predicate, never by the caller's request.
@@ -219,6 +256,69 @@ export function createApp({ manager, store, sidecar, config, dataDir, updates, c
 
   // Everything past here needs at least a viewer.
   api.use(auth.requireRole('viewer'));
+
+  // ---- Accounts: one's own, and an admin's view of them all -------------
+  if (accounts) {
+    const admin = auth.requireRole('admin');
+    /** The account this request signed in with; the settings file's password and tokens have none. */
+    const mine = (req) => {
+      if (!req.user) throw refuse('this sign-in isn’t an account’s (the settings file’s password, or a token)', 400);
+      return req.user.id;
+    };
+    api.get('/account', answer((req) => accounts.user(mine(req))));
+    api.put('/account/password', answer((req) => {
+      accounts.setPassword(mine(req), req.body?.password, { current: String(req.body?.current ?? ''), keep: auth.sessionId(req) });
+      return accounts.user(req.user.id);
+    }));
+    api.post('/account/sign-out-others', answer((req) => {
+      accounts.endSessions(mine(req), auth.sessionId(req));
+      return { ok: true };
+    }));
+
+    const id = (req) => Number(req.params.id);
+    api.get('/admin/users', admin, answer((req) => ({
+      users: accounts.users(), invites: accounts.invites(), me: req.user?.id ?? null,
+      // Whether the settings file has a password or tokens, which work beside accounts
+      fileCredential: auth.configGuarded,
+    })));
+    api.post('/admin/users', admin, answer((req) => {
+      const { username, password, role } = req.body ?? {};
+      // A node with no other way in would have its admin locked out by a first account that isn't one
+      if (!auth.configGuarded && accounts.admins() === 0 && role !== 'admin') {
+        throw refuse('the first account has to be an admin: it’s how you’ll get back in', 400);
+      }
+      return accounts.create({ username, password, role });
+    }));
+    api.patch('/admin/users/:id', admin, answer((req) => {
+      const { role, username, disabled } = req.body ?? {};
+      return accounts.update(id(req), {
+        role, username, disabled: disabled === undefined ? undefined : Boolean(disabled),
+      });
+    }));
+    api.put('/admin/users/:id/password', admin, answer((req) => {
+      // An admin setting their own keeps the session they set it from
+      accounts.setPassword(id(req), req.body?.password, { keep: req.user?.id === id(req) ? auth.sessionId(req) : undefined });
+      return accounts.user(id(req));
+    }));
+    api.post('/admin/users/:id/sign-out', admin, answer((req) => {
+      if (!accounts.user(id(req))) throw refuse('no such account', 404);
+      accounts.endSessions(id(req), req.user?.id === id(req) ? auth.sessionId(req) : undefined);
+      return { ok: true };
+    }));
+    api.delete('/admin/users/:id', admin, answer((req) => {
+      accounts.remove(id(req));
+      return { ok: true };
+    }));
+    api.get('/admin/invites', admin, answer(() => accounts.invites()));
+    // The token is in this answer only: the page makes the link from it
+    api.post('/admin/invites', admin, answer((req) => accounts.invite({
+      ...(req.body ?? {}), by: req.user?.username ?? 'the settings file’s admin',
+    })));
+    api.delete('/admin/invites/:id', admin, answer((req) => {
+      if (!accounts.revokeInvite(id(req))) throw refuse('no unused invite by that number', 404);
+      return { ok: true };
+    }));
+  }
 
   // ---- everything past here is the operator's -------------------------
 
@@ -293,13 +393,6 @@ export function createApp({ manager, store, sidecar, config, dataDir, updates, c
   // account. The account's password and the app key never come back out.
   if (radioreference) {
     const admin = auth.requireRole('admin');
-    const answer = (fn) => async (req, res) => {
-      try {
-        res.json(await fn(req));
-      } catch (e) {
-        res.status(e.status ?? 502).json({ error: e.message });
-      }
-    };
     api.get('/admin/radioreference', admin, answer(() => radioreference.settings()));
     api.put('/admin/radioreference', admin, answer((req) => radioreference.save(req.body ?? {})));
     api.post('/admin/radioreference/test', admin, answer(async () => ({
@@ -307,7 +400,7 @@ export function createApp({ manager, store, sidecar, config, dataDir, updates, c
     })));
     api.get('/channels/:name/lookup', admin, answer(async (req) => {
       const c = store.channelsSeen().find((x) => x.name === String(req.params.name));
-      if (!c) throw Object.assign(new Error('no transmission has come in on that channel'), { status: 404 });
+      if (!c) throw refuse('no transmission has come in on that channel', 404);
       return radioreference.lookup({ name: c.name, hz: c.hz });
     }));
   }
