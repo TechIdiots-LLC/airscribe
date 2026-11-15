@@ -33,6 +33,7 @@ npm run simulate        # fake radio + mock transcriber, no hardware needed
 | Real radio link (BlueZ RFCOMM control + SBC audio) | working — connects, decodes audio and disconnects cleanly against a real UV-Pro |
 | Protocol assumptions (service UUID, GAIA framing, status bits, SBC parameters) | confirmed against a real UV-Pro — see [docs/bluetooth.md](docs/bluetooth.md#verified-against-a-real-uv-pro) |
 | Audio frame codec (`sidecar/htframe.py`) | parses a real 248 kB / 799-frame capture, end markers included |
+| Feed: paging, search, channel filter, Play new, cleanup; Insights; Map of channels | working (checked in a browser against simulated radios and seeded data) |
 | Public page, delayed publishing, RSS | design only, see [docs/publishing.md](docs/publishing.md) |
 | Digital modes (AFSK/IRC/file transfer) | design only, see [docs/digital-modes.md](docs/digital-modes.md) |
 

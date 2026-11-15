@@ -22,6 +22,15 @@
     "audioChannel": null
   },
 
+  "_map": "The Map view's base maps, MapLibre style URLs; the first marked dark is the default in a dark browser. Leave this out for these three.",
+  "map": {
+    "styles": [
+      { "name": "Color relief", "url": "https://tiles.wifidb.net/styles/WDB_COLOR_RELIEF/style.json" },
+      { "name": "Color relief (dark)", "url": "https://tiles.wifidb.net/styles/WDB_COLOR_RELIEF_DARK/style.json", "dark": true },
+      { "name": "OpenStreetMap", "url": "https://tiles.wifidb.net/styles/WDB_OSM/style.json" }
+    ]
+  },
+
   "_publish": "Nothing is published until enabled is true AND a radio is marked public. delayMinutes holds transmissions back from the public surface; the admin port always shows them live.",
   "publish": {
     "enabled": false,

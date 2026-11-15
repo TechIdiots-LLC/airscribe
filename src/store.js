@@ -45,6 +45,10 @@ export class Store {
       -- Settings changed from the page rather than the settings file, which
       -- the service may only read: so far, how long to keep transmissions.
       CREATE TABLE IF NOT EXISTS settings (key TEXT PRIMARY KEY, value TEXT);
+      -- Where a channel is, for the Map view: set by an admin, by the name the
+      -- radio gives the channel, as the feed's channel filter uses
+      CREATE TABLE IF NOT EXISTS channel_places (
+        name TEXT PRIMARY KEY, lat REAL NOT NULL, lon REAL NOT NULL, updated_at INTEGER NOT NULL);
     `);
     this.migrate();
   }
@@ -492,11 +496,36 @@ export class Store {
    * @returns {{name: string, hz: number|null, count: number, last: number}[]} By name.
    */
   channelsSeen() {
+    // With its place on the map, where one has been set
     return this.db
-      .prepare(`SELECT channel_name AS name, MAX(channel_hz) AS hz, COUNT(*) AS count, MAX(started_at) AS last
-                  FROM transmissions WHERE channel_name IS NOT NULL AND channel_name <> ''
-                 GROUP BY channel_name ORDER BY channel_name`)
+      .prepare(`SELECT t.channel_name AS name, MAX(t.channel_hz) AS hz, COUNT(*) AS count, MAX(t.started_at) AS last,
+                       p.lat AS lat, p.lon AS lon
+                  FROM transmissions t LEFT JOIN channel_places p ON p.name = t.channel_name
+                 WHERE t.channel_name IS NOT NULL AND t.channel_name <> ''
+                 GROUP BY t.channel_name ORDER BY t.channel_name`)
       .all();
+  }
+
+  /**
+   * Put a channel on the map, or move it.
+   * @param {string} name - The channel's name.
+   * @param {number} lat - Latitude, -90 to 90.
+   * @param {number} lon - Longitude, -180 to 180.
+   * @returns {void}
+   */
+  setChannelPlace(name, lat, lon) {
+    this.db
+      .prepare(`INSERT INTO channel_places (name, lat, lon, updated_at) VALUES (?, ?, ?, ?)
+                ON CONFLICT(name) DO UPDATE SET lat = excluded.lat, lon = excluded.lon, updated_at = excluded.updated_at`)
+      .run(name, lat, lon, Date.now());
+  }
+
+  /**
+   * @param {string} name - The channel's name.
+   * @returns {boolean} Whether it had a place to remove.
+   */
+  clearChannelPlace(name) {
+    return this.db.prepare('DELETE FROM channel_places WHERE name = ?').run(name).changes > 0;
   }
 
   /**

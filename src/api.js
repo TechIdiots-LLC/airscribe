@@ -211,8 +211,31 @@ export function createApp({ manager, store, sidecar, config, dataDir, updates, c
 
   api.get('/models', (req, res) => res.json(MODELS));
   api.get('/radios', (req, res) => res.json(manager.radios()));
-  // Channels transmissions came in on, by the name the radio gave them
+  // Channels transmissions came in on, by the name the radio gave them, with
+  // their place on the map where one is set
   api.get('/channels', (req, res) => res.json(store.channelsSeen()));
+
+  // Placing a channel on the map is an admin's; seeing the map is anyone's
+  api.put('/channels/:name/place', auth.requireRole('admin'), (req, res) => {
+    const lat = Number(req.body?.lat);
+    const lon = Number(req.body?.lon);
+    if (!Number.isFinite(lat) || lat < -90 || lat > 90 || !Number.isFinite(lon) || lon < -180 || lon > 180) {
+      return res.status(400).json({ error: 'lat must be -90 to 90 and lon -180 to 180' });
+    }
+    const name = String(req.params.name);
+    if (!store.channelsSeen().some((c) => c.name === name)) {
+      return res.status(404).json({ error: 'no transmission has come in on that channel' });
+    }
+    store.setChannelPlace(name, lat, lon);
+    res.json(store.channelsSeen().find((c) => c.name === name));
+  });
+  api.delete('/channels/:name/place', auth.requireRole('admin'), (req, res) => {
+    if (!store.clearChannelPlace(String(req.params.name))) return res.status(404).json({ error: 'not on the map' });
+    res.status(204).end();
+  });
+
+  // The Map view's base maps
+  api.get('/map', (req, res) => res.json({ styles: config.map?.styles ?? [] }));
 
   // Insights: the commonest words, transmissions per hour and per channel, over
   // the last `days` (0 for everything), for one radio or channel if asked

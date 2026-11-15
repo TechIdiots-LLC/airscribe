@@ -75,6 +75,48 @@ button.link.danger { color: var(--bad); }
 /* The header's views: Feed, Insights, Admin */
 .views { display: flex; gap: 4px; }
 .views button.active { border-color: var(--accent); color: var(--accent); }
+/* Map */
+#mapview { display: grid; grid-template-columns: minmax(0, 1fr) 280px; gap: 12px; padding: 12px 16px; }
+#mapview .map-wrap { position: relative; height: calc(100vh - 100px); min-height: 360px; }
+#map-canvas { position: absolute; inset: 0; border-radius: 8px; overflow: hidden; border: 1px solid var(--line); }
+.map-status { position: absolute; left: 50%; top: 12px; transform: translateX(-50%); margin: 0; z-index: 2;
+  background: var(--card); border: 1px solid var(--line); border-radius: 6px; padding: 6px 10px; font-size: 13px; }
+#map-side { overflow-y: auto; max-height: calc(100vh - 100px); }
+#map-side h2 { flex: 1; }
+.map-list li { padding: 6px 10px; display: flex; flex-wrap: wrap; align-items: baseline; gap: 4px; }
+.map-list li button:not(.link) { margin-left: auto; }
+.map-list button.active { border-color: var(--accent); color: var(--accent); }
+@media (max-width: 800px) {
+  #mapview { grid-template-columns: minmax(0, 1fr); }
+  #mapview .map-wrap { height: 60vh; }
+  #map-side { max-height: none; }
+}
+/* A channel on the map: lit while a radio receives on it, and a ripple when a
+   transmission is saved. White label with a dark halo reads on light and dark maps. */
+.ch-marker { position: relative; width: 14px; height: 14px; cursor: pointer; }
+.ch-marker .dot { position: absolute; inset: 0; border-radius: 50%; background: var(--accent);
+  border: 2px solid #fff; box-shadow: 0 0 3px rgba(0, 0, 0, .7); }
+.ch-marker .label { position: absolute; left: 18px; top: -3px; white-space: nowrap; font: 600 12px system-ui, sans-serif;
+  color: #fff; text-shadow: 0 0 3px #000, 0 0 3px #000, 0 0 2px #000; pointer-events: none; }
+.ch-marker .ring { position: absolute; inset: -2px; border-radius: 50%; border: 3px solid var(--accent); opacity: 0; }
+.ch-marker.pulse .ring { animation: ripple 2.4s ease-out 1; }
+.ch-marker.live .dot { background: var(--warn); box-shadow: 0 0 12px 4px var(--warn); animation: onair 0.9s ease-in-out infinite alternate; }
+@keyframes ripple { from { transform: scale(1); opacity: .9; } to { transform: scale(10); opacity: 0; } }
+@keyframes onair { from { transform: scale(1); } to { transform: scale(1.35); } }
+/* Popups in the page's colours. #mapview outranks maplibre-gl.css, which loads later */
+#mapview .maplibregl-popup-content { background: var(--card); color: var(--fg); border: 1px solid var(--line); }
+#mapview .maplibregl-popup-close-button { color: var(--muted); font-size: 18px; }
+#mapview .maplibregl-popup-anchor-top .maplibregl-popup-tip,
+#mapview .maplibregl-popup-anchor-top-left .maplibregl-popup-tip,
+#mapview .maplibregl-popup-anchor-top-right .maplibregl-popup-tip { border-bottom-color: var(--card); }
+#mapview .maplibregl-popup-anchor-bottom .maplibregl-popup-tip,
+#mapview .maplibregl-popup-anchor-bottom-left .maplibregl-popup-tip,
+#mapview .maplibregl-popup-anchor-bottom-right .maplibregl-popup-tip { border-top-color: var(--card); }
+#mapview .maplibregl-popup-anchor-left .maplibregl-popup-tip { border-right-color: var(--card); }
+#mapview .maplibregl-popup-anchor-right .maplibregl-popup-tip { border-left-color: var(--card); }
+.ch-popup { font-size: 13px; padding-right: 12px; }
+.ch-latest { margin: 6px 0; }
+.ch-latest li { background: none; border: 0; padding: 2px 0; margin: 0; }
 /* Insights */
 #insights { max-width: 1000px; margin: 0 auto; padding: 16px; }
 #insights > .row h2 { flex: 0 0 auto; margin-right: 8px; }

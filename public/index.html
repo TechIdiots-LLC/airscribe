@@ -5,6 +5,9 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>AirScribe</title>
 <link rel="stylesheet" href="style.css">
+<!-- Before any module script: maplibre-gl 6 is ES modules only, served from
+     here (public/vendor/VENDORED.md) and imported only when the Map opens -->
+<script type="importmap">{ "imports": { "maplibre-gl": "./vendor/maplibre-gl/maplibre-gl.mjs" } }</script>
 </head>
 <body>
 <div class="overlay" id="login" hidden>
@@ -28,6 +31,7 @@
   <nav class="views">
     <button data-view="main" class="active">Feed</button>
     <button data-view="insights">Insights</button>
+    <button data-view="mapview">Map</button>
     <button id="admin-toggle" data-view="admin" hidden>Admin</button>
   </nav>
   <span class="spacer"></span>
@@ -90,6 +94,21 @@
     <div id="ins-channels" class="scroll-x"></div>
   </div>
 </section>
+<section id="mapview" hidden>
+  <div class="map-wrap">
+    <div id="map-canvas"></div>
+    <p id="map-status" class="map-status" hidden></p>
+  </div>
+  <aside id="map-side">
+    <div class="row"><h2>Map</h2><select id="map-style" title="Base map"></select></div>
+    <p class="meta">A channel lights up while one of the radios is receiving on it, and pulses when its transmission
+      has been saved.</p>
+    <h3>On the map</h3>
+    <ul id="map-placed" class="map-list"></ul>
+    <h3>Not placed yet</h3>
+    <ul id="map-unplaced" class="map-list"></ul>
+  </aside>
+</section>
 <section id="admin" hidden>
   <div class="row"><h2>Admin</h2></div>
   <div class="panel">
@@ -116,6 +135,7 @@
 </section>
 <script src="app.js" type="module"></script>
 <script src="insights.js" type="module"></script>
+<script src="map.js" type="module"></script>
 <script src="admin.js" type="module"></script>
 </body>
 </html>

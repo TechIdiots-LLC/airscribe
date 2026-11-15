@@ -18,6 +18,11 @@
   50 of 1,234"). The search box and the radio filter ask the server, so they cover the whole history rather than
   the rows that happened to be loaded, and Export takes everything they match. A transmission arriving or being
   transcribed redraws only its own row, so a clip being played isn't stopped by another arriving.
+- **Map:** a view with each channel where an admin placed it (Place, then click the map; drag to move). A channel
+  lights up while one of the radios is receiving on it and pulses when its transmission has been saved; its popup
+  shows what it said lately and opens the feed on it. Base maps are MapLibre styles (`map.styles`), by default the
+  colour-relief, dark colour-relief and OpenStreetMap styles from tiles.wifidb.net; a dark browser starts on the dark
+  one, and the choice is remembered. MapLibre GL JS 6 is served by AirScribe itself (public/vendor).
 - **Insights:** a view beside the feed, for the last day, week, month or everything, for one radio or channel:
   a word cloud of what was said (common English words and a model's own annotations such as "(static)" left out;
   unit and call numbers kept), transmissions per hour or day, busy hours by weekday, and each channel's

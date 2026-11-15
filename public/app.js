@@ -563,6 +563,8 @@ function listen() {
       const r = radios.find((x) => x.mac === u.mac);
       if (r) { Object.assign(r, u); delete r.type; renderRadios(); }
     }
+    // The one stream, passed on: the Map view lights channels from it
+    document.dispatchEvent(new CustomEvent(`airscribe:${u.type}`, { detail: u }));
   };
 }
 

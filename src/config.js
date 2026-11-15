@@ -27,6 +27,16 @@ const DEFAULTS = {
   // Admin → Updates: how often to look for a release (0: only when asked),
   // and whether pre-releases are offered. See docs/updating.md.
   updates: { checkHours: 12, prereleases: false },
+  // The Map view's base maps: MapLibre style URLs. The first `dark` one is the
+  // default in a dark browser, the first otherwise. A list in a settings file
+  // replaces this one rather than adding to it.
+  map: {
+    styles: [
+      { name: 'Color relief', url: 'https://tiles.wifidb.net/styles/WDB_COLOR_RELIEF/style.json' },
+      { name: 'Color relief (dark)', url: 'https://tiles.wifidb.net/styles/WDB_COLOR_RELIEF_DARK/style.json', dark: true },
+      { name: 'OpenStreetMap', url: 'https://tiles.wifidb.net/styles/WDB_OSM/style.json' },
+    ],
+  },
 };
 
 /**

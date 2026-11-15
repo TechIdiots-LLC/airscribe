@@ -166,8 +166,8 @@ test('the channels heard, and the feed filtered to one of them', { skip: !sqlite
   add(3, 'Holden PD', 460387500);
   add(4, null, null);   // a radio that reported no channel
   assert.deepEqual(store.channelsSeen().map((c) => ({ ...c })), [
-    { name: 'Holden PD', hz: 460387500, count: 2, last: 3 },
-    { name: 'Rutld FD', hz: 154250000, count: 1, last: 2 },
+    { name: 'Holden PD', hz: 460387500, count: 2, last: 3, lat: null, lon: null },
+    { name: 'Rutld FD', hz: 154250000, count: 1, last: 2, lat: null, lon: null },
   ]);
   const manager = Object.assign(new EventEmitter(), { radios: () => store.radios() });
   const app = createApp({ manager, store, sidecar: {}, config: { host: '127.0.0.1', auth: { tokens: ['secret'] } }, dataDir: '.' });
@@ -182,6 +182,49 @@ test('the channels heard, and the feed filtered to one of them', { skip: !sqlite
     assert.ok((await holden.json()).every((t) => t.channel_name === 'Holden PD'));
     const csv = await (await get('/transmissions/export?format=csv&channel=Rutld%20FD')).text();
     assert.equal(csv.trim().split('\n').length, 1, 'no transcripts yet, so only the header');
+  } finally {
+    server.close();
+  }
+});
+
+test('channels on the map: admins place and remove them, anyone sees them', { skip: !sqlite }, async () => {
+  const { Store } = await import('../src/store.js');
+  const { createApp } = await import('../src/api.js');
+  const { EventEmitter } = await import('node:events');
+  const store = new Store(':memory:', 'base');
+  store.addTransmission({ mac: '38:D2:00:01:56:51', startedAt: 1, durationMs: 900, audioFile: 'a.wav',
+    channelName: 'Holden PD', channelHz: 460387500 });
+  const manager = Object.assign(new EventEmitter(), { radios: () => store.radios() });
+  const config = {
+    host: '127.0.0.1', auth: { tokens: [{ token: 'admin' }, { token: 'viewer', role: 'viewer' }] },
+    map: { styles: [{ name: 'Color relief', url: 'https://tiles.wifidb.net/styles/WDB_COLOR_RELIEF/style.json' }] },
+  };
+  const app = createApp({ manager, store, sidecar: {}, config, dataDir: '.' });
+  const server = app.listen(0, '127.0.0.1');
+  await new Promise((r) => server.once('listening', r));
+  const base = `http://127.0.0.1:${server.address().port}/api`;
+  const call = (method, path, token, body) => fetch(`${base}${path}`, {
+    method, body: body && JSON.stringify(body),
+    headers: { authorization: `Bearer ${token}`, 'content-type': 'application/json' },
+  });
+  const place = '/channels/Holden%20PD/place';
+  try {
+    assert.equal((await call('PUT', place, 'viewer', { lat: 42.36, lon: -71.85 })).status, 403, 'a viewer can\'t place');
+    assert.equal((await call('PUT', place, 'admin', { lat: 91, lon: 0 })).status, 400);
+    assert.equal((await call('PUT', place, 'admin', { lat: 'x', lon: 0 })).status, 400);
+    assert.equal((await call('PUT', '/channels/Nowhere/place', 'admin', { lat: 1, lon: 1 })).status, 404, 'only a channel heard');
+    const put = await (await call('PUT', place, 'admin', { lat: 42.36, lon: -71.85 })).json();
+    assert.deepEqual([put.lat, put.lon], [42.36, -71.85]);
+    const seen = await (await call('GET', '/channels', 'viewer')).json();
+    assert.deepEqual([seen[0].name, seen[0].lat, seen[0].lon], ['Holden PD', 42.36, -71.85], 'a viewer sees where');
+    await call('PUT', place, 'admin', { lat: 42.4, lon: -71.9 });
+    assert.equal(store.channelsSeen()[0].lat, 42.4, 'moved, not duplicated');
+    assert.equal((await call('DELETE', place, 'viewer')).status, 403);
+    assert.equal((await call('DELETE', place, 'admin')).status, 204);
+    assert.equal((await call('DELETE', place, 'admin')).status, 404);
+    assert.equal(store.channelsSeen()[0].lat, null);
+    const map = await (await call('GET', '/map', 'viewer')).json();
+    assert.equal(map.styles[0].url, 'https://tiles.wifidb.net/styles/WDB_COLOR_RELIEF/style.json');
   } finally {
     server.close();
   }
