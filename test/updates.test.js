@@ -49,6 +49,15 @@ test('only newer releases are offered, newest first, pre-releases when asked', a
   assert.deepEqual(pre.newer.map((r) => r.version), ['0.4.0-rc.1', '0.3.0', '0.2.1']);
 });
 
+test('a CI or local build is offered only releases after the one it builds on', async () => {
+  // LXC 113 ran 0.1.0+local1.39b2568, which has the bumble backend that the 0.1.0 release doesn't, and was offered
+  // 0.1.0 as an update. The root updater refuses it (dpkg: 0.1.0-1 < 0.1.0+local1…-1), so the page mustn't offer it.
+  const u = updates([release('0.1.0'), release('0.1.1')], { version: '0.1.0+local1.39b2568' });
+  await u.check();
+  assert.deepEqual(u.newer.map((r) => r.version), ['0.1.1']);
+  assert.match(u.request('0.1.0'), /isn't a newer release/);
+});
+
 test('a failed check is reported, not thrown', async () => {
   const u = updates([], { fetch: fakeFetch(null, 503) });
   await u.check();

@@ -171,7 +171,11 @@ export class Updates {
         signal: AbortSignal.timeout(30000),
       });
       if (!res.ok) throw new Error(`HTTP ${res.status}`);
-      const current = VERSION_PATTERN.test(this.version) ? this.version : null;
+      // A CI or local build (0.1.0+ci12.abc1234) is its release plus later commits: package.json keeps the last
+      // release's number until bump-version moves it on. So it's offered only later releases, as the root updater
+      // (dpkg --compare-versions) would refuse anything else. Offering 0.1.0 to one was offering a downgrade.
+      const base = String(this.version).split('+')[0];
+      const current = VERSION_PATTERN.test(base) ? base : null;
       this.newer = parseReleases(await res.json())
         .filter((r) => (this.config.prereleases || !r.prerelease)
           && (!current || compareVersions(r.version, current) > 0))
