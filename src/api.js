@@ -210,6 +210,8 @@ export function createApp({ manager, store, sidecar, config, dataDir, updates, c
 
   api.get('/models', (req, res) => res.json(MODELS));
   api.get('/radios', (req, res) => res.json(manager.radios()));
+  // Channels transmissions came in on, by the name the radio gave them
+  api.get('/channels', (req, res) => res.json(store.channelsSeen()));
 
   // Radios the host can see. Each is annotated with a model guess and whether
   // it is already saved, so the UI can offer a one-click add.
@@ -291,6 +293,7 @@ export function createApp({ manager, store, sidecar, config, dataDir, updates, c
     const q = req.query.q ? String(req.query.q) : undefined;
     // speech=1 leaves out what the feed shows as "(no speech recognised)"
     const speech = req.query.speech === '1';
+    const channel = req.query.channel ? String(req.query.channel) : undefined;
     let before;
     if (req.query.before) {
       const m = /^(\d+)\.(\d+)$/.exec(String(req.query.before));
@@ -299,8 +302,8 @@ export function createApp({ manager, store, sidecar, config, dataDir, updates, c
     }
     const n = Math.min(Math.max(Number(req.query.limit) || 100, 1), 500);
     // One more than asked for says whether there is another page
-    const rows = store.transmissions({ mac, q, speech, before, limit: n + 1, max: 501 });
-    res.set('X-Total-Count', String(store.countTransmissions({ mac, q, speech })));
+    const rows = store.transmissions({ mac, q, speech, channel, before, limit: n + 1, max: 501 });
+    res.set('X-Total-Count', String(store.countTransmissions({ mac, q, speech, channel })));
     if (rows.length > n) {
       rows.length = n;
       const last = rows[n - 1];
@@ -350,6 +353,7 @@ export function createApp({ manager, store, sidecar, config, dataDir, updates, c
       mac,
       q: req.query.q && String(req.query.q),
       speech: req.query.speech === '1',
+      channel: req.query.channel ? String(req.query.channel) : undefined,
       limit: req.query.limit ?? EXPORT_MAX,
       max: EXPORT_MAX,
     });

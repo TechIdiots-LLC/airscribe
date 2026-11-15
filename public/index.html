@@ -40,9 +40,12 @@
     <div class="row wrap">
       <h2>Transmissions</h2>
       <select id="filter-radio"><option value="">All radios</option></select>
+      <select id="filter-channel"><option value="">All channels</option></select>
       <input id="search" type="search" placeholder="Search all transmissions…">
       <label class="toggle" title="Leave out transmissions shown as “(no speech recognised)”, such as a radio’s chirp">
         <input type="checkbox" id="hide-silent"> Hide no speech</label>
+      <label class="toggle" title="Play each new transmission the feed shows as it arrives, one after another, in this browser">
+        <input type="checkbox" id="autoplay"> Play new <span id="autoplay-state"></span></label>
       <a id="export" class="export" download>Export</a>
     </div>
     <ul id="feed"></ul>

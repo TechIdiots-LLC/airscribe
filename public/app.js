@@ -265,6 +265,7 @@ function placeRow(t) {
     feed.insertBefore(li, next);
   }
   nodes.set(t.id, li);
+  if (t.id === playingId) li.classList.add('playing');
 }
 
 /** @returns {void} Redraw every row (after a rename), keeping each one's player. */
@@ -275,11 +276,25 @@ function renderFeed() {
 
 /** @returns {void} The count and "Load older" under the feed. */
 function renderFeedFoot() {
-  const filtered = $('filter-radio').value || $('search').value.trim();
+  const filtered = $('filter-radio').value || $('filter-channel').value || $('search').value.trim()
+    || $('hide-silent').checked;
   $('feed-more').hidden = !feedCursor;
   $('feed-count').textContent = txs.size
     ? `Showing ${txs.size.toLocaleString()} of ${Math.max(feedTotal, txs.size).toLocaleString()}`
     : filtered ? 'Nothing matches.' : 'No transmissions yet.';
+}
+
+/** @returns {URLSearchParams} The feed's filter, as the server takes it: for a page and for the export. */
+function filterParams() {
+  const p = new URLSearchParams();
+  const mac = $('filter-radio').value;
+  const channel = $('filter-channel').value;
+  const q = $('search').value.trim();
+  if (mac) p.set('mac', mac);
+  if (channel) p.set('channel', channel);
+  if (q) p.set('q', q);
+  if ($('hide-silent').checked) p.set('speech', '1');
+  return p;
 }
 
 /**
@@ -291,16 +306,14 @@ function renderFeedFoot() {
 async function loadFeed({ more = false } = {}) {
   const seq = ++feedSeq;
   const params = new URLSearchParams({ limit: String(PAGE) });
-  const mac = $('filter-radio').value;
-  const q = $('search').value.trim();
-  if (mac) params.set('mac', mac);
-  if (q) params.set('q', q);
-  if ($('hide-silent').checked) params.set('speech', '1');
+  for (const [k, v] of filterParams()) params.set(k, v);
   if (more && feedCursor) params.set('before', feedCursor);
   const res = await request(`/transmissions?${params}`);
   const rows = await res.json();
   if (seq !== feedSeq) return;   // the filter changed while this was on its way
   if (!more) {
+    // What was waiting to play was chosen by the old filter
+    playQueue.length = 0;
     txs.clear();
     nodes.clear();
     $('feed').replaceChildren();
@@ -324,8 +337,10 @@ async function loadFeed({ more = false } = {}) {
  */
 function matchesFilter(t) {
   const mac = $('filter-radio').value;
+  const channel = $('filter-channel').value;
   const q = $('search').value.trim().toLowerCase();
   if (mac && t.mac !== mac) return false;
+  if (channel && t.channel_name !== channel) return false;
   // Hiding no speech: a live clip joins once it has words, rather than
   // showing while it's transcribed and vanishing if it turns out a chirp
   if ($('hide-silent').checked && !(t.text ?? '').trim()) return false;
@@ -381,6 +396,10 @@ async function deleteTx(t) {
  * @returns {void}
  */
 function onTransmission(t) {
+  // A channel not in the filter yet: it has just been heard for the first time
+  if (t.channel_name && ![...$('filter-channel').options].some((o) => o.value === t.channel_name)) {
+    loadChannels().catch(() => {});
+  }
   if (txs.has(t.id)) {
     // Transcribed as no speech while they're hidden: it goes
     if ($('hide-silent').checked && silent(t)) return removeRow(t.id);
@@ -397,7 +416,89 @@ function onTransmission(t) {
   placeRow(t);
   trimLive();
   renderFeedFoot();
+  // Only what's just been heard: an old clip re-transcribed into view isn't news
+  if (t.started_at > Date.now() - 10 * 60 * 1000) queuePlay(t.id);
 }
+
+// ---- Play new ----------------------------------------------------------------
+// Each transmission that joins the feed while "Play new" is on is played in
+// turn, through its own row's player, so the filter decides what is heard:
+// one radio, one channel, a search, or with "Hide no speech" no chirps. It is
+// heard once the transmission has ended and been saved, not live.
+
+const playQueue = [];    // ids waiting their turn, oldest first
+let playingId = null;    // the one playing now
+let playWait = null;     // a timer while someone plays a clip by hand
+
+/** @param {number} id - A transmission that has just joined the feed. @returns {void} */
+function queuePlay(id) {
+  if (!$('autoplay').checked) return;
+  playQueue.push(id);
+  // A long burst while away: keep the latest rather than an hour's backlog
+  if (playQueue.length > 20) playQueue.shift();
+  showPlayState();
+  playNext();
+}
+
+/** @returns {void} Play the next waiting transmission, if nothing else is playing. */
+function playNext() {
+  if (playingId !== null || playWait) return;
+  // Someone is listening to a clip by hand: wait for them to finish
+  if ([...document.querySelectorAll('#feed audio')].some((a) => !a.paused && !a.ended)) {
+    playWait = setTimeout(() => { playWait = null; playNext(); }, 500);
+    return;
+  }
+  while (playQueue.length) {
+    const id = playQueue.shift();
+    const audio = nodes.get(id)?.querySelector('audio');
+    if (!audio) continue;   // deleted, or filtered away, while it waited
+    playingId = id;
+    nodes.get(id).classList.add('playing');
+    showPlayState();
+    const done = () => {
+      for (const e of ['ended', 'pause', 'error']) audio.removeEventListener(e, done);
+      nodes.get(id)?.classList.remove('playing');
+      playingId = null;
+      showPlayState();
+      playNext();
+    };
+    for (const e of ['ended', 'pause', 'error']) audio.addEventListener(e, done);
+    audio.currentTime = 0;
+    audio.play().catch((e) => {
+      if (e.name === 'NotAllowedError') {
+        // The browser wants a click on the page before it plays sound
+        $('autoplay').checked = false;
+        playQueue.length = 0;
+        $('autoplay-state').textContent = '(blocked by the browser: tick it again)';
+      }
+      done();
+    });
+    return;
+  }
+}
+
+/** @returns {void} How many are waiting, beside the switch. */
+function showPlayState() {
+  const waiting = playQueue.length;
+  $('autoplay-state').textContent = !$('autoplay').checked ? ''
+    : waiting ? `(${waiting} waiting)` : playingId !== null ? '(playing)' : '';
+}
+
+// Playing a clip by hand pauses the one "Play new" started, rather than both
+// at once; the queue then waits for the hand-played one to finish
+document.addEventListener('play', (e) => {
+  const mine = playingId === null ? null : nodes.get(playingId)?.querySelector('audio');
+  if (mine && e.target !== mine && !mine.paused) mine.pause();
+}, true);
+
+$('autoplay').onchange = () => {
+  if (!$('autoplay').checked) {
+    playQueue.length = 0;
+    // Stop what it started; a clip played by hand is left alone
+    if (playingId !== null) nodes.get(playingId)?.querySelector('audio')?.pause();
+  }
+  showPlayState();
+};
 
 /** @returns {void} Keep a feed left open from growing without end. */
 function trimLive() {
@@ -414,19 +515,27 @@ function trimLive() {
 
 /** Point the export link at everything the feed's filter matches, not only the loaded pages. */
 function refreshExport() {
-  const mac = $('filter-radio').value;
-  const q = $('search').value.trim();
-  const params = new URLSearchParams({ format: 'csv' });
-  if (mac) params.set('mac', mac);
-  if (q) params.set('q', q);
-  if ($('hide-silent').checked) params.set('speech', '1');
+  const params = filterParams();
+  params.set('format', 'csv');
   $('export').href = url(`/api/transmissions/export?${params}`);
   $('export').title = 'Every engine’s transcript for every transmission matching the filter, as CSV';
+}
+
+/** @returns {Promise<void>} The channel filter's choices: every channel heard so far. */
+async function loadChannels() {
+  const sel = $('filter-channel');
+  const cur = sel.value;
+  const channels = await api('/channels');
+  sel.replaceChildren(el('option', { value: '' }, 'All channels'),
+    ...channels.map((c) => el('option', { value: c.name },
+      c.hz ? `${c.name} · ${(c.hz / 1e6).toFixed(4)}` : c.name)));
+  sel.value = cur;
 }
 
 const reload = () => loadFeed().catch((e) => { $('feed-count').textContent = e.message; });
 let searchTimer = null;
 $('filter-radio').onchange = reload;
+$('filter-channel').onchange = reload;
 $('hide-silent').onchange = () => {
   try { localStorage.setItem(HIDE_KEY, $('hide-silent').checked ? '1' : '0'); } catch { /* storage blocked */ }
   reload();
@@ -534,6 +643,7 @@ async function boot() {
   try {
     for (const m of await api('/models')) models.set(m.id, m);
     await loadRadios();
+    await loadChannels();
     await loadFeed();
   } catch (e) {
     if (e.status === 401) return showLogin(session ?? {});

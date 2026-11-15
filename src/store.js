@@ -454,6 +454,18 @@ export class Store {
   }
 
   /**
+   * The channels transmissions came in on, for the feed's channel filter.
+   * @returns {{name: string, hz: number|null, count: number, last: number}[]} By name.
+   */
+  channelsSeen() {
+    return this.db
+      .prepare(`SELECT channel_name AS name, MAX(channel_hz) AS hz, COUNT(*) AS count, MAX(started_at) AS last
+                  FROM transmissions WHERE channel_name IS NOT NULL AND channel_name <> ''
+                 GROUP BY channel_name ORDER BY channel_name`)
+      .all();
+  }
+
+  /**
    * @param {number} id - Transmission id.
    * @returns {boolean} Whether it (still) exists.
    */

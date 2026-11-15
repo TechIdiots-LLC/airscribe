@@ -152,3 +152,37 @@ test('the feed pages by key: every transmission once, newest first, with a total
     server.close();
   }
 });
+
+test('the channels heard, and the feed filtered to one of them', { skip: !sqlite }, async () => {
+  const { Store } = await import('../src/store.js');
+  const { createApp } = await import('../src/api.js');
+  const { EventEmitter } = await import('node:events');
+  const store = new Store(':memory:', 'base');
+  const add = (startedAt, channelName, channelHz) =>
+    store.addTransmission({ mac: '38:D2:00:01:56:51', startedAt, durationMs: 900, audioFile: `${startedAt}.wav`,
+      channelName, channelHz });
+  add(1, 'Holden PD', 460387500);
+  add(2, 'Rutld FD', 154250000);
+  add(3, 'Holden PD', 460387500);
+  add(4, null, null);   // a radio that reported no channel
+  assert.deepEqual(store.channelsSeen().map((c) => ({ ...c })), [
+    { name: 'Holden PD', hz: 460387500, count: 2, last: 3 },
+    { name: 'Rutld FD', hz: 154250000, count: 1, last: 2 },
+  ]);
+  const manager = Object.assign(new EventEmitter(), { radios: () => store.radios() });
+  const app = createApp({ manager, store, sidecar: {}, config: { host: '127.0.0.1', auth: { tokens: ['secret'] } }, dataDir: '.' });
+  const server = app.listen(0, '127.0.0.1');
+  await new Promise((r) => server.once('listening', r));
+  const base = `http://127.0.0.1:${server.address().port}/api`;
+  const get = (p) => fetch(`${base}${p}`, { headers: { authorization: 'Bearer secret' } });
+  try {
+    assert.equal((await (await get('/channels')).json()).length, 2);
+    const holden = await get('/transmissions?channel=Holden%20PD');
+    assert.equal(holden.headers.get('x-total-count'), '2');
+    assert.ok((await holden.json()).every((t) => t.channel_name === 'Holden PD'));
+    const csv = await (await get('/transmissions/export?format=csv&channel=Rutld%20FD')).text();
+    assert.equal(csv.trim().split('\n').length, 1, 'no transcripts yet, so only the header');
+  } finally {
+    server.close();
+  }
+});

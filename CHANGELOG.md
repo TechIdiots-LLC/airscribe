@@ -18,6 +18,10 @@
   50 of 1,234"). The search box and the radio filter ask the server, so they cover the whole history rather than
   the rows that happened to be loaded, and Export takes everything they match. A transmission arriving or being
   transcribed redraws only its own row, so a clip being played isn't stopped by another arriving.
+- **Play new, and a channel filter:** the feed can be filtered to one channel (every channel heard is listed, with
+  its frequency), and **Play new** plays each transmission that joins the feed as it arrives, one after another, so
+  the filters decide what is heard: one radio, one channel, a search, no chirps. A clip plays once its transmission
+  has ended and been saved, not live; playing another clip by hand pauses it, and the queue waits.
 - **Cleanup:** **Hide no speech** in the feed leaves out transmissions shown as "(no speech recognised)", such as a
   radio's chirp; it's remembered per browser, and Export follows it. An admin can **Delete** a transmission from its
   row, with its transcripts and audio. **Admin → Storage** shows how much is kept, deletes by age and/or no speech
