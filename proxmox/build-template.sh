@@ -97,8 +97,11 @@ cp "$deb" "$root/tmp/airscribe.deb"
 in_root apt-get update -q
 in_root apt-get -y -q -o Dpkg::Options::=--force-confold dist-upgrade
 # curl: for checking it answers. bluez: BlueZ's tools, for a container given the host's Bluetooth (docs/proxmox.md)
-in_root apt-get install -y -q --no-install-recommends ca-certificates /tmp/airscribe.deb curl bluez
+in_root apt-get install -y -q --no-install-recommends ca-certificates /tmp/airscribe.deb curl bluez locales
 rm -f "$root/tmp/airscribe.deb"
+# pct enter brings the host's LANG, en_US.UTF-8 on Proxmox, and without it every perl tool (apt among them)
+# warns that the locale failed
+in_root locale-gen en_US.UTF-8
 in_root node --version
 
 log "setting it up for a container"
@@ -123,6 +126,7 @@ cat > "$root/etc/motd" <<'MOTD'
   AirScribe: open http://<this container's address>:8100/ and sign in with the password in
   /root/airscribe-first-login.txt. Settings: /etc/airscribe/airscribe.config.json, then
   systemctl restart airscribe. Logs: journalctl -u airscribe. See docs/proxmox.md in the repository.
+  The template ships without apt's package lists: run apt update before the first apt install.
 
 MOTD
 

@@ -81,6 +81,7 @@ if command -v docker >/dev/null && docker info >/dev/null 2>&1; then
     [ "$(in_ct stat -c %U /var/lib/airscribe/airscribe.sqlite)" = airscribe ] || fail "the database isn't AirScribe's"
     in_ct sh -c 'node --version; python3 --version; ffmpeg -hide_banner -decoders 2>/dev/null | grep -w sbc' ||
         fail "node, python3 or ffmpeg's SBC decoder is missing"
+    [ -z "$(in_ct env LANG=en_US.UTF-8 perl -e 1 2>&1)" ] || fail "en_US.UTF-8 isn't generated, so apt warns under pct enter"
     log "template boot test passed"
     exit 0
 fi
@@ -101,6 +102,7 @@ test -L "$root/etc/systemd/system/multi-user.target.wants/airscribe.service" || 
 test -L "$root/etc/systemd/system/multi-user.target.wants/airscribe-firstboot.service" || fail "first boot isn't armed"
 test -L "$root/etc/systemd/system/multi-user.target.wants/airscribe-update.path" || fail "Admin → Updates' updater isn't armed"
 test -x "$root/usr/lib/airscribe/airscribe-update" || fail "no updater"
+chroot "$root" locale -a | grep -qx 'en_US.utf8' || fail "en_US.UTF-8 isn't generated, so apt warns under pct enter"
 test -f "$root/etc/airscribe/firstboot-pending" || fail "first boot isn't armed"
 grep -q '"host": "0.0.0.0"' "$root/etc/airscribe/airscribe.config.json" || fail "it doesn't listen on the container's network"
 ! grep -q '"passwordHash": "scrypt' "$root/etc/airscribe/airscribe.config.json" || fail "the template has a password"
