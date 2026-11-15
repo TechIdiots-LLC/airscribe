@@ -38,6 +38,12 @@
   or to channels chosen from a popup (**Show in the list**). What a channel says also shows at it on the map for a
   few seconds (**Words on the map**). Placing channels moved to the side's **Channels** tab. `/api/transmissions`
   takes `channel` more than once, for any of several channels.
+- **Find a channel's place, from RadioReference:** an admin's **Find** looks a channel's frequency up in the
+  RadioReference database, in the county of a ZIP code (the state, if the county has nothing), and offers where the
+  FCC licence says its transmitter is, then the area RadioReference gives the listing, best match for the channel's
+  name first and numbered on the map; **Place here** puts the channel there. It signs in with a RadioReference
+  Premium account and an app key, set in **Admin → RadioReference**, where the password and key are never shown
+  again (docs/radioreference.md). Tested against a stand-in for the API, not yet with a real account.
 - **Insights:** a view beside the feed, for the last day, week, month or everything, for one radio or channel:
   a word cloud of what was said (common English words and a model's own annotations such as "(static)" left out;
   unit and call numbers kept), transmissions per hour or day, busy hours by weekday, and each channel's

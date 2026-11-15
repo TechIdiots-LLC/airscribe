@@ -34,6 +34,7 @@ npm run simulate        # fake radio + mock transcriber, no hardware needed
 | Protocol assumptions (service UUID, GAIA framing, status bits, SBC parameters) | confirmed against a real UV-Pro — see [docs/bluetooth.md](docs/bluetooth.md#verified-against-a-real-uv-pro) |
 | Audio frame codec (`sidecar/htframe.py`) | parses a real 248 kB / 799-frame capture, end markers included |
 | Feed: paging, search, channel filter, Play new, cleanup; Insights; Map of channels | working (checked in a browser against simulated radios and seeded data) |
+| Map → Find: a channel's place from RadioReference and the FCC licence | working against a stand-in for RadioReference's API; not yet with a real account, see [docs/radioreference.md](docs/radioreference.md) |
 | Public page, delayed publishing, RSS | design only, see [docs/publishing.md](docs/publishing.md) |
 | Digital modes (AFSK/IRC/file transfer) | design only, see [docs/digital-modes.md](docs/digital-modes.md) |
 
@@ -42,7 +43,7 @@ Documentation: [installing](docs/installing.md) · [Proxmox template](docs/proxm
 [publishing](docs/publishing.md) ·
 [segmentation](docs/segmentation.md) ·
 [transcription](docs/transcription.md) · [Bluetooth link](docs/bluetooth.md) ·
-[digital modes](docs/digital-modes.md)
+[finding channels](docs/radioreference.md) · [digital modes](docs/digital-modes.md)
 
 Developed against a **BTech UV-Pro**, which is also BenLink's original target
 and the best-tested model upstream.
@@ -94,3 +95,7 @@ The radio protocol comes from the work of Kyle Husmann (KC3SLD) and the
 [BenLink](https://github.com/khusmann/benlink) project, via
 [HTCommander](https://github.com/Ylianst/HTCommander) by Ylian Saint-Hilaire.
 See [NOTICE.md](NOTICE.md). An amateur radio licence is required to transmit.
+
+The Map's Find uses the [RadioReference.com](https://www.radioreference.com)
+database through its web service, with the user's own Premium account; data
+courtesy of RadioReference.com.

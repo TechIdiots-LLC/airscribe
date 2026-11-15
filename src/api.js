@@ -117,9 +117,11 @@ const PUBLIC_CLIP = /^\/public\/transmissions\/\d+\/(audio|text)$/;
  * @param {object} o.config - The whole config, for auth and the port split.
  * @param {string} o.dataDir - Data directory (clips live under it).
  * @param {import('./updates.js').Updates} [o.updates] - Admin → Updates.
+ * @param {import('./cleanup.js').Cleanup} [o.cleanup] - Admin → Storage.
+ * @param {import('./radioreference.js').RadioReference} [o.radioreference] - Map → Find.
  * @returns {import('express').Express} The app.
  */
-export function createApp({ manager, store, sidecar, config, dataDir, updates, cleanup }) {
+export function createApp({ manager, store, sidecar, config, dataDir, updates, cleanup, radioreference }) {
   const app = express();
   const auth = createAuth(config);
   app.use(express.json({ limit: '32kb' }));
@@ -280,8 +282,35 @@ export function createApp({ manager, store, sidecar, config, dataDir, updates, c
     res.json(await manager.control(mac, action, value));
   }));
 
-  // The Map view's base maps
-  api.get('/map', (req, res) => res.json({ styles: config.map?.styles ?? [] }));
+  // The Map view's base maps, and whether channels can be looked up (Find)
+  api.get('/map', (req, res) => res.json({
+    styles: config.map?.styles ?? [],
+    lookup: Boolean(radioreference?.ready()),
+  }));
+
+  // ---- RadioReference: where a channel is -------------------------------
+  // Admins only, as placing a channel is: the lookup signs in as the admin's
+  // account. The account's password and the app key never come back out.
+  if (radioreference) {
+    const admin = auth.requireRole('admin');
+    const answer = (fn) => async (req, res) => {
+      try {
+        res.json(await fn(req));
+      } catch (e) {
+        res.status(e.status ?? 502).json({ error: e.message });
+      }
+    };
+    api.get('/admin/radioreference', admin, answer(() => radioreference.settings()));
+    api.put('/admin/radioreference', admin, answer((req) => radioreference.save(req.body ?? {})));
+    api.post('/admin/radioreference/test', admin, answer(async () => ({
+      ...await radioreference.test(), settings: radioreference.settings(),
+    })));
+    api.get('/channels/:name/lookup', admin, answer(async (req) => {
+      const c = store.channelsSeen().find((x) => x.name === String(req.params.name));
+      if (!c) throw Object.assign(new Error('no transmission has come in on that channel'), { status: 404 });
+      return radioreference.lookup({ name: c.name, hz: c.hz });
+    }));
+  }
 
   // Insights: the commonest words, transmissions per hour and per channel, over
   // the last `days` (0 for everything), for one radio or channel if asked

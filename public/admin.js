@@ -200,11 +200,87 @@ $('keep-save').onclick = async () => {
   }
 };
 
+// ---- RadioReference: the account the Map's Find signs in with ------------------
+
+/** @param {object} s - What the server says is saved: never the password or the key. */
+function renderRR(s) {
+  $('rr-username').value = s.username ?? '';
+  $('rr-zip').value = s.zip ?? '';
+  // Never sent back, so left blank they stay as saved
+  $('rr-password').value = '';
+  $('rr-password').placeholder = s.password ? 'saved' : '';
+  $('rr-appkey').value = '';
+  $('rr-appkey').placeholder = s.appKey === 'saved' ? 'saved' : s.appKey === 'settings file' ? 'in the settings file' : '';
+  $('rr-forget').hidden = !(s.username || s.password || s.appKey === 'saved' || s.zip);
+  // The Map offers Find once it can work
+  document.dispatchEvent(new CustomEvent('airscribe:lookup', { detail: { ready: s.ready } }));
+}
+
+function rrSay(text, error = false) {
+  $('rr-status').textContent = text;
+  $('rr-status').className = error ? 'tx-text error' : 'meta';
+}
+
+/** @param {object} r - A test's answer. @returns {string} Said plainly. */
+function rrTested(r) {
+  const zip = r.zip ? ` ZIP code ${r.zip.zip} is ${r.zip.city || 'known'}; Find searches its county first.` : '';
+  return `Signed in as ${r.username}, Premium${r.expires ? ` until ${r.expires}` : ''}.${zip}`;
+}
+
+async function loadRR() {
+  try {
+    const s = await api('/admin/radioreference');
+    renderRR(s);
+    rrSay(s.ready ? 'Set up: the Map’s Channels can be looked up with Find.' : '');
+  } catch (e) {
+    rrSay(e.message, true);
+  }
+}
+
+$('rr-save').onclick = async () => {
+  try {
+    const s = await api('/admin/radioreference', {
+      method: 'PUT',
+      body: {
+        username: $('rr-username').value, password: $('rr-password').value,
+        appKey: $('rr-appkey').value, zip: $('rr-zip').value,
+      },
+    });
+    renderRR(s);
+    if (!s.username || !s.password || !s.appKey) return rrSay('Saved. Find needs a username, password and app key.');
+    if (!s.zip) return rrSay('Saved. Find needs a ZIP code to know where to search.');
+    rrSay('Saved. Signing in…');
+    rrSay(rrTested(await api('/admin/radioreference/test', { method: 'POST' })));
+  } catch (e) {
+    rrSay(e.message, true);
+  }
+};
+
+$('rr-test').onclick = async () => {
+  rrSay('Signing in…');
+  try {
+    rrSay(rrTested(await api('/admin/radioreference/test', { method: 'POST' })));
+  } catch (e) {
+    rrSay(e.message, true);
+  }
+};
+
+$('rr-forget').onclick = async () => {
+  if (!confirm('Forget the RadioReference username, password, app key and ZIP code?')) return;
+  try {
+    renderRR(await api('/admin/radioreference', { method: 'PUT', body: { forget: true } }));
+    rrSay('Forgotten.');
+  } catch (e) {
+    rrSay(e.message, true);
+  }
+};
+
 // Loaded when Admin is opened (views.js switches the page)
 document.addEventListener('airscribe:view', (e) => {
   if (e.detail !== 'admin') return;
   load();
   loadStorage();
+  loadRR();
 });
 $('updates-check').onclick = async () => {
   $('updates-check').disabled = true;

@@ -37,6 +37,10 @@ const DEFAULTS = {
       { name: 'OpenStreetMap', url: 'https://tiles.wifidb.net/styles/WDB_OSM/style.json' },
     ],
   },
+  // Looking up where a channel is (Map → Find), from RadioReference. The
+  // account and ZIP code are set in Admin; an app key here is used when none
+  // is set there. The endpoint is for testing against a stand-in.
+  radioreference: { appKey: null, endpoint: null },
 };
 
 /**

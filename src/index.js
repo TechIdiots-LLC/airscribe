@@ -9,6 +9,7 @@ import { createEngines } from './stt/index.js';
 import { createApp } from './api.js';
 import { Updates, VERSION } from './updates.js';
 import { Cleanup } from './cleanup.js';
+import { RadioReference } from './radioreference.js';
 
 const args = process.argv.slice(2);
 const flag = (n) => args.includes(n);
@@ -65,7 +66,9 @@ updates.start();
 // how many days to keep
 const cleanup = new Cleanup({ manager, store, dataDir: config.dataDir });
 cleanup.start();
-const app = createApp({ manager, store, sidecar, config, dataDir: config.dataDir, updates, cleanup });
+// Map → Find: where a channel is, from RadioReference, once an admin sets it up
+const radioreference = new RadioReference({ store, config: config.radioreference });
+const app = createApp({ manager, store, sidecar, config, dataDir: config.dataDir, updates, cleanup, radioreference });
 
 // Two listeners in front of one app when adminPort is set: the public one
 // serves only the public surface, and the admin one everything. Binding the

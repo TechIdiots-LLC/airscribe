@@ -130,6 +130,7 @@
       <audio id="map-player" preload="none" hidden></audio>
     </div>
     <div id="map-tab-ch" class="map-tab" hidden>
+      <div id="map-find" class="find" hidden></div>
       <p class="meta">A channel lights up while one of the radios is receiving on it, and pulses when its transmission
         has been saved. Channels that would cover each other are drawn as one, with each name; click it to zoom in
         until they part, or to list them where they can't.</p>
@@ -137,6 +138,8 @@
       <ul id="map-placed" class="map-list"></ul>
       <h3>Not placed yet</h3>
       <ul id="map-unplaced" class="map-list"></ul>
+      <p id="map-find-hint" class="meta" hidden>To look a channel’s place up by its frequency instead, set up
+        RadioReference in <button id="map-find-admin" class="link">Admin</button>.</p>
     </div>
   </aside>
 </section>
@@ -162,6 +165,26 @@
       <button id="keep-save">Save</button>
     </div>
     <p class="meta" id="keep-status"></p>
+  </div>
+  <div class="panel">
+    <div class="row"><h3>RadioReference</h3></div>
+    <p class="meta">For the Map’s <strong>Find</strong>: a channel’s frequency is looked up in RadioReference, in the
+      county of the ZIP code here (the state’s, if the county has nothing), and so is where the FCC licence for it
+      says the transmitter is. It needs a RadioReference Premium subscription, and an app key for AirScribe, which
+      RadioReference issues to developers (<a href="https://www.radioreference.com/account/api/apply" target="_blank"
+      rel="noopener">apply here</a>). The password and key are kept on this server and not shown again.</p>
+    <div class="row wrap">
+      <label>Username <input id="rr-username" autocomplete="off" spellcheck="false" size="14"></label>
+      <label>Password <input id="rr-password" type="password" autocomplete="new-password" size="14"></label>
+      <label>App key <input id="rr-appkey" autocomplete="off" spellcheck="false" size="14"></label>
+      <label>ZIP code <input id="rr-zip" inputmode="numeric" maxlength="5" size="6"></label>
+    </div>
+    <div class="row wrap">
+      <button id="rr-save">Save</button>
+      <button id="rr-test">Test</button>
+      <button id="rr-forget" class="link" hidden>Forget these</button>
+    </div>
+    <p class="meta" id="rr-status"></p>
   </div>
 </section>
 <dialog id="controls">
