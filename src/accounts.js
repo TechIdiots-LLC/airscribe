@@ -222,7 +222,11 @@ export class Accounts {
     const u = key ? this.db.prepare('SELECT * FROM users WHERE username = ?').get(String(username).trim()) : null;
     if (!u) return null;
     const until = this.lockedUntil(key);
-    if (until) throw fail(`too many wrong passwords: try again after ${new Date(until).toLocaleTimeString()}`, 429);
+    if (until) {
+      // In minutes rather than a time of day: the server's clock may be on another time zone than the reader's
+      const minutes = Math.max(1, Math.ceil((until - this.now()) / 60000));
+      throw fail(`too many wrong passwords: try again in ${minutes} minute${minutes === 1 ? '' : 's'}`, 429);
+    }
     if (!u.password_hash || !verifyPassword(String(password ?? ''), u.password_hash)) {
       const f = this.failures.get(key) ?? { count: 0, first: this.now(), until: 0 };
       if (this.now() - f.first > LOCK_MS) Object.assign(f, { count: 0, first: this.now() });
