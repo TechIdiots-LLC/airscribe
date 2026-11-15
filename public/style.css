@@ -129,6 +129,7 @@ dialog#controls::backdrop { background: rgba(0, 0, 0, .5); }
 .find-marker.hl { z-index: 4; }
 .find-marker.hl span { transform: scale(1.35); }
 .find .credit { font-size: 12px; color: var(--muted); }
+.find .credit a { color: var(--accent); }
 @media (max-width: 800px) {
   #mapview { grid-template-columns: minmax(0, 1fr); }
   #mapview .map-wrap { height: 60vh; }
