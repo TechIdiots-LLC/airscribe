@@ -12,6 +12,10 @@ h1 { font-size: 18px; margin: 0; }
 h2 { font-size: 16px; margin: 0; }
 h3 { font-size: 14px; color: var(--muted); margin: 12px 0 4px; }
 main { display: grid; grid-template-columns: 320px 1fr; gap: 16px; padding: 16px; max-width: 1200px; margin: 0 auto; }
+/* A grid column grows to fit its widest unbroken line unless told it may
+   shrink: one long transcript with no spaces widened the whole page */
+main > section { min-width: 0; }
+.tx-text, .meta, .notes, #radios strong { overflow-wrap: anywhere; }
 @media (max-width: 800px) { main { grid-template-columns: 1fr; } }
 .row { display: flex; align-items: center; gap: 8px; margin-bottom: 8px; }
 .row h2 { flex: 1; }
