@@ -40,7 +40,7 @@ from htframe import FrameReader  # noqa: E402
 
 GET_HT_STATUS = bytes([0xFF, 0x01, 0x00, 0x00, 0x00, 0x02, 0x00, 0x14])
 SETTLE = 0.6  # the radio needs a moment to free a channel after a session ends
-CMD_NAMES = {0x00: "audio (odd)", 0x01: "AUDIO END", 0x02: "ack",
+CMD_NAMES = {0x00: "audio", 0x01: "AUDIO END", 0x02: "ack",
              0x03: "audio", 0x09: "transmit audio"}
 
 

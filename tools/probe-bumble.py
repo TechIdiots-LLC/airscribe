@@ -19,7 +19,8 @@ OS's own Bluetooth:
     python tools/probe-bumble.py --info                        # the dongle itself
     python tools/probe-bumble.py --scan                        # radios in range
     python tools/probe-bumble.py <MAC> --discover              # find the channels
-    python tools/probe-bumble.py <MAC> --control 1 --audio 2   # skip probing
+    python tools/probe-bumble.py <MAC>                         # find them and capture
+    python tools/probe-bumble.py <MAC> --control 4 --audio 2   # skip probing (a fresh radio only)
 
 Same rules as tools/probe-aoc.py: read-only, it sends GET_HT_STATUS and
 nothing else and never keys the transmitter, and the channels it keeps are
@@ -39,7 +40,7 @@ from bluez import GET_HT_STATUS, parse_ht_status  # noqa: E402
 from htframe import FrameReader  # noqa: E402
 
 SETTLE = 0.6  # the radio needs a moment to free a channel after a session ends
-CMD_NAMES = {0x00: "audio (odd)", 0x01: "AUDIO END", 0x02: "ack",
+CMD_NAMES = {0x00: "audio", 0x01: "AUDIO END", 0x02: "ack",
              0x03: "audio", 0x09: "transmit audio"}
 
 
@@ -105,6 +106,19 @@ async def open_channel(mux, ch, timeout=6):
     return Channel(await asyncio.wait_for(mux.open_dlc(ch), timeout))
 
 
+async def open_known(mux, ch, what):
+    """A channel named on the command line: a refusal is the radio, not a bug."""
+    try:
+        return await open_channel(mux, ch)
+    except Exception as e:
+        raise SystemExit(
+            f"\nThe radio refused {what} channel {ch} ({type(e).__name__} {e}).\n"
+            "It won't reopen a channel that was closed until its Bluetooth restarts,\n"
+            "and the control channel's number can change after one. Power-cycle the\n"
+            "radio and run without --control/--audio, which finds both and holds them."
+        )
+
+
 async def find_control(mux, last):
     print("looking for the control channel ...")
     for ch in range(1, last + 1):
@@ -147,12 +161,14 @@ async def find_audio(mux, ctrl, control_ch, last):
 
 async def capture(ctrl, audio, seconds, out):
     """Count the radio's audio frames through the project's own codec."""
-    reader, raw, counts, polls = FrameReader(), bytearray(), {}, []
+    reader, raw, sbc, counts, polls = FrameReader(), bytearray(), bytearray(), {}, []
 
     def on_data(data):
         raw.extend(data)
-        for cmd, _payload in reader.feed(data):
+        for cmd, payload in reader.feed(data):
             counts[cmd] = counts.get(cmd, 0) + 1
+            if cmd in (0x00, 0x03):
+                sbc.extend(payload)
 
     audio.on_data = on_data
     print(f"\ncapturing {seconds:g}s - key up another radio on this channel ...")
@@ -165,6 +181,13 @@ async def capture(ctrl, audio, seconds, out):
     with open(out, "wb") as fh:
         fh.write(raw)
     print(f"\n{len(raw)} bytes -> {out}")
+    if sbc:
+        # The audio frames' payload alone, which ffmpeg reads as raw SBC
+        sbc_out = os.path.splitext(out)[0] + ".sbc"
+        with open(sbc_out, "wb") as fh:
+            fh.write(sbc)
+        print(f"{len(sbc)} bytes of SBC -> {sbc_out}; to listen: "
+              f"ffmpeg -f sbc -i {sbc_out} {os.path.splitext(sbc_out)[0]}.wav")
     print("status polls (in_rx, squelch, rssi):", polls)
     if counts:
         print("frames decoded by sidecar/htframe.py:")
@@ -268,7 +291,7 @@ async def probe(dev, args):
         print("  RFCOMM up\n")
 
         if args.control:
-            ctrl, control_ch = await open_channel(mux, args.control), args.control
+            ctrl, control_ch = await open_known(mux, args.control, "control"), args.control
             st = await ht_status(ctrl)
             print(f"control channel {control_ch}: open (held), GAIA replied: {bool(st)}")
             if st:
@@ -278,7 +301,7 @@ async def probe(dev, args):
             print(f"  {await ht_status(ctrl)}")
 
         if args.audio:
-            audio_ch, audio = args.audio, await open_channel(mux, args.audio)
+            audio_ch, audio = args.audio, await open_known(mux, args.audio, "audio")
             st = await ht_status(ctrl)
             print(f"audio channel {audio_ch}: open (held), "
                   f"is_aoc_connected={st['aoc_connected'] if st else '?'}")
