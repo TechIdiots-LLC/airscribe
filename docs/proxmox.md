@@ -111,10 +111,12 @@ Restart the container, then in it install Bumble (the version CI tests) and chec
 ```sh
 apt update && apt install -y python3-venv libatomic1
 python3 -m venv /opt/bumble && /opt/bumble/bin/pip install "bumble==0.0.236"
-runuser -u airscribe -- /opt/bumble/bin/python /opt/airscribe/tools/probe-bumble.py --transport usb:0A12:0001 --info
+runuser -u airscribe -- /opt/bumble/bin/python /opt/airscribe/tools/probe-bumble.py --transport usb:0A12:0001 \
+  --keys /var/lib/airscribe/bumble-keys.json --info
 ```
 
-Run as `airscribe`, that also proves the service may open the dongle. Then point AirScribe at it, in
+Run as `airscribe`, that also proves the service may open the dongle. (`--keys` is AirScribe's own key file, which
+that user can read; the probe's default is `bumble-keys.json` in the current folder.) Then point AirScribe at it, in
 `/etc/airscribe/airscribe.config.json`:
 
 ```json

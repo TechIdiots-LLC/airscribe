@@ -356,6 +356,10 @@ async def main():
         import logging
         logging.basicConfig(level=logging.DEBUG)
 
+    # Bumble reads it at power-on even for --info, so say so now rather than as a traceback later
+    if os.path.exists(args.keys) and not os.access(args.keys, os.R_OK):
+        raise SystemExit(f"can't read {os.path.abspath(args.keys)} as this user: pass --keys a file it can "
+                         "read, such as /var/lib/airscribe/bumble-keys.json for the airscribe user")
     print(f"opening {args.transport} ...")
     try:
         t = await transport.open_transport(args.transport)
