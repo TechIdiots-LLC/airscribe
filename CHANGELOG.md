@@ -43,7 +43,8 @@
   FCC licence says its transmitter is, then the area RadioReference gives the listing, best match for the channel's
   name first and numbered on the map; **Place here** puts the channel there. It signs in with a RadioReference
   Premium account and an app key, set in **Admin → RadioReference**, where the password and key are never shown
-  again (docs/radioreference.md). Tested against a stand-in for the API, not yet with a real account.
+  again (docs/radioreference.md). Tested against a stand-in for the API; with a real account, signing in and the
+  ZIP code lookup work, and Find on real listings is still to be tried.
 - **Accounts and invites:** each person can have their own account, a viewer (reads everything, changes nothing)
   or an admin. **Admin → Users** adds them, changes their role, sets a password, signs them out, turns them off or
   deletes them, and makes **invite links**: one account each, with its role, for up to 30 days, kept only as a hash.
