@@ -193,6 +193,15 @@ class BumbleBackendTests(unittest.TestCase):
         self.assertEqual(len(self.of("status", state="connected")), 2, self.events)
         self.assertEqual(self.radio.control_opens, 2)
 
+    def test_shutting_down_twice_is_harmless(self):
+        # Signals and end of input can each ask; only the first does anything
+        self.backend.connect(RADIO)
+        self.backend.shutdown()
+        self.assertEqual((self.backend.links, self.stack.sessions), ({}, {}), "the radio was released")
+        self.assertTrue(self.stack.closed)
+        self.backend.shutdown()
+        self.assertEqual(len(self.of("status", state="disconnected")), 1, "and only once")
+
     def test_disconnect_releases_the_radio(self):
         self.backend.connect(RADIO)
         self.backend.disconnect(RADIO)

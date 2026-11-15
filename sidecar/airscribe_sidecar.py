@@ -23,6 +23,7 @@ import base64
 import json
 import signal
 import math
+import os
 import random
 import struct
 import subprocess
@@ -42,8 +43,17 @@ _out_lock = threading.Lock()
 
 def emit(obj):
     with _out_lock:
-        sys.stdout.write(json.dumps(obj) + "\n")
-        sys.stdout.flush()
+        try:
+            sys.stdout.write(json.dumps(obj) + "\n")
+            sys.stdout.flush()
+        except (BrokenPipeError, ValueError, OSError):
+            # The server has gone: it exits first when the service stops. An
+            # error here would cut short the teardown that's releasing the
+            # radios, so drop this and anything after it.
+            try:
+                sys.stdout = open(os.devnull, "w")
+            except OSError:
+                pass
 
 
 def _bluetoothctl(*args):
@@ -199,6 +209,30 @@ class BluezBackend:
             self.disconnect(mac)
 
 
+class Shutdown:
+    """Releases the radios once, however many ways the end arrives.
+
+    Stopping the service sends SIGTERM to every process in it, and the server
+    then kills this one as well, so two signals arrive together. A second
+    handler run inside the first would exit in the middle of the teardown:
+    with Bumble, while libusb was still closing, which aborted the process
+    (LXC 113) and can leave a radio's channels held. End of input is the third
+    way in.
+    """
+
+    def __init__(self, backend):
+        self.backend = backend
+        self.started = False
+
+    def __call__(self):
+        """Shut the backend down. True the first time, False after."""
+        if self.started:
+            return False
+        self.started = True
+        self.backend.shutdown()
+        return True
+
+
 def _bumble_backend(args):
     # Imported here: Bumble is only installed where this backend is used
     from bumble_link import BumbleBackend
@@ -235,9 +269,11 @@ def main():
 
     # The parent kills this process on shutdown, so releasing the radios has
     # to happen on a signal as well as on end-of-input.
+    shutdown = Shutdown(backend)
+
     def _on_signal(_signum, _frame):
-        backend.shutdown()
-        sys.exit(0)
+        if shutdown():
+            sys.exit(0)
 
     for _sig in (signal.SIGTERM, signal.SIGINT):
         try:
@@ -264,7 +300,7 @@ def main():
             emit({"id": req.get("id") if isinstance(req, dict) else None, "ok": False, "error": str(e)})
 
     # stdin closed: the parent has gone away.
-    backend.shutdown()
+    shutdown()
 
 
 if __name__ == "__main__":

@@ -178,6 +178,7 @@ class BumbleStack:
         self.thread.start()
         self.sessions = {}
         self.transport = None
+        self.closed = False
         try:
             self.device = self.run(self._start(open_device, keys, pin), 60)
         except Exception:
@@ -323,11 +324,18 @@ class BumbleStack:
             pass
 
     def close(self):
+        if self.closed:
+            return
+        self.closed = True
         for mac in list(self.sessions):
             self.drop(mac)
         if self.transport is not None:
+            # Bumble's USB close waits for its libusb event thread before
+            # freeing anything; stopping the loop before it has finished leaves
+            # libusb to be torn down under that thread, which aborts the
+            # process. So it gets time, and the loop stops after it.
             try:
-                self.run(self.transport.close(), 5)
+                self.run(self.transport.close(), 20)
             except Exception:
                 pass
         self.loop.call_soon_threadsafe(self.loop.stop)
