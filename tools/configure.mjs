@@ -8,7 +8,7 @@
 // --password-env names an environment variable holding the new password, so
 // the plaintext never appears in a process listing; only its scrypt hash is
 // written, as auth.passwordHash.
-import { readFileSync, renameSync, writeFileSync } from 'node:fs';
+import { chownSync, readFileSync, renameSync, statSync, writeFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import { hashPassword } from '../src/auth.js';
 
@@ -70,7 +70,11 @@ function main(argv) {
   configure(config, opts);
   // Written beside and renamed over, so a crash leaves the old file whole
   const tmp = `${file}.tmp`;
+  const was = statSync(file);
   writeFileSync(tmp, `${JSON.stringify(config, null, 2)}\n`, { mode: 0o640 });
+  // Run by root, the new file would be root's alone, and the service, which
+  // reads it as root:airscribe 0640, would fail to start. Keep the old owners.
+  if (process.getuid?.() === 0) chownSync(tmp, was.uid, was.gid);
   renameSync(tmp, file);
   return 0;
 }

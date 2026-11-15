@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, readFileSync, writeFileSync } from 'node:fs';
+import { chownSync, mkdtempSync, readFileSync, statSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { configure, hasCredential } from '../tools/configure.mjs';
@@ -50,3 +50,13 @@ test('the command line keeps the rest of the file and takes the password from th
   writeFileSync(file, '{}');
   assert.equal(has(file), false);
 });
+
+test('run as root, it keeps the file owned as it was, so the service can still read it',
+  { skip: process.getuid?.() !== 0 && 'needs root' }, () => {
+    const file = join(mkdtempSync(join(tmpdir(), 'configure-')), 'c.json');
+    writeFileSync(file, '{"port": 8100}');
+    chownSync(file, 0, 4321);
+    execFileSync(process.execPath, [TOOL, file, '--port', '8200']);
+    const st = statSync(file);
+    assert.deepEqual([st.uid, st.gid, st.mode & 0o777], [0, 4321, 0o640]);
+  });
