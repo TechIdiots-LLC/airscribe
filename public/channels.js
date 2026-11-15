@@ -100,9 +100,10 @@ async function load(region) {
   }
 }
 
-/** A tone pair as one column: the same both ways, or receive / transmit. */
+/** A tone pair as one column: the same both ways, or receive / transmit. A
+ * receive-only channel's transmit tone doesn't matter, so it isn't shown. */
 function tones(c) {
-  if (c.rx_tone === c.tx_tone) return c.rx_tone || '';
+  if (c.tx_disable || c.rx_tone === c.tx_tone) return c.rx_tone || '';
   return `${c.rx_tone || 'none'} / ${c.tx_tone || 'none'}`;
 }
 
