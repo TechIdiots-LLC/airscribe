@@ -12,6 +12,8 @@
 - **`tools/probe-bumble.py` in a container:** in an unprivileged Proxmox container it paired with a UV-Pro, found
   its channels and captured its audio (docs/bluetooth.md; docs/proxmox.md has the steps). A capture is also saved
   as raw SBC, which ffmpeg turns into a WAV, and a dongle or channel that won't open says why.
+- **Transcription on the GPU, confirmed:** the `openvino` engine runs on an Arc A750 from an unprivileged Proxmox
+  container, with Ubuntu 24.04's own Intel compute runtime; docs/proxmox.md has the steps as they were run.
 - **Template:** new containers have the `en_US.UTF-8` locale, so `pct enter` no longer brings locale warnings to
   every apt command, and the login message says to run `apt update` before the first `apt install`.
 

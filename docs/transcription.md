@@ -143,8 +143,11 @@ because the wrong encoder produces gibberish instead of an error.
 
 sherpa-onnx's published packages run on the CPU or on CUDA, and ONNX Runtime
 has no Vulkan backend, so an Intel Arc card needs one of two other routes.
-Neither has been run on a real card yet; the plan is to try both on the same
-clips and keep whichever reads them better.
+**OpenVINO runs on a real card:** an Arc A750, from an unprivileged Proxmox
+container, with Ubuntu 24.04's own `intel-opencl-icd` (23.43) and OpenVINO
+2026.4.1, transcribing live traffic ([proxmox.md](proxmox.md) has the steps
+as they were run). whisper.cpp with Vulkan hasn't been run on the card yet;
+the plan is to run both on the same clips and keep whichever reads them better.
 
 | | [OpenVINO](#openvino) | [whisper.cpp built with Vulkan](#whispercpp-on-a-gpu-vulkan) |
 | --- | --- | --- |

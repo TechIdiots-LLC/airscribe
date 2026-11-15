@@ -51,19 +51,52 @@ real one from [transcription.md](transcription.md).
 
 ## Transcription on the host's Intel GPU
 
-Map the GPU's render node into the container. Find which node is the card on the host, and the `render` group's id
-inside the container:
+Map the GPU's render node into the container. Find which node is the card on the host (`ls -l /dev/dri/by-path/`),
+then, with the `render` group's id looked up in the container (use the next free `devN`; the dongle may have `dev0`):
 
 ```sh
-ls -l /dev/dri/by-path/                      # on the host
-pct exec 140 -- getent group render          # in the container
-pct set 140 -dev0 /dev/dri/renderD128,gid=<that id>
-pct reboot 140
+gid=$(pct exec <id> -- getent group render | cut -d: -f3); echo "render gid: $gid"
+[ -n "$gid" ] && pct set <id> -dev1 /dev/dri/renderD128,gid=$gid
+pct reboot <id>
 ```
 
 Several containers can map the same render node and use the card at once, so a media server can keep transcoding on
-it. The package adds the service account to `render`. Then set up OpenVINO or whisper.cpp with Vulkan as
-[transcription.md](transcription.md#using-an-intel-gpu) describes.
+it. The package adds the service account to `render`.
+
+**OpenVINO, as it was set up on an Arc A750 (pve1, LXC 113), where it runs on the GPU:** Ubuntu 24.04's own compute
+runtime (`intel-opencl-icd` 23.43) was enough for OpenVINO 2026.4.1. In the container:
+
+```sh
+apt install -y intel-opencl-icd clinfo
+runuser -u airscribe -- clinfo -l                     # lists the card
+python3 -m venv /opt/openvino
+/opt/openvino/bin/pip install "openvino-genai>=2026.4" huggingface_hub
+runuser -u airscribe -- /opt/openvino/bin/python -c "from openvino import Core; print(Core().available_devices)"
+/opt/openvino/bin/hf download OpenVINO/whisper-base.en-fp16-ov --local-dir /var/lib/airscribe/models/whisper-base.en-fp16-ov
+install -d -o airscribe -g airscribe /var/lib/airscribe/ov-cache
+chown -R airscribe:airscribe /var/lib/airscribe/models
+```
+
+The device list should be `['CPU', 'GPU']` (a `hwloc … invalid information` notice before it, about how the
+container's cores map onto the host's, is harmless). Then set `stt` in `/etc/airscribe/airscribe.config.json`:
+
+```json
+"stt": {
+  "engine": "openvino",
+  "openvino": {
+    "python": "/opt/openvino/bin/python",
+    "modelDir": "/var/lib/airscribe/models/whisper-base.en-fp16-ov",
+    "device": "GPU",
+    "cacheDir": "/var/lib/airscribe/ov-cache",
+    "language": "en"
+  }
+}
+```
+
+`systemctl restart airscribe`. The first transmission logs `[stt] openvino worker running on GPU` (or the reason it
+fell back to the CPU) and is slow while the model compiles for the card; `ov-cache` keeps the result. Clips recorded
+before the change can be read again with `POST /api/transcribe-missing?engine=openvino`. whisper.cpp with Vulkan is
+the other route ([transcription.md](transcription.md#using-an-intel-gpu)); it hasn't been run on the card yet.
 
 ## Radios over Bluetooth
 

@@ -24,7 +24,7 @@ npm run simulate        # fake radio + mock transcriber, no hardware needed
 | Web UI: radios, live status, transcript feed, search, downloads | working (against the simulator) |
 | Segmenting audio into one clip per transmission | working; replaying a real 3-transmission capture yields 3 clips |
 | Pluggable transcription: sherpa-onnx, whisper.cpp (per clip or a warm whisper-server), any command, mock | working; not yet run against a real model |
-| Intel GPU transcription through OpenVINO or whisper.cpp's Vulkan backend | run against real models on a CPU; not yet on a GPU |
+| Intel GPU transcription through OpenVINO or whisper.cpp's Vulkan backend | OpenVINO working on an Arc A750 from a Proxmox container; whisper.cpp with Vulkan not yet run on a GPU |
 | Proxmox LXC template and .deb, built and boot-tested by GitLab CI | working |
 | Radios from an LXC container: the `bumble` backend, a USB dongle without the system's Bluetooth | working: in an unprivileged Proxmox container it connected to a real UV-Pro and recorded its transmissions, see [docs/proxmox.md](docs/proxmox.md) |
 | Admin → Updates: install a newer release from the browser | working against local releases; see [docs/updating.md](docs/updating.md) |
