@@ -663,6 +663,13 @@ function showLogin(session = {}, message = '') {
       ? 'Your account’s username and password. No account? Ask an admin for an invite link.'
       : 'A new Proxmox container leaves its first password in /root/airscribe-first-login.txt.';
   $('login-error').textContent = message;
+  // Google, GitHub, ... where an admin has turned them on: each signs in only an account that linked it
+  const providers = session.providers ?? [];
+  $('login-providers').hidden = !providers.length;
+  $('login-providers').replaceChildren(...(providers.length ? [
+    el('span', { className: 'meta' }, 'Or sign in with'),
+    ...providers.map((p) => el('button', { type: 'button', onclick: () => { location.href = `/api/auth/${p.id}/start`; } }, p.name)),
+  ] : []));
   $('login').hidden = false;
   (session.username && !$('login-user').value ? $('login-user') : $('login-pass')).focus();
 }
@@ -707,7 +714,7 @@ $('logout').onclick = async () => {
 
 /** @returns {string|null} The invite this page was opened with, if any. */
 const inviteToken = () => /^#invite=([A-Za-z0-9_-]{20,})$/.exec(location.hash)?.[1] ?? null;
-const dropInvite = () => history.replaceState(null, '', location.pathname + location.search);
+const dropHash = () => history.replaceState(null, '', location.pathname + location.search);
 
 /** @param {string} invite - The token. @returns {Promise<void>} The join page, once the invite is checked. */
 async function showJoin(invite) {
@@ -750,7 +757,7 @@ $('join-form').onsubmit = async (event) => {
     }
     $('join-pass').value = '';
     $('join-pass2').value = '';
-    dropInvite();
+    dropHash();
     $('join').hidden = true;
     boot();
   } catch (e) {
@@ -759,8 +766,74 @@ $('join-form').onsubmit = async (event) => {
 };
 
 $('join-signin').onclick = () => {
-  dropInvite();
+  dropHash();
   $('join').hidden = true;
+  boot();
+};
+
+// ---- Back from Google, GitHub, ... -------------------------------------------
+// The server sends the browser back to /#signin:error=..., /#signin:link (an
+// outside account no one has linked), /#account:linked=... or /#account:error=...
+
+/** @returns {{where: string, key: string, value: string} | null} What the address after the # says. */
+function signinNote() {
+  const m = /^#(signin|account):(\w+)(?:=(.*))?$/.exec(location.hash);
+  if (!m) return null;
+  let value = m[3] ?? '';
+  try { value = decodeURIComponent(value); } catch { /* left as it came */ }
+  return { where: m[1], key: m[2], value };
+}
+
+/** @returns {Promise<void>} The page for linking an outside account no one has linked, with a password. */
+async function showLinkWait() {
+  $('link-wait').hidden = false;
+  $('link-error').textContent = '';
+  $('link-fields').hidden = true;
+  $('link-submit').hidden = true;
+  $('link-about').textContent = 'Checking…';
+  const res = await fetch('/api/auth/waiting').catch(() => null);
+  const body = await res?.json().catch(() => ({}));
+  if (!res?.ok) {
+    $('link-about').textContent = body?.error ?? 'AirScribe couldn’t be reached.';
+    return;
+  }
+  const who = [body.who.name, body.who.email ? `(${body.who.email})` : ''].filter(Boolean).join(' ');
+  $('link-title').textContent = `Link your ${body.name} account`;
+  $('link-about').textContent = `Your ${body.name} account${who ? `, ${who},` : ''} isn’t linked to an AirScribe ` +
+    `account yet. Sign in with your AirScribe username and password to link it; after that, signing in with ` +
+    `${body.name} is enough. No AirScribe account? Ask an admin for an invite link.`;
+  $('link-fields').hidden = false;
+  $('link-submit').hidden = false;
+  $('link-user').focus();
+}
+
+$('link-form').onsubmit = async (event) => {
+  event.preventDefault();
+  $('link-error').textContent = '';
+  try {
+    const res = await fetch('/api/auth/waiting', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ username: $('link-user').value, password: $('link-pass').value }),
+    });
+    if (!res.ok) {
+      $('link-error').textContent = res.status === 401
+        ? 'Not accepted. Check them and try again.'
+        : (await res.json().catch(() => ({}))).error || res.statusText;
+      return;
+    }
+    $('link-pass').value = '';
+    dropHash();
+    $('link-wait').hidden = true;
+    boot();
+  } catch (e) {
+    $('link-error').textContent = e.message;
+  }
+};
+
+$('link-cancel').onclick = () => {
+  dropHash();
+  $('link-wait').hidden = true;
   boot();
 };
 
@@ -768,6 +841,8 @@ $('join-signin').onclick = () => {
 async function boot() {
   const invite = inviteToken();
   if (invite) return showJoin(invite);
+  const note = signinNote();
+  if (note?.where === 'signin' && note.key === 'link') return showLinkWait();
   let session = null;
   try {
     session = await api('/session');
@@ -779,7 +854,9 @@ async function boot() {
     const stale = Boolean(token);
     token = '';
     rememberToken('');
-    showLogin(session, stale ? 'The saved API token was not accepted. Sign in again.' : '');
+    if (note) dropHash();
+    showLogin(session, note?.key === 'error' ? note.value
+      : stale ? 'The saved API token was not accepted. Sign in again.' : '');
     return;
   }
   // Before the feed draws, so an admin's rows have their Delete
@@ -799,6 +876,12 @@ async function boot() {
   showView('main');
   listen();
   document.dispatchEvent(new CustomEvent('airscribe:signed-in', { detail: session }));
+  // Back from linking an outside account: the account page says how it went
+  if (note) dropHash();
+  if (note?.where === 'account' && session?.user) {
+    showView('account');
+    document.dispatchEvent(new CustomEvent('airscribe:account-note', { detail: note }));
+  }
 }
 
 boot();

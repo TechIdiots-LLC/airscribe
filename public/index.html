@@ -25,6 +25,27 @@
     <p class="meta" id="login-hint"></p>
     <p class="error" id="login-error"></p>
     <button type="submit">Sign in</button>
+    <div id="login-providers" class="providers" hidden></div>
+  </form>
+</div>
+<div class="overlay" id="link-wait" hidden>
+  <form class="card" id="link-form">
+    <h1>AirScribe</h1>
+    <h2 id="link-title">Link it to your account</h2>
+    <p class="meta" id="link-about"></p>
+    <div id="link-fields">
+      <div class="field">
+        <label for="link-user">Username</label>
+        <input id="link-user" autocomplete="username" spellcheck="false">
+      </div>
+      <div class="field">
+        <label for="link-pass">Password</label>
+        <input id="link-pass" type="password" autocomplete="current-password">
+      </div>
+    </div>
+    <p class="error" id="link-error"></p>
+    <button type="submit" id="link-submit">Sign in and link it</button>
+    <button type="button" class="link" id="link-cancel">Not now</button>
   </form>
 </div>
 <div class="overlay" id="join" hidden>
@@ -180,6 +201,16 @@
     </div>
     <p class="meta" id="pw-status">Changing it signs out every other browser signed in to this account.</p>
   </div>
+  <div class="panel" id="links-panel" hidden>
+    <div class="row"><h3>Signing in with another account</h3></div>
+    <p class="meta">Link an outside account to sign in with it instead of your password. It only ever signs in to this
+      account, and linking or unlinking one asks for your password.</p>
+    <ul id="links" class="user-list"></ul>
+    <div class="row wrap">
+      <label>Your password <input id="links-pass" type="password" autocomplete="current-password" size="14"></label>
+    </div>
+    <p class="meta" id="links-status"></p>
+  </div>
   <div class="panel">
     <div class="row"><h3>Signed in elsewhere</h3></div>
     <p class="meta">Signs out every other browser and device signed in to this account. This one stays signed in.</p>
@@ -212,6 +243,20 @@
       <button id="user-add">Add</button>
     </div>
     <p class="meta" id="users-status"></p>
+  </div>
+  <div class="panel">
+    <div class="row"><h3>Sign-in providers</h3></div>
+    <p class="meta">People can sign in with Google, GitHub, Discord or Facebook once they’ve linked it under their
+      account. For each provider: make an OAuth app in its console, give it the redirect URI shown here exactly, and
+      enter its client ID and secret. A provider only sends people back to an address registered with it, so this
+      server needs one they can reach (Google takes <code>http://</code> only for localhost; see
+      docs/linked-logins.md).</p>
+    <div class="row wrap">
+      <label>This server’s address <input id="logins-url" size="34" spellcheck="false"></label>
+    </div>
+    <ul id="logins" class="user-list"></ul>
+    <div class="row"><button id="logins-save">Save</button></div>
+    <p class="meta" id="logins-status"></p>
   </div>
   <div class="panel">
     <div class="row"><h3>Updates</h3><button id="updates-check">Check now</button></div>
@@ -265,5 +310,6 @@
 <script src="map.js" type="module"></script>
 <script src="admin.js" type="module"></script>
 <script src="users.js" type="module"></script>
+<script src="logins.js" type="module"></script>
 </body>
 </html>

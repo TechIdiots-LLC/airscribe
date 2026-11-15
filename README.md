@@ -34,12 +34,14 @@ npm run simulate        # fake radio + mock transcriber, no hardware needed
 | Protocol assumptions (service UUID, GAIA framing, status bits, SBC parameters) | confirmed against a real UV-Pro — see [docs/bluetooth.md](docs/bluetooth.md#verified-against-a-real-uv-pro) |
 | Audio frame codec (`sidecar/htframe.py`) | parses a real 248 kB / 799-frame capture, end markers included |
 | Feed: paging, search, channel filter, Play new, cleanup; Insights; Map of channels | working (checked in a browser against simulated radios and seeded data) |
-| Accounts, roles and invite links; sign-ins kept across restarts | working, see [docs/accounts.md](docs/accounts.md) |
+| Accounts, roles and invite links; sign-ins kept across restarts | working (checked in a browser), see [docs/accounts.md](docs/accounts.md) |
+| Signing in with Google, GitHub, Discord or Facebook, once linked | working against a stand-in provider; not yet against the real ones, see [docs/linked-logins.md](docs/linked-logins.md) |
 | Map → Find: a channel's place from RadioReference and the FCC licence | working against a stand-in for RadioReference's API; not yet with a real account, see [docs/radioreference.md](docs/radioreference.md) |
 | Public page, delayed publishing, RSS | design only, see [docs/publishing.md](docs/publishing.md) |
 | Digital modes (AFSK/IRC/file transfer) | design only, see [docs/digital-modes.md](docs/digital-modes.md) |
 
-Documentation: [installing](docs/installing.md) · [accounts](docs/accounts.md) · [Proxmox template](docs/proxmox.md) ·
+Documentation: [installing](docs/installing.md) · [accounts](docs/accounts.md) ·
+[linked sign-ins](docs/linked-logins.md) · [Proxmox template](docs/proxmox.md) ·
 [updating](docs/updating.md) · [testing](docs/testing.md) ·
 [publishing](docs/publishing.md) ·
 [segmentation](docs/segmentation.md) ·

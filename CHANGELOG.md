@@ -50,6 +50,11 @@
   The name in the header opens **your account**, to change your password or sign out everywhere else. Five wrong
   passwords lock an account for 15 minutes. Sign-ins now outlast a restart or an update. The settings file's
   password and API tokens keep working beside accounts, the password as a way back in (docs/accounts.md).
+- **Sign in with Google, GitHub, Discord or Facebook:** link one under your account (with your password) and sign
+  in with it instead, as in WifiDB and tippr. An outside account only ever signs in to the account that linked it,
+  never matched by e-mail; one not linked yet is linked by signing in with your password, within 10 minutes. Each
+  provider is turned on in **Admin → Sign-in providers** with its own OAuth app's client ID and secret, and the page
+  shows the redirect URI to register (docs/linked-logins.md). OAuth 2 code flow on the server, PKCE for Google.
 - **Insights:** a view beside the feed, for the last day, week, month or everything, for one radio or channel:
   a word cloud of what was said (common English words and a model's own annotations such as "(static)" left out;
   unit and call numbers kept), transmissions per hour or day, busy hours by weekday, and each channel's

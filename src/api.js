@@ -3,7 +3,8 @@ import { existsSync } from 'node:fs';
 import { join, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { MODELS, guessModel, normalizeMac } from './models.js';
-import { createAuth } from './auth.js';
+import { createAuth, readCookie } from './auth.js';
+import { PROVIDERS } from './logins.js';
 import { PUBLISH_DEFAULTS, publicCutoff, publishable, publicView } from './publish.js';
 import { insights } from './insights.js';
 
@@ -135,11 +136,13 @@ const PUBLIC_CLIP = /^\/public\/transmissions\/\d+\/(audio|text)$/;
  * @param {import('./cleanup.js').Cleanup} [o.cleanup] - Admin → Storage.
  * @param {import('./radioreference.js').RadioReference} [o.radioreference] - Map → Find.
  * @param {import('./accounts.js').Accounts} [o.accounts] - People's accounts and invites.
+ * @param {import('./logins.js').Logins} [o.logins] - Signing in with Google, GitHub, Discord or Facebook.
  * @returns {import('express').Express} The app.
  */
-export function createApp({ manager, store, sidecar, config, dataDir, updates, cleanup, radioreference, accounts }) {
+export function createApp({ manager, store, sidecar, config, dataDir, updates, cleanup, radioreference, accounts, logins }) {
   const app = express();
-  const auth = createAuth(config, { accounts });
+  const linked = accounts && logins ? logins : null;
+  const auth = createAuth(config, { accounts, providers: () => linked?.enabled() ?? [] });
   app.use(express.json({ limit: '32kb' }));
   app.get('/healthz', (req, res) => res.json({ ok: true }));
 
@@ -208,6 +211,93 @@ export function createApp({ manager, store, sidecar, config, dataDir, updates, c
       return { ok: true, user };
     }));
   }
+
+  // ---- Signing in with Google, GitHub, Discord or Facebook ---------------
+  // The provider sends the browser back to /api/auth/<provider>/callback, so
+  // this is before signing in too. Where it ends, the page is told by the
+  // part of the address after the # (#signin:..., #account:...).
+  const STATE_COOKIE = 'airscribe_oauth';     // the sign-in under way
+  const WAITING_COOKIE = 'airscribe_link';    // an outside account waiting to be linked
+  const flowCookie = (req) => ({ httpOnly: true, sameSite: 'lax', secure: req.secure, path: '/api/auth', maxAge: 10 * 60 * 1000 });
+  const backTo = (res, fragment) => res.redirect(303, fragment ? `/#${fragment}` : '/');
+  /** A password asked for again, before linking or unlinking. */
+  const checkPassword = (req, id) => {
+    if (auth.tooMany(req)) throw refuse('too many tries from here: wait a few minutes', 429);
+    if (!accounts.passwordIs(id, req.body?.password)) {
+      auth.missed(req);
+      throw refuse('that password isn’t right', 403);
+    }
+  };
+  if (linked) {
+    api.get('/auth/:provider/start', (req, res) => {
+      try {
+        const { url, token } = linked.start(String(req.params.provider), req, { purpose: 'signin' });
+        res.cookie(STATE_COOKIE, token, flowCookie(req));
+        res.redirect(303, url);
+      } catch (e) {
+        backTo(res, `signin:error=${encodeURIComponent(e.message)}`);
+      }
+    });
+    api.get('/auth/:provider/callback', async (req, res) => {
+      const provider = String(req.params.provider);
+      const q = (k) => (typeof req.query[k] === 'string' ? req.query[k] : undefined);
+      res.clearCookie(STATE_COOKIE, { path: '/api/auth' });
+      let done;
+      try {
+        done = await linked.finish(provider, { code: q('code'), state: q('state'), error: q('error'), cookie: readCookie(req, STATE_COOKIE) });
+      } catch (e) {
+        return backTo(res, `${e.purpose === 'link' ? 'account' : 'signin'}:error=${encodeURIComponent(e.message)}`);
+      }
+      if (done.purpose === 'link') {
+        try {
+          if (!accounts.user(done.userId)) throw refuse('that account is gone', 404);
+          accounts.link(done.userId, provider, done.identity);
+          return backTo(res, `account:linked=${provider}`);
+        } catch (e) {
+          return backTo(res, `account:error=${encodeURIComponent(e.message)}`);
+        }
+      }
+      // Signing in: only the account it was linked to, and never by e-mail address
+      const user = accounts.linkedUser(provider, done.identity.subject);
+      if (!user) {
+        res.cookie(WAITING_COOKIE, linked.hold(provider, done.identity), flowCookie(req));
+        return backTo(res, 'signin:link');
+      }
+      if (user.disabled) return backTo(res, `signin:error=${encodeURIComponent('this account is turned off; an admin can turn it back on')}`);
+      accounts.touchLink(provider, done.identity.subject);
+      auth.startSession(req, res, { userId: user.id, role: user.role });
+      backTo(res, '');
+    });
+    // The outside account waiting to be linked, and linking it with a password
+    api.get('/auth/waiting', answer((req) => {
+      const held = linked.held(readCookie(req, WAITING_COOKIE));
+      if (!held) throw refuse('nothing is waiting to be linked: sign in with it again', 404);
+      return { provider: held.provider, name: PROVIDERS[held.provider].name, who: { name: held.identity.name, email: held.identity.email } };
+    }));
+    api.post('/auth/waiting', answer((req, res) => {
+      if (auth.tooMany(req)) throw refuse('too many tries from here: wait a few minutes', 429);
+      const token = readCookie(req, WAITING_COOKIE);
+      const held = linked.held(token);
+      if (!held) throw refuse('nothing is waiting to be linked: sign in with it again', 404);
+      let user;
+      try {
+        user = accounts.signIn(req.body?.username, req.body?.password);
+      } catch (e) {
+        if (e.status === 401) auth.missed(req);
+        throw e;
+      }
+      if (!user) {
+        auth.missed(req);
+        throw refuse('not accepted', 401);
+      }
+      accounts.link(user.id, held.provider, held.identity);
+      linked.release(token);
+      res.clearCookie(WAITING_COOKIE, { path: '/api/auth' });
+      accounts.touchLink(held.provider, held.identity.subject);
+      auth.startSession(req, res, { userId: user.id, role: user.role });
+      return { ok: true, provider: held.provider };
+    }));
+  }
   // ---- the public surface -------------------------------------------
   // No credential: this is what the node has chosen to publish. Everything
   // here is filtered by the same predicate, never by the caller's request.
@@ -265,7 +355,24 @@ export function createApp({ manager, store, sidecar, config, dataDir, updates, c
       if (!req.user) throw refuse('this sign-in isn’t an account’s (the settings file’s password, or a token)', 400);
       return req.user.id;
     };
-    api.get('/account', answer((req) => accounts.user(mine(req))));
+    // With the providers one may link, for the account page
+    api.get('/account', answer((req) => ({ ...accounts.user(mine(req)), providers: linked?.enabled() ?? [] })));
+    if (linked) {
+      // Linking asks for the password, and goes on at the provider; unlinking asks for it too
+      api.post('/account/links/:provider', answer((req, res) => {
+        const id = mine(req);
+        checkPassword(req, id);
+        const { url, token } = linked.start(String(req.params.provider), req, { purpose: 'link', userId: id });
+        res.cookie(STATE_COOKIE, token, flowCookie(req));
+        return { url };
+      }));
+      api.delete('/account/links/:provider', answer((req) => {
+        const id = mine(req);
+        checkPassword(req, id);
+        if (!accounts.unlink(id, String(req.params.provider))) throw refuse('nothing from there is linked', 404);
+        return { ...accounts.user(id), providers: linked.enabled() };
+      }));
+    }
     api.put('/account/password', answer((req) => {
       accounts.setPassword(mine(req), req.body?.password, { current: String(req.body?.current ?? ''), keep: auth.sessionId(req) });
       return accounts.user(req.user.id);
@@ -318,6 +425,14 @@ export function createApp({ manager, store, sidecar, config, dataDir, updates, c
       if (!accounts.revokeInvite(id(req))) throw refuse('no unused invite by that number', 404);
       return { ok: true };
     }));
+    // Admin → Sign-in providers: each one's OAuth app, and the address to register with it
+    if (linked) {
+      api.get('/admin/logins', admin, answer((req) => linked.settings(req)));
+      api.put('/admin/logins', admin, answer((req) => {
+        linked.save(req.body ?? {});
+        return linked.settings(req);
+      }));
+    }
   }
 
   // ---- everything past here is the operator's -------------------------

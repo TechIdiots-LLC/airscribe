@@ -11,6 +11,7 @@ import { Updates, VERSION } from './updates.js';
 import { Cleanup } from './cleanup.js';
 import { RadioReference } from './radioreference.js';
 import { Accounts } from './accounts.js';
+import { Logins } from './logins.js';
 
 const args = process.argv.slice(2);
 const flag = (n) => args.includes(n);
@@ -71,7 +72,11 @@ const cleanup = new Cleanup({ manager, store, dataDir: config.dataDir });
 cleanup.start();
 // Map → Find: where a channel is, from RadioReference, once an admin sets it up
 const radioreference = new RadioReference({ store, config: config.radioreference });
-const app = createApp({ manager, store, sidecar, config, dataDir: config.dataDir, updates, cleanup, radioreference, accounts });
+// Signing in with Google, GitHub, Discord or Facebook, once an admin turns one on
+const logins = new Logins({ store, accounts, config: config.auth });
+const app = createApp({
+  manager, store, sidecar, config, dataDir: config.dataDir, updates, cleanup, radioreference, accounts, logins,
+});
 
 // Two listeners in front of one app when adminPort is set: the public one
 // serves only the public surface, and the admin one everything. Binding the

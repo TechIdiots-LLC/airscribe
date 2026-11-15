@@ -259,6 +259,10 @@ button:disabled { opacity: .5; cursor: default; }
 .field input { padding: 8px 10px; }
 .card button[type=submit] { padding: 8px; background: var(--accent); border-color: var(--accent); color: #fff; }
 .card .meta:empty, .card .error:empty { display: none; }
-#join-fields { display: flex; flex-direction: column; gap: 12px; }
+#join-fields, #link-fields { display: flex; flex-direction: column; gap: 12px; }
+/* Or sign in with Google, GitHub, ... */
+.providers { display: flex; flex-wrap: wrap; justify-content: center; gap: 6px; padding-top: 4px; }
+.providers .meta { width: 100%; text-align: center; margin: 0; }
+.providers button { padding: 6px 12px; }
 .card .error { color: var(--bad); font-size: 13px; margin: 0; }
 .card .meta { margin: 0; }

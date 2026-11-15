@@ -49,7 +49,9 @@ accounts never lock every admin out.
 ## Your account
 
 The name in the header opens it: change your password (which signs out every
-other browser signed in to the account), or sign out everywhere but here.
+other browser signed in to the account), link Google, GitHub, Discord or
+Facebook to sign in with ([linked-logins.md](linked-logins.md)), or sign out
+everywhere but here.
 
 ## Signing in
 
