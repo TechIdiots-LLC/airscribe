@@ -263,7 +263,12 @@ export class Store {
    * @returns {object | undefined} The row.
    */
   transmission(id) {
-    const row = this.db.prepare('SELECT * FROM transmissions WHERE id = ?').get(id);
+    // With the radio's name, as the list has it: a single clip's download and
+    // a live update name the radio too
+    const row = this.db
+      .prepare(`SELECT t.*, r.name AS radio_name, r."group" AS radio_group
+                  FROM transmissions t LEFT JOIN radios r ON r.mac = t.mac WHERE t.id = ?`)
+      .get(id);
     return row ? this.withTranscripts([row])[0] : undefined;
   }
 

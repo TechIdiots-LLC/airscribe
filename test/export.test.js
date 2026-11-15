@@ -5,7 +5,7 @@ import { createApp } from '../src/api.js';
 
 const ROWS = [
   {
-    id: 7, mac: 'AA:BB:CC:DD:EE:FF', started_at: 1758576694000, duration_ms: 6300,
+    id: 7, mac: 'AA:BB:CC:DD:EE:FF', radio_name: 'Fire dispatch', started_at: 1758576694000, duration_ms: 6300,
     transmit: 0, channel: 3, channel_name: 'Holden PD', channel_hz: 460387500,
     status: 'done', text: 'The', engine: 'base',
     transcripts: [
@@ -54,7 +54,7 @@ test('it carries the context the transcript needs to mean anything', async () =>
   assert.match(body, /Holden PD/);
   assert.match(body, /460\.3875 MHz/);
   assert.match(body, /6\.3s · heard/);
-  assert.match(body, /AA:BB:CC:DD:EE:FF/);
+  assert.match(body, /Fire dispatch · AA:BB:CC:DD:EE:FF/, 'which radio, by the name it was given');
 });
 
 test('a clip with no channel says so rather than inventing one', async () => {
@@ -74,8 +74,10 @@ test('exporting as CSV gives one row per transcript', async () => {
   const res = await fetch(`${base}/transmissions/export?format=csv`);
   assert.match(res.headers.get('content-type'), /text\/csv/);
   const lines = (await res.text()).trim().split('\n');
-  assert.match(lines[0], /^id,started_at,iso,mac,channel,channel_name/);
+  assert.match(lines[0], /^id,started_at,iso,mac,radio,channel,channel_name/);
   assert.equal(lines.length, 1 + 4, 'header plus three transcripts for id 7 and one for id 8');
+  assert.match(lines[1], /,AA:BB:CC:DD:EE:FF,Fire dispatch,3,Holden PD,/);
+  assert.match(lines[4], /,AA:BB:CC:DD:EE:FF,,,/, 'no name and no channel are empty cells, not "undefined"');
 });
 
 test('CSV quoting survives commas and quotes in a transcript', async () => {

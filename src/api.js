@@ -26,7 +26,7 @@ function describe(t, scripts) {
   const hz = t.channel_hz ? `${(t.channel_hz / 1e6).toFixed(4)} MHz` : null;
   const width = Math.max(1, ...scripts.map((s) => s.engine.length));
   return [
-    `${new Date(t.started_at).toISOString()}  ${t.mac}`,
+    `${new Date(t.started_at).toISOString()}  ${t.radio_name ? `${t.radio_name} · ` : ''}${t.mac}`,
     [where, hz].filter(Boolean).join(' · ') || 'channel unknown',
     `${(t.duration_ms / 1000).toFixed(1)}s · ${t.transmit ? 'sent' : 'heard'}`,
     '',
@@ -330,12 +330,12 @@ export function createApp({ manager, store, sidecar, config, dataDir, updates })
     if (req.query.format === 'csv') {
       // A row per transcript rather than per transmission: engines differ
       // between clips, so a column each would be mostly empty.
-      const head = ['id', 'started_at', 'iso', 'mac', 'channel', 'channel_name',
+      const head = ['id', 'started_at', 'iso', 'mac', 'radio', 'channel', 'channel_name',
         'channel_hz', 'duration_ms', 'transmit', 'engine', 'status', 'text'];
       const lines = [head.join(',')];
       for (const t of rows) {
         for (const s of t.transcripts ?? []) {
-          lines.push([t.id, t.started_at, new Date(t.started_at).toISOString(), t.mac,
+          lines.push([t.id, t.started_at, new Date(t.started_at).toISOString(), t.mac, t.radio_name,
             t.channel, t.channel_name, t.channel_hz, t.duration_ms, t.transmit,
             s.engine, s.status, s.text].map(csvCell).join(','));
         }
