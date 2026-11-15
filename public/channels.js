@@ -110,23 +110,37 @@ function tones(c) {
 function render() {
   const head = el('tr', {}, ...['#', 'Name', 'Receive', 'Transmit', 'Tone', 'Mode', 'Scan']
     .map((t, i) => el('th', { className: i === 0 ? 'num' : '' }, t)));
-  const rows = shown.channels.map((c) => {
+  const all = shown.channels;
+  const rows = [];
+  for (let i = 0; i < all.length; i++) {
+    const c = all[i];
     const mark = marks[c.id] ? ` ${marks[c.id]}` : '';
     if (c.empty) {
-      return el('tr', { className: `empty${mark}` }, el('td', { className: 'num' }, String(c.id + 1)),
-        el('td', { colSpan: 6 }, 'empty'));
+      // A run of empty slots is one row: "4–30, 27 empty"
+      let j = i;
+      while (j + 1 < all.length && all[j + 1].empty && marks[all[j + 1].id] === marks[c.id]) j++;
+      rows.push(el('tr', { className: `empty${mark}` },
+        el('td', { className: 'num' }, j > i ? `${c.id + 1}–${all[j].id + 1}` : String(c.id + 1)),
+        el('td', { colSpan: 6 }, j > i ? `${j - i + 1} empty` : 'empty')));
+      i = j;
+      continue;
     }
-    const tx = c.tx_disable ? 'off' : c.tx_hz === c.rx_hz ? 'same' : mhz(c.tx_hz);
-    return el('tr', { className: mark.trim() },
-      el('td', { className: 'num' }, String(c.id + 1)),
-      el('td', {}, c.name || '(no name)'),
-      el('td', { className: 'num' }, mhz(c.rx_hz)),
-      el('td', { title: c.tx_disable ? 'Transmit is turned off on this channel' : '' }, tx),
-      el('td', {}, tones(c)),
-      el('td', {}, `${c.mod}${c.mod === 'FM' ? (c.bandwidth === 'narrow' ? ' narrow' : ' wide') : ''}`),
-      el('td', {}, c.scan ? 'yes' : ''));
-  });
+    rows.push(row(c, mark));
+  }
   $('ch-table').replaceChildren(el('thead', {}, head), el('tbody', {}, ...rows));
+}
+
+/** One programmed channel's row. */
+function row(c, mark) {
+  const tx = c.tx_disable ? 'off' : c.tx_hz === c.rx_hz ? 'same' : mhz(c.tx_hz);
+  return el('tr', { className: mark.trim() },
+    el('td', { className: 'num' }, String(c.id + 1)),
+    el('td', {}, c.name || '(no name)'),
+    el('td', { className: 'num' }, mhz(c.rx_hz)),
+    el('td', { title: c.tx_disable ? 'Transmit is turned off on this channel' : '' }, tx),
+    el('td', {}, tones(c)),
+    el('td', {}, `${c.mod}${c.mod === 'FM' ? (c.bandwidth === 'narrow' ? ' narrow' : ' wide') : ''}`),
+    el('td', {}, c.scan ? 'yes' : ''));
 }
 
 /**
