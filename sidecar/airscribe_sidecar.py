@@ -138,8 +138,15 @@ class BluezBackend:
         return sorted(devices, key=lambda d: not d["radio"])
 
     def connect(self, mac):
-        if mac in self.links:
+        link = self.links.get(mac)
+        if link and not link.stop.is_set():
             return
+        if link:
+            # The radio stopped answering and the link gave up. Without this
+            # the server's retry would find it here, report success, and never
+            # connect again.
+            del self.links[mac]
+            link.close()
         # BlueZ's Connect() hands each service to a profile driver and nothing
         # claims a vendor UUID, so it reports
         # br-connection-profile-unavailable even though the link came up.
