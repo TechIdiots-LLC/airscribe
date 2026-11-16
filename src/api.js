@@ -610,8 +610,9 @@ export function createApp({ manager, store, sidecar, config, dataDir, updates, c
   }));
   // A radio's beacon: what it sends of itself (APRS, or to the radios like it).
   // `profile: true` fills it in from the signed-in account's amateur radio profile.
-  api.get('/radios/:mac/beacon', admin, answer((req) => fromRadio(manager.radioBeacon(macOf(req)))));
-  api.put('/radios/:mac/beacon', admin, answer((req) => {
+  // (Not /beacon: tracker blockers block URLs ending so, and the page's requests with them)
+  api.get('/radios/:mac/aprs', admin, answer((req) => fromRadio(manager.radioBeacon(macOf(req)))));
+  api.put('/radios/:mac/aprs', admin, answer((req) => {
     const mac = macOf(req);
     const { profile, ...rest } = req.body ?? {};
     let changes = Object.keys(rest).length ? checkBeacon(rest) : {};

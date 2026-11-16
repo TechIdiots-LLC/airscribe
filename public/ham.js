@@ -2,6 +2,11 @@
 // Account page, and a radio's beacon in its Controls, which the profile can
 // fill in. The beacon is what the radio sends of itself: its position over
 // APRS, or to the radios like it, as a callsign. The server checks everything again.
+//
+// Its own script, not imported by app.js, and named so a tracker blocker won't
+// take it for one ("beacon.js" was blocked, and the whole page with it): if it's
+// blocked, the page works without it. It adds itself to a radio's Controls when
+// they open (airscribe:controls-shown).
 const $ = (id) => document.getElementById(id);
 const el = (tag, props = {}, ...kids) => {
   const e = Object.assign(document.createElement(tag), props);
@@ -57,6 +62,8 @@ let me = null;     // the account signed in, as /api/account has it
 let profile = null;
 
 $('ham-ssid').replaceWith(Object.assign(ssidSelect(7), { id: 'ham-ssid' }));
+// Shown once this script is here to work it
+$('ham-panel').hidden = false;
 $('ham-symbol').replaceWith(Object.assign(symbolSelect('/['), { id: 'ham-symbol' }));
 
 document.addEventListener('airscribe:signed-in', (e) => {
@@ -100,7 +107,7 @@ const MINUTES = [1, 2, 5, 10, 15, 20, 30, 40];
  * @returns {HTMLElement} The section, for the Controls dialog.
  */
 export function beaconSection(r) {
-  const box = el('div', { className: 'beacon' });
+  const box = el('div', { className: 'aprs-box' });
   const open = el('button', { className: 'link', onclick: () => load() }, 'Beacon and location sharing…');
   box.append(open);
   const say = el('p', { className: 'meta' });
@@ -110,7 +117,7 @@ export function beaconSection(r) {
     say.textContent = 'Reading the radio’s beacon…';
     box.replaceChildren(el('h3', {}, 'Beacon'), say);
     try {
-      render(await api(`/radios/${r.mac}/beacon`));
+      render(await api(`/radios/${r.mac}/aprs`));
     } catch (e) {
       say.textContent = e.message;
       say.className = 'tx-text error';
@@ -137,7 +144,7 @@ export function beaconSection(r) {
       say.textContent = `${what}…`;
       say.className = 'meta';
       try {
-        const now = await api(`/radios/${r.mac}/beacon`, { method: 'PUT', body });
+        const now = await api(`/radios/${r.mac}/aprs`, { method: 'PUT', body });
         render(now);
         say.textContent = `The radio has it: ${callOf(now) || 'no callsign'}` +
           `${now.share_location || now.ptt_send_location ? ', sharing its location' : ''}.`;
@@ -173,3 +180,9 @@ export function beaconSection(r) {
   box.append(say);
   return box;
 }
+
+// A radio's Controls open (app.js says so): its beacon goes under them
+document.addEventListener('airscribe:controls-shown', (e) => {
+  const { radio, body } = e.detail ?? {};
+  if (radio && body) body.append(beaconSection(radio));
+});

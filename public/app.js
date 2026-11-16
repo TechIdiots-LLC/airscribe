@@ -1,5 +1,4 @@
 import { showView } from './views.js';
-import { beaconSection } from './beacon.js';
 
 // The token rides on the query string rather than a header, because the event
 // stream and the audio and text download links cannot set one.
@@ -237,7 +236,9 @@ function renderControls(r, info) {
     el('label', { htmlFor: 'ctl-volume' }, 'Volume'), range('ctl-volume', 'volume', 15, info.volume),
     el('span', { className: 'meta' }, 'GPS'),
     el('span', { className: 'meta' }, p ? `${p.lat.toFixed(5)}, ${p.lon.toFixed(5)}${p.alt_m ? ` · ${p.alt_m} m` : ''}` : 'no fix'),
-  ), beaconSection(r));
+  ));
+  // ham.js adds the radio's beacon under these, if it loaded: it's its own script
+  document.dispatchEvent(new CustomEvent('airscribe:controls-shown', { detail: { radio: r, body: $('controls-body') } }));
 }
 
 async function remove(r) {

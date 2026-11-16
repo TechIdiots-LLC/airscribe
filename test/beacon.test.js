@@ -99,21 +99,21 @@ test('a radio\'s beacon through the API: an admin\'s, and filled in from one\'s 
     assert.equal((await alice('GET', '/session')).body.user.radio.callsign, 'N1ABC', 'and with the session, for the Map');
 
     // A radio's beacon: an admin's
-    assert.equal((await vic('GET', `/radios/${MAC}/beacon`)).status, 403);
-    assert.deepEqual((await alice('GET', `/radios/${MAC}/beacon`)).body.callsign, 'N0CALL');
-    assert.equal((await alice('PUT', `/radios/${MAC}/beacon`, { share_interval: 7 })).status, 400);
+    assert.equal((await vic('GET', `/radios/${MAC}/aprs`)).status, 403);
+    assert.deepEqual((await alice('GET', `/radios/${MAC}/aprs`)).body.callsign, 'N0CALL');
+    assert.equal((await alice('PUT', `/radios/${MAC}/aprs`, { share_interval: 7 })).status, 400);
     assert.equal(asked.length, 0, 'refused before the radio was asked');
-    const shared = await alice('PUT', `/radios/${MAC}/beacon`, { share_location: true, share_interval: 600 });
+    const shared = await alice('PUT', `/radios/${MAC}/aprs`, { share_location: true, share_interval: 600 });
     assert.deepEqual([shared.status, shared.body.share_location], [200, true]);
-    const mine = await alice('PUT', `/radios/${MAC}/beacon`, { profile: true });
+    const mine = await alice('PUT', `/radios/${MAC}/aprs`, { profile: true });
     assert.deepEqual(asked.at(-1), { callsign: 'N1ABC', ssid: 9, symbol: '/>', beacon: 'Mobile', format: 'aprs' }, 'filled in from it');
     assert.equal(mine.body.callsign, 'N1ABC');
     const script = browser();
-    const noAccount = await script('PUT', `/radios/${MAC}/beacon`, { profile: true }, 'script');
+    const noAccount = await script('PUT', `/radios/${MAC}/aprs`, { profile: true }, 'script');
     assert.equal(noAccount.status, 400);
     assert.match(noAccount.body.error, /Only an account has a profile/);
     await alice('PUT', '/account/radio', { callsign: '' });
-    assert.match((await alice('PUT', `/radios/${MAC}/beacon`, { profile: true })).body.error, /no amateur radio profile yet/);
+    assert.match((await alice('PUT', `/radios/${MAC}/aprs`, { profile: true })).body.error, /no amateur radio profile yet/);
   } finally {
     server.close();
   }

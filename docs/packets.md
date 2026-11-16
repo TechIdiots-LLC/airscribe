@@ -90,8 +90,8 @@ reports moves the radio on the Map as it comes.
 | `GET /api/stations?hours=&mac=` | each station's latest packet with a place, with `heard` and `first_heard` |
 | `GET /api/stations/:who?hours=` | a station's `track` and its latest packets |
 | `PUT /api/account/radio` | `{callsign, ssid, symbol, beacon}`: your profile; no callsign clears it |
-| `GET /api/radios/:mac/beacon` | a radio's beacon settings (admins) |
-| `PUT /api/radios/:mac/beacon` | change some (`callsign`, `ssid`, `symbol`, `beacon`, `format`, `share_location`, `share_interval` in seconds, `ptt_send_location`), or `{profile: true}` to fill them in from yours (admins) |
+| `GET /api/radios/:mac/aprs` | a radio's beacon settings (admins) |
+| `PUT /api/radios/:mac/aprs` | change some (`callsign`, `ssid`, `symbol`, `beacon`, `format`, `share_location`, `share_interval` in seconds, `ptt_send_location`), or `{profile: true}` to fill them in from yours (admins) |
 
 Anyone signed in may read them, as the feed. Open pages get each packet as an
 event (`packet`) on the event stream.
