@@ -296,9 +296,9 @@ class SimBackend:
                     time.sleep(CHUNK_MS / 1000)
                 if talking:
                     emit({"event": "audio-end", "mac": mac})
-                    # Every other burst was a packet, which its modem decoded
-                    # as it ended, as a real radio's does
-                    if self.sent % 2 == 0 and not stop.is_set():
+                    # Every other burst, from the second, was a packet, which its
+                    # modem decoded as it ended, as a real radio's does
+                    if self.sent % 2 == 1 and not stop.is_set():
                         frame = self.SIM_PACKETS[(self.sent // 2) % len(self.SIM_PACKETS)]
                         emit({"event": "packet", "mac": mac, "channel": 0, "region": 0, "data": frame.hex()})
                     self.sent += 1

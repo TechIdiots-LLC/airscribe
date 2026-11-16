@@ -136,9 +136,14 @@ export class Manager extends EventEmitter {
               : ` (expected ${e.expected_pcm_bytes} bytes of PCM, got ${e.pcm_bytes})`),
         );
         break;
-      // A packet the radio's own modem decoded: APRS, or the radios' BSS
+      // A packet the radio's own modem decoded: APRS, or the radios' BSS. One
+      // that can't be kept is logged, never in the way of the audio
       case 'packet':
-        this.onPacket(e);
+        try {
+          this.onPacket(e);
+        } catch (err) {
+          console.error(`[packet] ${e.mac}: ${err.message}`);
+        }
         break;
       // Something the sidecar could not do — a missing SBC decoder, a radio
       // that stopped answering. Logged as well as forwarded, because these
