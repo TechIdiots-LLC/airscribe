@@ -286,9 +286,15 @@ function renderTx(t) {
   // Only worth labelling once more than one model has had a go at it.
   const others = scripts.filter((s) => s !== primaryScript);
   const dir = t.transmit ? 'sent' : 'heard';
-  const li = el('li', { id: `tx-${t.id}`, className: t.transmit ? 'sent' : '' },
+  // Mostly noise, by how it measured: whatever a model wrote for it, nobody said
+  const noise = t.static ? el('span', {
+    className: 'tag static',
+    title: `Static: its loudest moments stood ${t.snr_db} dB above its quietest (speech on a clear signal is 20 dB and more)` +
+      `${Number.isInteger(t.rssi) ? `; signal ${t.rssi} of 15` : ''}. Any words shown were made up by the speech model.`,
+  }, 'static') : '';
+  const li = el('li', { id: `tx-${t.id}`, className: [t.transmit ? 'sent' : '', t.static ? 'static' : ''].filter(Boolean).join(' ') },
     el('div', { className: 'meta' },
-      el('span', { className: `tag ${dir}` }, dir), ' ',
+      el('span', { className: `tag ${dir}` }, dir), ' ', noise, noise ? ' ' : '',
       `${new Date(t.started_at).toLocaleString()} · ${radio?.name ?? t.mac} · ${(t.duration_ms / 1000).toFixed(1)}s`,
       // Which channel it came in on. On a scanner this is most of the
       // context: the same words mean different things on fire and on police.
@@ -423,7 +429,7 @@ function matchesFilter(t) {
   if (channel && t.channel_name !== channel) return false;
   // Hiding no speech: a live clip joins once it has words, rather than
   // showing while it's transcribed and vanishing if it turns out a chirp
-  if ($('hide-silent').checked && !(t.text ?? '').trim()) return false;
+  if ($('hide-silent').checked && (t.static || !(t.text ?? '').trim())) return false;
   if (!q) return true;
   return [t.channel_name, t.text, ...(t.transcripts ?? []).map((s) => s.text)]
     .some((s) => (s ?? '').toLowerCase().includes(q));
@@ -434,8 +440,8 @@ function matchesFilter(t) {
  * @returns {boolean} Whether the transcript it shows is finished and empty:
  *   "(no speech recognised)", as the server decides for "Hide no speech".
  */
-const silent = (t) => (t.transcripts ?? []).find((s) => s.engine === t.engine)?.status === 'done'
-  && !(t.text ?? '').trim();
+const silent = (t) => t.static || ((t.transcripts ?? []).find((s) => s.engine === t.engine)?.status === 'done'
+  && !(t.text ?? '').trim());
 
 /**
  * Take a row out of the feed: deleted, or no longer matching.

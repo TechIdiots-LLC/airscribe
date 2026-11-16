@@ -95,6 +95,8 @@ servers.push(app.listen(config.port, config.host, () => {
   );
   // Listening is what an updater waiting on this version needs to see
   updates.markRunning();
+  // Clips saved before static was measured, measured now from their audio
+  manager.measureOlder().catch((e) => console.error(`[quality] ${e.message}`));
 }));
 
 const shutdown = () => {

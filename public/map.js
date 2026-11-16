@@ -472,6 +472,8 @@ function drawSaid() {
  *   engine's transcript, or how far that has got.
  */
 function words(t) {
+  // Static, by how it measured: what a model made of the hiss isn't shown
+  if (t.static) return { text: '(static)', state: 'silent' };
   const scripts = t.transcripts ?? [];
   const s = scripts.find((x) => x.engine === t.engine) ?? scripts[0] ?? t;
   if (s.status === 'pending') return { text: 'transcribing…', state: 'pending' };
@@ -941,7 +943,7 @@ function listMatches(t) {
   if (mac && t.mac !== mac) return false;
   // Hiding no speech: a clip joins once it has words, rather than showing
   // while it's transcribed and vanishing if it turns out a chirp
-  if ($('map-hide-silent').checked && !(t.text ?? '').trim()) return false;
+  if ($('map-hide-silent').checked && (t.static || !(t.text ?? '').trim())) return false;
   const scope = listScope();
   return !scope || scope.includes(t.channel_name);
 }

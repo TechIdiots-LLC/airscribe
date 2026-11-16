@@ -38,6 +38,8 @@ input[type=search] { flex: 1 1 140px; min-width: 0; }
 .tag { font-size: 11px; text-transform: uppercase; letter-spacing: .04em; padding: 1px 6px; border-radius: 4px; border: 1px solid var(--line); }
 .tag.sent { color: var(--bad); }
 .tag.heard { color: var(--ok); }
+.tag.static { color: var(--warn); border-color: var(--warn); cursor: help; }
+li.static .tx-text { opacity: .55; }
 li.sent { border-left: 3px solid var(--bad); }
 .meta { color: var(--muted); font-size: 12px; margin-top: 2px; }
 .signal { font-family: ui-monospace, monospace; letter-spacing: -1px; }

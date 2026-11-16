@@ -49,8 +49,79 @@ test('judging a channel by its transmissions', () => {
   assert.deepEqual([mixed.rssi, mixed.snrDb, mixed.noSpeech], [10, 5, 2], 'medians, and the count with no speech');
 });
 
+test('a saved clip read back for measuring', async () => {
+  const { encodeWav, decodeWav } = await import('../src/wav.js');
+  const pcm = clip(0, 0.3, 1);
+  const wav = decodeWav(encodeWav(pcm, RATE));
+  assert.equal(wav.rate, RATE);
+  assert.ok(wav.pcm.equals(pcm));
+  // Static as it came off a 2 m repeater channel: steady hiss at about -6 dBFS,
+  // which measured 2.1 dB over 81 s
+  assert.ok(quieting(decodeWav(encodeWav(clip(0, 0.85, 2), RATE)).pcm, RATE) < 3);
+  assert.equal(decodeWav(Buffer.from('not a wav file')), null);
+  const stereo = encodeWav(pcm, RATE);
+  stereo.writeUInt16LE(2, 22);
+  assert.equal(decodeWav(stereo), null, 'only the mono 16-bit kind AirScribe saves');
+});
+
 // node:sqlite arrived in Node 22.5; on older Node this reports as skipped.
 const sqlite = await import('node:sqlite').then(() => true, () => false);
+
+test('static is no speech, whatever a model wrote for it', { skip: !sqlite }, async () => {
+  const { Store } = await import('../src/store.js');
+  const s = new Store(':memory:', 'openvino');
+  const add = (at, snrDb, text) => {
+    const id = s.addTransmission({ mac: 'AA:BB:CC:DD:EE:FF', startedAt: at, durationMs: 81000, audioFile: `${at}.wav`,
+      channelName: 'Clinton 65', channelHz: 146655000, snrDb });
+    s.saveTranscript(id, 'openvino', { status: 'done', text });
+    return id;
+  };
+  const hiss = add(1, 2.1, 'So, we\'re going to be doing this. So, we\'re going to be doing this. The');
+  const clear = add(2, 24, 'Clinton 65 testing');
+  const old = add(3, null, 'from before it was measured');
+  assert.equal(s.transmission(hiss).static, true, 'marked for the feed');
+  assert.equal(s.transmission(clear).static, false);
+  assert.equal(s.transmission(old).static, false, 'not measured is not static');
+  assert.deepEqual(s.transmissions({ speech: true }).map((t) => t.id).sort(), [clear, old], 'Hide no speech leaves it out');
+  assert.deepEqual(s.purgeCandidates({ noSpeech: true }).map((t) => t.id), [hiss], 'and a cleanup of no speech takes it');
+  assert.deepEqual(s.channelQuality({}).get('Clinton 65').map((r) => r.no_speech), [1, 0, 0]);
+  assert.ok(!s.insightRows({}).texts.some((t) => t.includes('going to be doing')), 'its made-up words aren\'t in Insights');
+  assert.deepEqual(s.needingQuality({}).map((r) => r.id), [old], 'only the one not measured');
+  s.setQuality(old, 31.5);
+  assert.deepEqual(s.needingQuality({}), []);
+});
+
+test('older clips measured from their saved audio', { skip: !sqlite }, async () => {
+  const { Store } = await import('../src/store.js');
+  const { Manager } = await import('../src/manager.js');
+  const { encodeWav } = await import('../src/wav.js');
+  const { mkdtempSync, mkdirSync, writeFileSync } = await import('node:fs');
+  const { tmpdir } = await import('node:os');
+  const { join } = await import('node:path');
+  const { EventEmitter } = await import('node:events');
+  const dataDir = mkdtempSync(join(tmpdir(), 'htq-'));
+  mkdirSync(join(dataDir, 'clips', 'AABB'), { recursive: true });
+  const store = new Store(':memory:', 'mock');
+  const add = (name, pcm, transmit = false) => {
+    if (pcm) writeFileSync(join(dataDir, 'clips', 'AABB', name), encodeWav(pcm, RATE));
+    return store.addTransmission({ mac: 'AA:BB', startedAt: 1, durationMs: 3000, audioFile: join('AABB', name), transmit });
+  };
+  const hiss = add('hiss.wav', clip(0, 0.3));
+  const voice = add('voice.wav', clip(0.5, 0.001));
+  const gone = add('gone.wav', null);
+  const short = add('short.wav', clip(0.5, 0, 0.2));
+  const sent = add('sent.wav', clip(0, 0.3), true);
+  const manager = new Manager({
+    sidecar: Object.assign(new EventEmitter(), { call: async () => {} }), store, dataDir,
+    audio: { sampleRate: RATE, preRollMs: 0, holdMs: 500, minMs: 200, maxMs: 60000, overlapMs: 0, energyThreshold: 0.05 },
+    engine: { name: 'mock', transcribe: async () => ({ text: '' }) },
+  });
+  assert.equal(await manager.measureOlder({ batch: 2 }), 2, 'in batches, the two that could be');
+  assert.ok(store.transmission(hiss).snr_db < 3 && store.transmission(hiss).static);
+  assert.ok(store.transmission(voice).snr_db > 40 && !store.transmission(voice).static);
+  for (const id of [gone, short, sent]) assert.equal(store.transmission(id).snr_db, null, `left alone: ${id}`);
+  assert.equal(await manager.measureOlder(), 0, 'and not read again for nothing');
+});
 
 test('the store gives each channel\'s received transmissions, since a time', { skip: !sqlite }, async () => {
   const { Store } = await import('../src/store.js');
@@ -69,7 +140,8 @@ test('the store gives each channel\'s received transmissions, since a time', { s
   add('Holden PD', 500, null, null, undefined, true);
   const q = s.channelQuality({ since: 100 });
   assert.deepEqual(q.get('Rutland FD'), [
-    { rssi: 2, snr_db: 3.1, no_speech: 1 }, { rssi: 3, snr_db: 2.5, no_speech: 1 }, { rssi: 2, snr_db: 4, no_speech: 0 }]);
+    { rssi: 2, snr_db: 3.1, no_speech: 1 }, { rssi: 3, snr_db: 2.5, no_speech: 1 }, { rssi: 2, snr_db: 4, no_speech: 1 }],
+  'static at 4 dB is no speech, though the model wrote words for it');
   assert.deepEqual(q.get('Holden PD'), [{ rssi: 11, snr_db: 28, no_speech: 0 }], 'not before the time, nor its own');
   assert.deepEqual(judge(q.get('Rutland FD')).tags, ['static', 'weak']);
   assert.equal(s.channelQuality({ since: 0, mac: '11:22:33:44:55:66' }).size, 0, 'another radio\'s');

@@ -36,6 +36,17 @@ export function quieting(pcm, rate) {
   return Math.round(Math.min(60, 20 * Math.log10(loud / Math.max(quiet, 1e-5))) * 10) / 10;
 }
 
+/**
+ * Under this, a transmission is static: its loud moments stood less than this
+ * far above its quiet ones. Static that opened the squelch measures a few dB
+ * (2.1 for 81 s of it on a 2 m repeater channel); speech on a strong signal,
+ * 20 and more.
+ */
+export const STATIC_DB = 6;
+
+/** @returns {boolean} Whether a transmission's quieting says it was static. */
+export const isStatic = (snrDb) => snrDb !== null && snrDb !== undefined && snrDb < STATIC_DB;
+
 const median = (xs) => {
   const s = xs.filter((x) => x !== null && x !== undefined).sort((a, b) => a - b);
   if (!s.length) return null;
@@ -66,7 +77,7 @@ export function judge(rows) {
   const snrDb = median(rows.map((r) => r.snr_db));
   const tags = [];
   if (count >= ENOUGH) {
-    if (snrDb !== null ? snrDb < 6 : noSpeech / count >= 0.8) tags.push('static');
+    if (snrDb !== null ? isStatic(snrDb) : noSpeech / count >= 0.8) tags.push('static');
     if (rssi !== null && rssi <= 3) tags.push('weak');
   }
   return { count, noSpeech, rssi, snrDb, tags };

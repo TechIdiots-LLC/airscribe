@@ -97,7 +97,7 @@
       <select id="filter-radio"><option value="">All radios</option></select>
       <select id="filter-channel"><option value="">All channels</option></select>
       <input id="search" type="search" placeholder="Search all transmissions…">
-      <label class="toggle" title="Leave out transmissions shown as “(no speech recognised)”, such as a radio’s chirp">
+      <label class="toggle" title="Leave out transmissions shown as “(no speech recognised)”, such as a radio’s chirp, and static">
         <input type="checkbox" id="hide-silent"> Hide no speech</label>
       <label class="toggle" title="Play each new transmission the feed shows as it arrives, one after another, in this browser">
         <input type="checkbox" id="autoplay"> Play new <span id="autoplay-state"></span></label>
@@ -159,7 +159,7 @@
         <select id="map-radio" title="Whose transmissions to list"><option value="">All radios</option></select>
         <label class="toggle" title="Only channels placed within the part of the map showing">
           <input type="checkbox" id="map-inview"> In view only</label>
-        <label class="toggle" title="Leave out transmissions shown as “(no speech recognised)”, such as a radio’s chirp">
+        <label class="toggle" title="Leave out transmissions shown as “(no speech recognised)”, such as a radio’s chirp, and static">
           <input type="checkbox" id="map-hide-silent"> Hide no speech</label>
         <label class="toggle" title="Show what a channel says on the map, at the channel, for a few seconds">
           <input type="checkbox" id="map-words" checked> Words on the map</label>
@@ -268,7 +268,7 @@
     <h4>Delete transmissions</h4>
     <div class="row wrap">
       <label>Older than <input id="purge-days" type="number" min="1" step="1" placeholder="any age"> days</label>
-      <label class="toggle"><input type="checkbox" id="purge-silent"> only those with no speech recognised</label>
+      <label class="toggle"><input type="checkbox" id="purge-silent"> only those with no speech recognised, or static</label>
       <button id="purge-preview">Preview</button>
     </div>
     <div id="purge-result"></div>

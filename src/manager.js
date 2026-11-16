@@ -1,8 +1,8 @@
 import { EventEmitter } from 'node:events';
-import { existsSync, mkdirSync, statSync, unlinkSync, writeFileSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, statSync, unlinkSync, writeFileSync } from 'node:fs';
 import { join, resolve, sep } from 'node:path';
 import { Segmenter } from './segmenter.js';
-import { encodeWav, halveRate } from './wav.js';
+import { decodeWav, encodeWav, halveRate } from './wav.js';
 import { quieting } from './quality.js';
 
 /**
@@ -274,6 +274,41 @@ export class Manager extends EventEmitter {
     for (const name of this.extra) {
       this.enqueue({ priority: 1, id, engineName: name, wav: engineWav });
     }
+  }
+
+  /**
+   * Measure the transmissions saved before they were measured as they came in,
+   * from their audio, so older static is marked too. Newest first, a batch at
+   * a time with a break between, so it doesn't hold up the server; a clip
+   * whose audio has gone, or is too short to tell, is left unmeasured.
+   * @param {{batch?: number}} [o] - Clips read between breaks.
+   * @returns {Promise<number>} How many were measured.
+   */
+  async measureOlder({ batch = 25 } = {}) {
+    let before;
+    let measured = 0;
+    for (;;) {
+      const rows = this.store.needingQuality({ before, limit: batch });
+      if (!rows.length) break;
+      for (const { id, audio_file: file } of rows) {
+        before = id;
+        const path = join(this.dataDir, 'clips', file);
+        if (!existsSync(path)) continue;
+        try {
+          const wav = decodeWav(readFileSync(path));
+          const db = wav ? quieting(wav.pcm, wav.rate) : null;
+          if (db !== null && this.store.hasTransmission(id)) {
+            this.store.setQuality(id, db);
+            measured++;
+          }
+        } catch {
+          // An unreadable clip stays unmeasured; the rest go on
+        }
+      }
+      await new Promise((r) => setTimeout(r, 20));
+    }
+    if (measured) console.log(`[quality] measured ${measured} older transmission${measured === 1 ? '' : 's'} for static`);
+    return measured;
   }
 
   /**

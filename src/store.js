@@ -1,6 +1,7 @@
 import { DatabaseSync } from 'node:sqlite';
 import { mkdirSync } from 'node:fs';
 import { dirname } from 'node:path';
+import { STATIC_DB, isStatic } from './quality.js';
 
 /**
  * Radios and transmissions, in SQLite. `node:sqlite` needs Node 22.5+, which
@@ -353,7 +354,9 @@ export class Store {
         ?? ts.find((t) => t.status === 'done')
         ?? ts[0];
       return { ...r, transcripts: ts, text: best?.text ?? null,
-               engine: best?.engine ?? null, error: best?.error ?? null };
+               engine: best?.engine ?? null, error: best?.error ?? null,
+               // Mostly noise, by its quieting: marked in the feed, whatever a model wrote for it
+               static: isStatic(r.snr_db) };
     });
   }
 
@@ -444,12 +447,35 @@ export class Store {
    * @returns {{sql: string, args: any[]}} A condition on `t`.
    */
   #noSpeech() {
-    if (!this.defaultEngine) return { sql: '(0)', args: [] };
+    // Static counts too, whatever a model made of it: Whisper writes sentences
+    // into a minute of hiss (src/quality.js)
+    const noise = `(t.snr_db IS NOT NULL AND t.snr_db < ${STATIC_DB})`;
+    if (!this.defaultEngine) return { sql: noise, args: [] };
     return {
-      sql: `EXISTS (SELECT 1 FROM transcripts x WHERE x.transmission_id = t.id AND x.engine = ?
-                       AND x.status = 'done' AND trim(coalesce(x.text, '')) = '')`,
+      sql: `(${noise} OR EXISTS (SELECT 1 FROM transcripts x WHERE x.transmission_id = t.id AND x.engine = ?
+                       AND x.status = 'done' AND trim(coalesce(x.text, '')) = ''))`,
       args: [this.defaultEngine],
     };
+  }
+
+  /**
+   * Received transmissions not yet measured for static, newest first: those
+   * from before it was measured as they came in.
+   * @param {{before?: number, limit?: number}} f - Only ids below this; how many.
+   * @returns {{id: number, audio_file: string}[]} Their audio.
+   */
+  needingQuality({ before = Number.MAX_SAFE_INTEGER, limit = 50 } = {}) {
+    return this.db.prepare(`SELECT id, audio_file FROM transmissions
+                             WHERE transmit = 0 AND snr_db IS NULL AND id < ? ORDER BY id DESC LIMIT ?`).all(before, limit);
+  }
+
+  /**
+   * @param {number} id - A transmission.
+   * @param {number} snrDb - Its quieting, in dB.
+   * @returns {void}
+   */
+  setQuality(id, snrDb) {
+    this.db.prepare('UPDATE transmissions SET snr_db = ? WHERE id = ?').run(snrDb, id);
   }
 
   /**
@@ -523,10 +549,12 @@ export class Store {
                        SUM(t.duration_ms) AS ms, MAX(t.started_at) AS last
                 ${from} GROUP BY t.channel_name ORDER BY count DESC, name`)
       .all(...args);
+    // Not what a model wrote for static: those are words nobody said
     const texts = !this.defaultEngine ? [] : this.db
       .prepare(`SELECT x.text FROM transmissions t LEFT JOIN radios r ON r.mac = t.mac
                   JOIN transcripts x ON x.transmission_id = t.id AND x.engine = ? AND x.status = 'done'
-                 WHERE ${where.join(' AND ')} ORDER BY t.started_at DESC LIMIT ?`)
+                 WHERE ${where.join(' AND ')} AND NOT (t.snr_db IS NOT NULL AND t.snr_db < ${STATIC_DB})
+                 ORDER BY t.started_at DESC LIMIT ?`)
       .all(this.defaultEngine, ...args, textLimit)
       .map((r) => r.text);
     return { hourly, channels, texts };

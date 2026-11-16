@@ -22,6 +22,29 @@ export function encodeWav(pcm, sampleRate) {
 }
 
 /**
+ * The samples of a 16-bit mono WAV, as encodeWav writes one (and others
+ * whose chunks are laid out differently).
+ * @param {Buffer} buf - The file.
+ * @returns {{rate: number, pcm: Buffer} | null} Its rate and samples, or null if it isn't one.
+ */
+export function decodeWav(buf) {
+  if (buf.length < 12 || buf.toString('ascii', 0, 4) !== 'RIFF' || buf.toString('ascii', 8, 12) !== 'WAVE') return null;
+  let rate = null;
+  for (let at = 12; at + 8 <= buf.length;) {
+    const id = buf.toString('ascii', at, at + 4);
+    const size = buf.readUInt32LE(at + 4);
+    if (id === 'fmt ' && at + 24 <= buf.length) {
+      if (buf.readUInt16LE(at + 8) !== 1 || buf.readUInt16LE(at + 10) !== 1 || buf.readUInt16LE(at + 22) !== 16) return null;
+      rate = buf.readUInt32LE(at + 12);
+    } else if (id === 'data') {
+      return rate ? { rate, pcm: buf.subarray(at + 8, Math.min(buf.length, at + 8 + size)) } : null;
+    }
+    at += 8 + size + (size & 1);
+  }
+  return null;
+}
+
+/**
  * Halve the sample rate by averaging sample pairs. Radio audio is 32 kHz;
  * Whisper wants 16 kHz. Averaging is a crude low-pass, adequate for speech.
  * @param {Buffer} pcm - 16-bit little-endian samples.

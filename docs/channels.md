@@ -60,12 +60,19 @@ Two things are measured for each transmission as it comes in:
   is hiss between words, a few dB to the low teens. Static that opened the
   squelch is hiss throughout, a few dB.
 
+A transmission that stood under 6 dB above its quiet moments is **static**
+(81 seconds of it from a 2 m repeater channel measured 2.1 dB). It's marked
+**static** in the feed, with its transcript dimmed: Whisper writes sentences
+into hiss ("So, we're going to be doing this."). It counts as no speech
+whatever a model wrote, so **Hide no speech** hides it and a cleanup of no
+speech deletes it, and its words are left out of Insights. Clips saved before
+this was measured are measured from their audio when AirScribe starts.
+
 A channel with three or more transmissions in the week is tagged **static**
-when its typical (median) transmission stood under 6 dB above its quiet
-moments, or, for transmissions from before these were measured, when four in
-five came to no speech; and **weak** when its typical signal reading was 3 or
-less. These are first guesses (src/quality.js), to be tuned against real
-traffic.
+when its typical (median) transmission was static, or, where nothing was
+measured, when four in five came to no speech; and **weak** when its typical
+signal reading was 3 or less. These are first guesses (src/quality.js), to be
+tuned against real traffic.
 
 ## Backups
 
