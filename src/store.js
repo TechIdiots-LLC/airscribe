@@ -77,6 +77,10 @@ export class Store {
       ['channel', 'INTEGER'],
       ['channel_name', 'TEXT'],
       ['channel_hz', 'INTEGER'],
+      // How it came through: the radio's strongest signal reading while it did
+      // (0 to 15), and its quieting in dB (src/quality.js). Older rows have none.
+      ['rssi', 'INTEGER'],
+      ['snr_db', 'REAL'],
     ];
     for (const [name, decl] of added) {
       if (!columns.some((c) => c.name === name)) {
@@ -215,17 +219,41 @@ export class Store {
    * @returns {number} Its id.
    */
   addTransmission({ mac, startedAt, durationMs, audioFile, transmit = false,
-                    channel = null, channelName = null, channelHz = null }) {
+                    channel = null, channelName = null, channelHz = null, rssi = null, snrDb = null }) {
     const r = this.db
       .prepare(
         `INSERT INTO transmissions
            (mac, started_at, duration_ms, audio_file, status, transmit,
-            channel, channel_name, channel_hz)
-         VALUES (?, ?, ?, ?, 'pending', ?, ?, ?, ?)`,
+            channel, channel_name, channel_hz, rssi, snr_db)
+         VALUES (?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?)`,
       )
       .run(mac, startedAt, Math.round(durationMs), audioFile, transmit ? 1 : 0,
-           channel, channelName, channelHz);
+           channel, channelName, channelHz, rssi, snrDb);
     return Number(r.lastInsertRowid);
+  }
+
+  /**
+   * How each channel came through since a time: for each name a radio gave
+   * its received transmissions, the signal readings, quieting and whether
+   * each came to no speech, for src/quality.js to judge.
+   * @param {{since?: number, mac?: string}} f - Since when (ms), and which radio.
+   * @returns {Map<string, {rssi: number|null, snr_db: number|null, no_speech: number}[]>} By channel name.
+   */
+  channelQuality({ since = 0, mac } = {}) {
+    const none = this.#noSpeech();
+    const rows = this.db.prepare(
+      `SELECT t.channel_name AS name, t.rssi, t.snr_db, (${none.sql}) AS no_speech
+         FROM transmissions t
+        WHERE t.transmit = 0 AND t.started_at >= ? AND t.channel_name IS NOT NULL AND t.channel_name <> ''
+              ${mac ? 'AND t.mac = ?' : ''}
+        ORDER BY t.started_at`,
+    ).all(...none.args, since, ...(mac ? [mac] : []));
+    const out = new Map();
+    for (const r of rows) {
+      if (!out.has(r.name)) out.set(r.name, []);
+      out.get(r.name).push({ rssi: r.rssi, snr_db: r.snr_db, no_speech: r.no_speech ? 1 : 0 });
+    }
+    return out;
   }
 
   /**

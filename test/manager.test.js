@@ -232,6 +232,27 @@ test('a clip records the channel the run started on', () => {
   assert.equal(row.channelHz, 154265000);
 });
 
+test('a clip keeps the strongest signal reading while it came in, and its quieting', () => {
+  const { store, fire, audio } = make();
+  fire({ event: 'radio-status', mac: MAC, rssi: 4, in_rx: true, in_tx: false, channel: 3 });
+  fire({ event: 'audio-start', mac: MAC, transmit: false });
+  audio(5, 0.3, { rx: true });
+  fire({ event: 'radio-status', mac: MAC, rssi: 9, in_rx: true, in_tx: false, channel: 3 });
+  audio(5, 0.3, { rx: true });
+  fire({ event: 'radio-status', mac: MAC, rssi: 6, in_rx: true, in_tx: false, channel: 3 });
+  fire({ event: 'audio-end', mac: MAC });
+  const row = store.transmission(1);
+  assert.equal(row.rssi, 9, 'the strongest of 4, 9 and 6');
+  assert.equal(typeof row.snrDb, 'number', 'and the quieting measured');
+  // After it, readings aren't kept against anything
+  fire({ event: 'radio-status', mac: MAC, rssi: 15, in_rx: false, in_tx: false, channel: 3 });
+  fire({ event: 'audio-start', mac: MAC, transmit: true });
+  audio(5, 0.3, { transmit: true });
+  fire({ event: 'audio-end', mac: MAC });
+  assert.deepEqual([store.transmission(2).rssi, store.transmission(2).snrDb], [null, null],
+    'the radio\'s own transmission has neither');
+});
+
 test('an unknown channel index is recorded without a name', () => {
   const { store, fire, audio } = make();
   fire({ event: 'radio-status', mac: MAC, rssi: 8, in_rx: false, in_tx: false, channel: 9 });

@@ -3,6 +3,7 @@ import { existsSync, mkdirSync, statSync, unlinkSync, writeFileSync } from 'node
 import { join, resolve, sep } from 'node:path';
 import { Segmenter } from './segmenter.js';
 import { encodeWav, halveRate } from './wav.js';
+import { quieting } from './quality.js';
 
 /**
  * Ties the sidecar, the segmenter, the transcriber and the store together.
@@ -40,6 +41,7 @@ export class Manager extends EventEmitter {
     this.retries = new Map(); // mac -> {timer, delay}
     this.channels = new Map(); // mac -> Map(index -> {name, rx_hz})
     this.onAir = new Map();    // mac -> the channel a run started on
+    this.signal = new Map();   // mac -> the strongest signal reading during the run on the air
     sidecar.on('event', (e) => this.onEvent(e));
     sidecar.on('restart', () => this.reconnectAll());
   }
@@ -76,6 +78,11 @@ export class Manager extends EventEmitter {
         this.emit('update', { type: 'channels', mac: e.mac, channels: e.channels });
         break;
       case 'radio-status':
+        // The strongest reading while a transmission is coming in: how far
+        // away, or how weak, the station is (src/quality.js)
+        if (this.signal.has(e.mac) && Number.isInteger(e.rssi)) {
+          this.signal.set(e.mac, Math.max(this.signal.get(e.mac) ?? 0, e.rssi));
+        }
         this.setActivity(e.mac, {
           rx: !!e.in_rx, tx: !!e.in_tx, rssi: e.rssi, channel: e.channel,
           ...(e.battery === undefined || e.battery === null ? {} : { battery: e.battery }),
@@ -94,10 +101,12 @@ export class Manager extends EventEmitter {
         // Captured when the run opens rather than when the clip is written:
         // a scanning radio may have moved on by the time it closes.
         this.onAir.set(e.mac, this.state.get(e.mac)?.channel);
+        this.signal.set(e.mac, e.transmit ? null : this.state.get(e.mac)?.rssi ?? null);
         this.setActivity(e.mac, { rx: !e.transmit, tx: !!e.transmit });
         break;
       case 'audio-end':
         this.segmenterFor(e.mac).end();
+        this.signal.delete(e.mac);
         this.setActivity(e.mac, { rx: false, tx: false });
         break;
       case 'audio':
@@ -243,6 +252,10 @@ export class Manager extends EventEmitter {
 
     const channel = this.onAir.get(mac) ?? this.state.get(mac)?.channel ?? null;
     const info = this.channels.get(mac)?.get(channel);
+    // How it came through, for telling a station out of range (src/quality.js).
+    // A radio's own transmission has neither.
+    const rssi = clip.transmit ? null
+      : this.signal.has(mac) ? this.signal.get(mac) : this.state.get(mac)?.rssi ?? null;
     const id = this.store.addTransmission({
       mac,
       startedAt,
@@ -252,6 +265,8 @@ export class Manager extends EventEmitter {
       channel: channel ?? null,
       channelName: info?.name ?? null,
       channelHz: info?.rx_hz ?? null,
+      rssi: Number.isInteger(rssi) ? rssi : null,
+      snrDb: clip.transmit ? null : quieting(clip.pcm, this.audio.sampleRate),
     });
     this.emit('update', { type: 'transmission', ...this.store.transmission(id) });
 
