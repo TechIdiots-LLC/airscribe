@@ -2,7 +2,7 @@ import express from 'express';
 import { existsSync } from 'node:fs';
 import { join, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { MODELS, guessModel, normalizeMac } from './models.js';
+import { MODELS, guessModel, newScannerId, normalizeMac, sendsRecordings } from './models.js';
 import { createAuth, readCookie } from './auth.js';
 import { PROVIDERS } from './logins.js';
 import { PUBLISH_DEFAULTS, publicCutoff, publishable, publicView } from './publish.js';
@@ -693,9 +693,10 @@ export function createApp({ manager, store, sidecar, config, dataDir, updates, c
   );
 
   api.post('/radios', auth.requireRole('admin'), (req, res) => {
-    const mac = normalizeMac(req.body?.mac);
+    const model = req.body?.model ?? null;
+    // A scanner has no Bluetooth address: it's given an id of the same shape
+    const mac = sendsRecordings(model) && !req.body?.mac ? newScannerId() : normalizeMac(req.body?.mac);
     if (!mac) return res.status(400).json({ error: 'mac must be 12 hex digits' });
-    const model = req.body.model ?? null;
     if (model && !MODELS.some((m) => m.id === model)) {
       return res.status(400).json({ error: `unknown model ${model}` });
     }
@@ -740,11 +741,35 @@ export function createApp({ manager, store, sidecar, config, dataDir, updates, c
       wrap(async (req, res) => {
         const mac = normalizeMac(req.params.mac);
         if (!mac || !store.radio(mac)) return res.status(404).json({ error: 'unknown radio' });
+        if (sendsRecordings(store.radio(mac).model)) {
+          return res.status(400).json({ error: 'a scanner isn\'t connected to: it sends its recordings in (docs/scanners.md)' });
+        }
         await manager[action](mac);
         res.status(202).json({ ok: true });
       }),
     );
   }
+
+  // A recording a scanner made (radiocli, docs/scanners.md): the WAV as the body, and what radiocli wrote
+  // beside it, as base64 JSON, in X-Radiocli (base64, as a header carries only ASCII)
+  api.post('/radios/:mac/recordings', auth.requireRole('admin'),
+    express.raw({ type: () => true, limit: '64mb' }),
+    answer((req, res) => {
+      const mac = normalizeMac(req.params.mac);
+      const radio = mac ? store.radio(mac) : null;
+      if (!radio) throw refuse('unknown radio', 404);
+      if (!sendsRecordings(radio.model)) throw refuse(`${radio.name} isn't a scanner: only a scanner sends recordings`, 400);
+      if (!Buffer.isBuffer(req.body) || !req.body.length) throw refuse('no recording: send the WAV as the body', 400);
+      let sidecar;
+      try {
+        sidecar = JSON.parse(Buffer.from(String(req.get('x-radiocli') ?? ''), 'base64').toString('utf8'));
+      } catch {
+        throw refuse('X-Radiocli must be the recording\'s .json, base64-encoded', 400);
+      }
+      const out = manager.importRecording(mac, req.body, sidecar);
+      res.status(out.duplicate ? 200 : 201);
+      return out;
+    }));
 
   // A page of the feed. Still a plain array, as it always was; how many match
   // in all, and the cursor for the next (older) page when there is one, ride

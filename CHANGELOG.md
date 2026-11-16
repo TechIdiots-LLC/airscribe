@@ -98,6 +98,14 @@
   what it sends of itself (callsign, symbol, message, APRS or BSS, location every few minutes, position after you
   talk), and **Use my profile** fills it in from yours. Only the fields changed are written, and read back. A radio
   set to share its location is asked for its position, which it needs to send its beacons (docs/packets.md).
+- **Uniden scanners, through radiocli:** **Radios → Add a scanner** adds an SDS150 (or SDS100, SDS200), whose
+  recordings come in rather than over Bluetooth. radiocli records each transmission from the scanner's headphone
+  socket with what the scanner said it was, and `tools/radiocli-upload.mjs` sends each one in
+  (`POST /api/radios/:id/recordings`). AirScribe files it under the scanner's channel or talkgroup, measures it for
+  static and transcribes it. The feed shows its talkgroup, unit and digital mode, and the search finds them. The
+  uploader signs in by account or token, files what it sent away, and keeps what AirScribe refused aside with the
+  reason. A recording sent twice is kept once. Tested against recordings made in the tests, not yet with radiocli
+  or a scanner (docs/scanners.md).
 - **APRS decoded from the audio too:** AirScribe runs a 1200-baud AFSK modem of its own on everything a radio receives,
   so packets come in even if the radio's own modem doesn't hand them over. Each packet says what decoded it (the
   radio, AirScribe, or both, kept once), and the log lists each one with its source (docs/packets.md).

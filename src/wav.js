@@ -45,6 +45,30 @@ export function decodeWav(buf) {
 }
 
 /**
+ * Bring audio to another, lower sample rate: each output sample the average of the input it stands for (a crude
+ * low-pass, adequate for speech), read at the right place between samples when the rates aren't a whole multiple.
+ * @param {Buffer} pcm - 16-bit little-endian samples.
+ * @param {number} from - Their rate.
+ * @param {number} to - The rate wanted, at most `from`.
+ * @returns {Buffer} Samples at `to`.
+ */
+export function resample(pcm, from, to) {
+  if (from === to) return pcm;
+  const n = pcm.length >> 1;
+  const step = from / to;
+  const span = Math.max(1, Math.round(step));
+  const out = Buffer.alloc(Math.floor(n / step) * 2);
+  for (let i = 0; i * 2 < out.length; i++) {
+    const start = Math.floor(i * step);
+    let sum = 0;
+    let k = 0;
+    for (; k < span && start + k < n; k++) sum += pcm.readInt16LE((start + k) * 2);
+    out.writeInt16LE(Math.round(sum / Math.max(1, k)), i * 2);
+  }
+  return out;
+}
+
+/**
  * Halve the sample rate by averaging sample pairs. Radio audio is 32 kHz;
  * Whisper wants 16 kHz. Averaging is a crude low-pass, adequate for speech.
  * @param {Buffer} pcm - 16-bit little-endian samples.

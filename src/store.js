@@ -101,6 +101,8 @@ export class Store {
       // A short transmission that was only a packet (the radio's modem decoded
       // it): shown as the packet, and not transcribed
       ['data', 'INTEGER NOT NULL DEFAULT 0'],
+      // What a scanner said about it besides the channel (system, department, talkgroup, unit...), as JSON
+      ['details', 'TEXT'],
     ];
     for (const [name, decl] of added) {
       if (!columns.some((c) => c.name === name)) {
@@ -243,17 +245,27 @@ export class Store {
    * @returns {number} Its id.
    */
   addTransmission({ mac, startedAt, durationMs, audioFile, transmit = false,
-                    channel = null, channelName = null, channelHz = null, rssi = null, snrDb = null }) {
+                    channel = null, channelName = null, channelHz = null, rssi = null, snrDb = null, details = null }) {
     const r = this.db
       .prepare(
         `INSERT INTO transmissions
            (mac, started_at, duration_ms, audio_file, status, transmit,
-            channel, channel_name, channel_hz, rssi, snr_db)
-         VALUES (?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?)`,
+            channel, channel_name, channel_hz, rssi, snr_db, details)
+         VALUES (?, ?, ?, ?, 'pending', ?, ?, ?, ?, ?, ?, ?)`,
       )
       .run(mac, startedAt, Math.round(durationMs), audioFile, transmit ? 1 : 0,
-           channel, channelName, channelHz, rssi, snrDb);
+           channel, channelName, channelHz, rssi, snrDb,
+           details && Object.keys(details).length ? JSON.stringify(details) : null);
     return Number(r.lastInsertRowid);
+  }
+
+  /**
+   * @param {string} mac - A radio.
+   * @param {number} startedAt - When (ms).
+   * @returns {number|null} The id of its transmission that started then, if there is one: a recording sent twice.
+   */
+  transmissionAt(mac, startedAt) {
+    return this.db.prepare('SELECT id FROM transmissions WHERE mac = ? AND started_at = ?').get(mac, startedAt)?.id ?? null;
   }
 
   /**
@@ -389,7 +401,7 @@ export class Store {
       const best = ts.find((t) => t.engine === this.defaultEngine && t.status === 'done')
         ?? ts.find((t) => t.status === 'done')
         ?? ts[0];
-      return { ...r, transcripts: ts, text: best?.text ?? null,
+      return { ...r, details: r.details ? JSON.parse(r.details) : null, transcripts: ts, text: best?.text ?? null,
                engine: best?.engine ?? null, error: best?.error ?? null,
                // Mostly noise, by its quieting: marked in the feed, whatever a model wrote for it
                static: isStatic(r.snr_db),
@@ -468,11 +480,13 @@ export class Store {
     if (q) {
       // Any engine's transcript, or the channel name — searching for "fire"
       // should find the fire channel's traffic, not only clips that say it.
+      // A scanner's details too: its system, department, talkgroup or unit.
       where.push(
         '(t.id IN (SELECT transmission_id FROM transcripts WHERE text LIKE ?)' +
-          ' OR t.channel_name LIKE ?)',
+          ' OR t.channel_name LIKE ?' +
+          ' OR (t.details IS NOT NULL AND EXISTS (SELECT 1 FROM json_each(t.details) WHERE value LIKE ?)))',
       );
-      args.push(`%${q}%`, `%${q}%`);
+      args.push(`%${q}%`, `%${q}%`, `%${q}%`);
     }
     return { where, args };
   }

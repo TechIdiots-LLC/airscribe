@@ -89,10 +89,42 @@ let role = null;         // who signed in: an admin may delete
 const HIDE_KEY = 'airscribe.hideSilent';
 try { $('hide-silent').checked = localStorage.getItem(HIDE_KEY) === '1'; } catch { /* storage blocked */ }
 
+/**
+ * A scanner's card: it isn't connected to, it sends its recordings in (radiocli), so it shows when it last did,
+ * and how to send them.
+ * @param {object} r - The scanner.
+ * @returns {HTMLElement} The card.
+ */
+function scannerCard(r) {
+  const last = r.last_recording ? new Date(r.last_recording).toLocaleString() : null;
+  const how = el('div', { className: 'scanner-how', hidden: !openHow.has(r.mac) },
+    el('p', { className: 'meta' }, 'Record with radiocli on the computer the scanner is plugged into, then send what it records with ' +
+      'tools/radiocli-upload.mjs from AirScribe (Node 22 or later). Use an account that can manage radios, or a token from the settings file:'),
+    el('pre', {}, `node radiocli-upload.mjs --server ${location.origin} --radio ${r.mac} --user ${me ?? 'NAME'} recordings`),
+    el('p', { className: 'meta' }, 'It asks for the password, or reads AIRSCRIBE_PASSWORD (or AIRSCRIBE_TOKEN instead of --user). ' +
+      'Each recording sent moves to recordings/uploaded. docs/scanners.md has the rest.'));
+  return el('li', { className: 'scanner' },
+    el('div', { className: 'radio-head' },
+      el('span', { className: `dot ${last ? 'connected' : ''}` }),
+      el('strong', {}, r.name),
+      el('span', { className: 'pill' }, 'scanner')),
+    el('div', { className: 'meta' }, `${models.get(r.model)?.vendor ?? ''} ${models.get(r.model)?.name ?? r.model} · through radiocli`),
+    el('div', { className: 'meta live' }, last ? `Last recording ${last}` : 'No recordings yet'),
+    el('div', { className: 'actions' },
+      el('button', { onclick: () => { openHow.has(r.mac) ? openHow.delete(r.mac) : openHow.add(r.mac); renderRadios(); } },
+        'How to send'),
+      el('button', { onclick: () => rename(r) }, 'Rename'),
+      el('button', { onclick: () => remove(r) }, 'Remove')),
+    how);
+}
+const openHow = new Set(); // scanners whose "How to send" is open, kept across the list redrawing
+let me = null;             // the signed-in username, for the command shown
+
 function renderRadios() {
   const list = $('radios');
   list.replaceChildren(
     ...radios.map((r) => {
+      if (r.state === 'recordings') return scannerCard(r);
       const connected = r.state === 'connected';
       const retrying = r.state === 'connecting';
       const dot = r.tx ? 'tx' : r.rx ? 'rx' : connected ? 'connected' : retrying ? 'retry' : '';
@@ -263,6 +295,20 @@ $('scan').onclick = async () => {
   } catch (e) { list.replaceChildren(el('li', { className: 'tx-text error' }, e.message)); }
 };
 
+// A Uniden scanner, which sends its recordings in through radiocli rather than being found by a scan
+$('add-scanner').onclick = async () => {
+  const scanners = [...models.values()].filter((m) => m.link === 'radiocli');
+  const model = prompt(`Which scanner? (${scanners.map((m) => m.id).join(', ')})`, scanners[0]?.id ?? '');
+  if (!model) return;
+  const name = prompt('A name for it:', models.get(model)?.name ?? model);
+  if (name === null) return;
+  try {
+    const r = await api('/radios', { method: 'POST', body: { model: model.trim().toLowerCase(), name: name.trim() } });
+    openHow.add(r.mac);
+    await loadRadios();
+  } catch (e) { alert(e.message); }
+};
+
 async function add(d) {
   let model = d.model;
   if (!model) {
@@ -313,7 +359,13 @@ function renderTx(t) {
         ? el('span', { className: 'chan' },
             ` · ${t.channel_name || `ch ${t.channel}`}` +
             (t.channel_hz ? ` ${(t.channel_hz / 1e6).toFixed(4)} MHz` : ''))
-        : ''),
+        : '',
+      // What a scanner said besides: the talkgroup and unit, digital or not; where it sits on hover
+      t.details ? el('span', {
+        className: 'tx-details',
+        title: ['list', 'system', 'department', 'site'].map((k) => t.details[k]).filter(Boolean).join(' / '),
+      }, [t.details.talkgroup && !String(t.channel_name ?? '').includes(t.details.talkgroup) ? ` · TG ${t.details.talkgroup}` : '',
+        t.details.unit ? ` · unit ${t.details.unit}` : '', t.details.digital ? ` · ${t.details.digital}` : ''].join('')) : ''),
     t.data ? '' : el('div', { className: `tx-text ${(primaryScript?.status ?? t.status) === 'done' ? '' : (primaryScript?.status ?? t.status)}` },
       others.length ? el('span', { className: 'engine' }, `${primaryScript.engine} `) : '', text),
     ...(t.data ? [] : others.map((s) =>
@@ -884,6 +936,7 @@ async function boot() {
   }
   // Before the feed draws, so an admin's rows have their Delete
   role = session?.role ?? null;
+  me = session?.user?.username ?? null;
   try {
     for (const m of await api('/models')) models.set(m.id, m);
     await loadRadios();

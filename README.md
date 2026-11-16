@@ -40,6 +40,7 @@ npm run simulate        # fake radio + mock transcriber, no hardware needed
 | A radio's channels: every slot of a region read, written (read back to check), backed up and put back | working against the simulator and a stand-in for the radio; not yet on a real UV-Pro, see [docs/channels.md](docs/channels.md) |
 | Stations near me: RadioReference's listings for the county written to a radio, receive-only | working against the simulator and the stand-in for RadioReference; not yet with real listings, see [docs/radioreference.md](docs/radioreference.md#stations-near-me-writing-listings-to-a-radio) |
 | Packets: APRS and the radios' BSS, from the radio's own modem (notifications or KISS) and from AirScribe's own AFSK modem on the audio, in a list and on the Map | working against the simulator and test packets; the AFSK modem on synthesized packets and real static; not yet on a real radio, see [docs/packets.md](docs/packets.md) |
+| A Uniden SDS150/SDS100/SDS200 scanner, its recordings sent in through radiocli with talkgroup and unit | working against recordings made in the tests; not yet with radiocli or a real scanner, see [docs/scanners.md](docs/scanners.md) |
 | Public page, delayed publishing, RSS | design only, see [docs/publishing.md](docs/publishing.md) |
 | Digital modes beyond packets (IRC, file transfer) | design only, see [docs/digital-modes.md](docs/digital-modes.md) |
 
@@ -49,7 +50,7 @@ Documentation: [installing](docs/installing.md) · [accounts](docs/accounts.md) 
 [publishing](docs/publishing.md) ·
 [segmentation](docs/segmentation.md) ·
 [transcription](docs/transcription.md) · [Bluetooth link](docs/bluetooth.md) ·
-[a radio's channels](docs/channels.md) · [packets](docs/packets.md) ·
+[a radio's channels](docs/channels.md) · [packets](docs/packets.md) · [scanners](docs/scanners.md) ·
 [finding channels](docs/radioreference.md) · [digital modes](docs/digital-modes.md)
 
 Developed against a **BTech UV-Pro**, which is also BenLink's original target

@@ -2,7 +2,9 @@ import { EventEmitter } from 'node:events';
 import { existsSync, mkdirSync, readFileSync, statSync, unlinkSync, writeFileSync } from 'node:fs';
 import { join, resolve, sep } from 'node:path';
 import { Segmenter } from './segmenter.js';
-import { decodeWav, encodeWav, halveRate } from './wav.js';
+import { decodeWav, encodeWav, halveRate, resample } from './wav.js';
+import { readSidecar } from './radiocli.js';
+import { sendsRecordings } from './models.js';
 import { quieting } from './quality.js';
 import { decodePacket } from './aprs.js';
 import { AfskDecoder } from './afsk.js';
@@ -294,6 +296,45 @@ export class Manager extends EventEmitter {
       this.modems.set(mac, modem);
     }
     return modem;
+  }
+
+  /**
+   * A transmission a scanner recorded itself and sent in (radiocli, docs/scanners.md): kept, filed under the
+   * channel or talkgroup the scanner named, measured for static and transcribed, as a radio's clip is. One sent
+   * again (the same scanner, the same start) is the one already kept.
+   * @param {string} mac - The scanner.
+   * @param {Buffer} file - The recording: a 16-bit mono WAV, at any rate.
+   * @param {object} sidecar - What radiocli wrote beside it.
+   * @returns {{id: number, duplicate: boolean}} The transmission.
+   */
+  importRecording(mac, file, sidecar) {
+    const wav = decodeWav(file);
+    if (!wav || wav.pcm.length < 2) {
+      throw Object.assign(new Error('the recording isn\'t a 16-bit mono WAV'), { status: 400 });
+    }
+    const { rate, pcm } = wav;
+    const durationMs = (pcm.length / 2 / rate) * 1000;
+    const { startedAt, channelName, channelHz, details } = readSidecar(sidecar, durationMs);
+    const already = this.store.transmissionAt(mac, startedAt);
+    if (already !== null) return { id: already, duplicate: true };
+
+    const dir = join(this.dataDir, 'clips', mac.replaceAll(':', ''));
+    mkdirSync(dir, { recursive: true });
+    const name = `${new Date(startedAt).toISOString().replace(/[:.]/g, '-')}.wav`;
+    const audioFile = join(mac.replaceAll(':', ''), name);
+    writeFileSync(join(this.dataDir, 'clips', audioFile), encodeWav(pcm, rate));
+    const engineWav = join(dir, name.replace('.wav', '.16k.wav'));
+    writeFileSync(engineWav, encodeWav(resample(pcm, rate, Math.min(rate, 16000)), Math.min(rate, 16000)));
+
+    const id = this.store.addTransmission({
+      mac, startedAt, durationMs, audioFile, channelName, channelHz, details: { ...details, source: 'radiocli' },
+      // Its own signal reading is on another scale than the radios' 0 to 15, so it stays in the details
+      snrDb: quieting(pcm, rate),
+    });
+    this.emit('update', { type: 'transmission', ...this.store.transmission(id) });
+    this.enqueue({ priority: 0, id, engineName: this.primary, wav: engineWav });
+    for (const engineName of this.extra) this.enqueue({ priority: 1, id, engineName, wav: engineWav });
+    return { id, duplicate: false };
   }
 
   /**
@@ -665,9 +706,9 @@ export class Manager extends EventEmitter {
 
   /** @returns {object[]} Radios with their live state merged in. */
   radios() {
-    return this.store.radios().map((r) => ({
-      ...r,
-      ...(this.state.get(r.mac) ?? { state: 'disconnected' }),
-    }));
+    return this.store.radios().map((r) => (sendsRecordings(r.model)
+      // A scanner isn't connected to: it's as current as the last recording it sent
+      ? { ...r, state: 'recordings', last_recording: this.store.lastTransmission(r.mac)?.started_at ?? null }
+      : { ...r, ...(this.state.get(r.mac) ?? { state: 'disconnected' }) }));
   }
 }
