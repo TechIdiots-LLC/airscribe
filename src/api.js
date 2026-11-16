@@ -7,7 +7,7 @@ import { createAuth, readCookie } from './auth.js';
 import { PROVIDERS } from './logins.js';
 import { PUBLISH_DEFAULTS, publicCutoff, publishable, publicView } from './publish.js';
 import { insights } from './insights.js';
-import { checkChannels } from './channels.js';
+import { checkWrite, resolveWrite } from './channels.js';
 
 const PUBLIC = fileURLToPath(new URL('../public', import.meta.url));
 
@@ -529,10 +529,12 @@ export function createApp({ manager, store, sidecar, config, dataDir, updates, c
   api.get('/radios/:mac/channels', admin, answer((req) => fromRadio(manager.readChannels(macOf(req), regionOf(req.query.region)))));
   api.put('/radios/:mac/channels', admin, answer(async (req) => {
     const mac = macOf(req);
-    const channels = checkChannels(req.body?.channels);
+    // New channels, emptied slots, and changes to some fields of a channel,
+    // which are checked against the region as it's read for the backup
+    const items = checkWrite(req.body?.channels);
     const region = regionOf(req.body?.region);
     const label = String(req.body?.label ?? '').trim().slice(0, 100) ||
-      `Before writing ${channels.length} channel${channels.length === 1 ? '' : 's'}`;
+      `Before writing ${items.length} channel${items.length === 1 ? '' : 's'}`;
     // A channel may come with a place (a station from a listing): it's put on
     // the map under the name the radio kept, unless that name has one already
     const places = new Map();
@@ -543,7 +545,12 @@ export function createApp({ manager, store, sidecar, config, dataDir, updates, c
         places.set(c.id, { lat, lon });
       }
     }
-    const backup = await backUp(mac, region, label);
+    // The region read first, so a change to an empty slot is refused (and one
+    // that changes nothing left out) before a backup is kept for it
+    const read = await fromRadio(manager.readChannels(mac, region));
+    const channels = resolveWrite(items, read.channels);
+    if (!channels.length) return { region: read.region, name: read.name, results: [], backup: null, placed: 0 };
+    const backup = store.addChannelBackup({ mac, region: read.region, regionName: read.name, label, channels: read.channels });
     const wrote = await fromRadio(manager.writeChannels(mac, backup.region, channels));
     let placed = 0;
     for (const r of wrote.results ?? []) {

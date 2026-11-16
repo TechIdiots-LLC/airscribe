@@ -1,7 +1,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
-import { checkChannel, checkChannels, radioName, tone } from '../src/channels.js';
+import { applySet, checkChannel, checkChannels, checkWrite, radioName, resolveWrite, tone } from '../src/channels.js';
 
 // node:sqlite arrived in Node 22.5; on older Node the API test reports as skipped.
 const sqlite = await import('node:sqlite').then(() => true, () => false);
@@ -59,6 +59,41 @@ test('a channel is checked, and transmits only in the ham bands', () => {
   assert.throws(() => checkChannels([]), /at least one/);
 });
 
+test('a change to some of a channel\'s fields, checked against the radio\'s channel', () => {
+  // A GMRS channel the radio was programmed with elsewhere, transmitting
+  const gmrs = { id: 2, name: 'GMRS 1', rx_hz: 462562500, tx_hz: 462562500, mod: 'FM', bandwidth: 'narrow',
+    rx_tone: '', tx_tone: '', scan: true, power: 'high', tx_disable: false, empty: false, raw: 'aa' };
+  assert.deepEqual(applySet(2, gmrs, { scan: false }), { scan: false }, 'scan off leaves its transmit alone');
+  assert.deepEqual(applySet(2, gmrs, { name: '  GMRS One  ' }), { name: 'GMRS One' });
+  assert.deepEqual(applySet(2, { ...gmrs, tx_disable: true }, { tx_disable: false }), { tx_disable: true },
+    'transmit isn\'t turned on outside the ham bands');
+  assert.deepEqual(applySet(2, gmrs, { rx_hz: 155880000, tx_hz: 155880000 }), { rx_hz: 155880000, tx_hz: 155880000, tx_disable: true },
+    'moved out of them, it\'s made receive-only');
+  const ham = { ...gmrs, rx_hz: 146970000, tx_hz: 146370000, tx_disable: true };
+  assert.deepEqual(applySet(2, ham, { tx_disable: false, tx_tone: '114.8 PL' }), { tx_disable: false, tx_tone: '114.8' });
+  assert.throws(() => applySet(2, gmrs, { rx_hz: 119100000 }), /airband is AM only/, 'checked with the mode it has');
+  assert.deepEqual(applySet(2, gmrs, { rx_hz: 119100000, mod: 'AM' }), { rx_hz: 119100000, mod: 'AM', tx_disable: true });
+  assert.throws(() => applySet(2, { ...gmrs, empty: true }, { scan: false }), /empty/);
+  assert.throws(() => applySet(2, gmrs, { colour: 'red' }), /no colour/);
+  assert.throws(() => applySet(2, gmrs, { name: '' }), /needs a name/);
+});
+
+test('a write: new channels, emptied slots and changes, resolved against the region as read', () => {
+  const items = checkWrite([
+    { id: 0, name: 'Rutland FD', rx_hz: 154250000 }, { id: 1, rx_hz: 0 },
+    { id: 2, set: { scan: false } }, { id: 3, set: { scan: true } }]);
+  assert.deepEqual(items.map((i) => i.kind), ['new', 'clear', 'set', 'set']);
+  const slot = (id, raw) => ({ id, name: `CH ${id}`, rx_hz: 155000000 + id, tx_hz: 155000000 + id, mod: 'FM', bandwidth: 'wide',
+    rx_tone: '', tx_tone: '', scan: true, power: 'low', tx_disable: true, empty: false, raw });
+  const out = resolveWrite(items, [{ id: 0, empty: true, raw: '00' }, { id: 1, empty: true, raw: '01' }, slot(2, 'cc'), slot(3, 'dd')]);
+  assert.equal(out.length, 3, 'slot 4 already scans: nothing to write');
+  assert.equal(out[0].name, 'Rutland FD');
+  assert.deepEqual(out[1], { id: 1, rx_hz: 0 });
+  assert.deepEqual(out[2], { id: 2, raw: 'cc', set: { scan: false } }, 'the record as read, and the one change');
+  assert.throws(() => checkWrite([{ id: 1, set: {} }, { id: 1, rx_hz: 0 }]), /given twice/);
+  assert.throws(() => checkWrite([{ id: 1, set: 'scan' }]), /object of fields/);
+});
+
 /** A radio as the manager sees it: 30 slots in each of two regions, and what it was asked. */
 function fakeRadio() {
   const blank = (id) => ({ id, name: '', rx_hz: 0, empty: true, raw: `${id.toString(16).padStart(2, '0')}${'00'.repeat(24)}` });
@@ -76,7 +111,9 @@ function fakeRadio() {
     writeChannels: async (mac, region, channels) => {
       calls.push(['write', mac, region, channels]);
       for (const c of channels) {
-        tables[region][c.id] = c.raw ? { id: c.id, raw: c.raw, name: 'restored', empty: false } : { ...c, empty: !c.rx_hz };
+        tables[region][c.id] = c.set ? { ...tables[region][c.id], ...c.set }
+          : c.raw ? { id: c.id, raw: c.raw, name: 'restored', empty: false }
+            : { ...c, empty: !c.rx_hz, raw: `${c.id.toString(16).padStart(2, '0')}${'ab'.repeat(24)}` };
       }
       return { region, name: ['Local', 'Travel'][region],
         results: channels.map((c) => ({ id: c.id, ok: true, channel: tables[region][c.id] })) };
@@ -143,12 +180,25 @@ test('a radio\'s channels: read, written after a backup, and put back', { skip: 
     assert.equal(wrote.body.backup.region_name, 'Travel');
     assert.equal(wrote.body.results[0].ok, true);
 
+    // Changing some fields of it, and emptying a slot: the record as read, with the change
+    calls.length = 0;
+    const changed = await call('PUT', `/${MAC}/channels`, 'admin', { region: 1, channels: [
+      { id: 2, set: { scan: false, name: 'Rutland F' } }, { id: 4, rx_hz: 0 }] });
+    assert.equal(changed.status, 200, JSON.stringify(changed.body));
+    assert.deepEqual(calls[1][3], [{ id: 2, raw: `02${'ab'.repeat(24)}`, set: { name: 'Rutland F', scan: false } }, { id: 4, rx_hz: 0 }]);
+    const nothing = await call('PUT', `/${MAC}/channels`, 'admin', { region: 1, channels: [{ id: 2, set: { scan: false } }] });
+    assert.deepEqual([nothing.status, nothing.body.results], [200, []], 'a change that changes nothing writes nothing');
+    const emptySlot = await call('PUT', `/${MAC}/channels`, 'admin', { region: 1, channels: [{ id: 9, set: { scan: false } }] });
+    assert.equal(emptySlot.status, 400);
+    assert.match(emptySlot.body.error, /channel 10 is empty/);
+
     // Backing up by hand, and the list
     const kept = await call('POST', `/${MAC}/backups`, 'admin', { region: 0, label: 'Before the trip' });
     assert.equal(kept.body.programmed, 1);
     assert.deepEqual(kept.body.names, ['Holden PD']);
     const list = await call('GET', `/${MAC}/backups`);
-    assert.deepEqual(list.body.map((b) => b.label), ['Before the trip', 'Before writing 1 channel'], 'newest first');
+    assert.deepEqual(list.body.map((b) => b.label), ['Before the trip', 'Before writing 2 channels', 'Before writing 1 channel'],
+      'newest first; none for the write that changed nothing, nor the one refused');
     const one = await call('GET', `/${MAC}/backups/${kept.body.id}`);
     assert.equal(one.body.channels.length, 30, 'every slot, the empty ones too');
 
@@ -168,7 +218,7 @@ test('a radio\'s channels: read, written after a backup, and put back', { skip: 
     assert.equal((await call('POST', `/${OTHER}/backups/${kept.body.id}/restore`)).status, 404);
     assert.equal((await call('DELETE', `/${MAC}/backups/${kept.body.id}`)).status, 200);
     assert.equal((await call('GET', `/${MAC}/backups/${kept.body.id}`)).status, 404);
-    assert.equal((await call('GET', `/${MAC}/backups`)).body.length, 2);
+    assert.equal((await call('GET', `/${MAC}/backups`)).body.length, 3);
   } finally {
     server.close();
   }

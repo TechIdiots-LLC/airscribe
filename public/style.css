@@ -112,15 +112,36 @@ table.slots tr.failed td { background: color-mix(in srgb, var(--bad) 14%, transp
 .st-groups > li { padding: 6px 10px; margin-bottom: 4px; }
 .st-groups > li > .row { margin: 0; }
 .st-groups > li > .row .link { flex: 1; text-align: left; }
-.st-freqs, .st-picked { padding-left: 0; margin: 6px 0 0; }
-.st-freqs li, .st-picked li { background: none; border: 0; border-radius: 0; padding: 3px 0; margin: 0; font-size: 13px; }
-.st-picked { list-style: decimal inside; }
-.st-freqs li { list-style: none; }
+.st-freqs { padding-left: 0; margin: 6px 0 0; }
+.st-freqs li { background: none; border: 0; border-radius: 0; padding: 3px 0; margin: 0; font-size: 13px; list-style: none; }
 .st-freqs li.off { color: var(--muted); }
 .st-freqs label { display: flex; gap: 8px; align-items: baseline; }
-.st-freqs .meta, .st-picked .meta { margin: 0 0 0 26px; }
-.st-picked input[type=text] { width: 11ch; font: 13px ui-monospace, monospace; }
+.st-freqs .meta { margin: 0 0 0 26px; }
+.st-place { display: block; margin: 8px 0 0; font-size: 13px; }
 #st-listen { margin-bottom: 8px; }
+/* The Add panel's tabs, and changes not written yet */
+.tabs { display: flex; gap: 4px; flex: 1; }
+.tabs button.on { border-color: var(--accent); color: var(--accent); }
+.pending { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 8px 0; padding: 8px 12px;
+  border: 1px solid var(--warn); border-radius: 8px; }
+.pending[hidden] { display: none; }
+.pending span { flex: 1; min-width: 12em; }
+table.slots tr.adding td { background: color-mix(in srgb, var(--ok) 12%, transparent); }
+table.slots tr.editing td { background: color-mix(in srgb, var(--warn) 12%, transparent); }
+table.slots tr.removing td { color: var(--muted); text-decoration: line-through; }
+table.slots tr.removing td.acts { text-decoration: none; }
+table.slots td.acts { display: flex; gap: 10px; }
+table.slots .pill { margin-left: 6px; font-size: 11px; }
+table.slots .pill.adding { color: var(--ok); }
+table.slots .pill.editing { color: var(--warn); }
+table.slots tr.edit td { background: var(--card); white-space: normal; }
+.channel-form { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 8px 12px; padding: 6px 0; }
+.channel-form label { display: flex; flex-direction: column; gap: 2px; font-size: 12px; color: var(--muted); }
+.channel-form label[hidden] { display: none; }
+.channel-form input, .channel-form select { color: var(--fg); font-size: 14px; }
+.channel-form input[type=checkbox] { align-self: flex-start; }
+.channel-form .row, .channel-form .error { grid-column: 1 / -1; margin: 0; }
+#add-hand { padding-top: 4px; }
 /* The header's views: Feed, Insights, Admin */
 .views { display: flex; gap: 4px; }
 .views button.active { border-color: var(--accent); color: var(--accent); }

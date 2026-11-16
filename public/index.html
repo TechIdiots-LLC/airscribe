@@ -311,29 +311,37 @@
     <label>Region <select id="ch-region"></select></label>
     <button id="ch-reread">Read again</button>
     <button id="ch-backup">Back up this region</button>
-    <button id="ch-stations-open" hidden>Stations near me…</button>
+    <button id="ch-add-open">Add channels…</button>
   </div>
   <p id="channels-status" class="meta" role="status"></p>
   <button id="st-listen" hidden>Switch the radio to this region and scan</button>
-  <section id="ch-stations" class="stations" hidden>
-    <div class="row"><h3 id="st-title">Stations near me</h3><button id="st-close" class="link">Close</button></div>
-    <p class="meta">From RadioReference, nearest first. Open a group and tick the frequencies to write; only analog
-      channels the radio can receive can be ticked. Each is written receive-only with the listing's tone, except a
-      ham repeater, which keeps its input frequency and tone.</p>
-    <ul id="st-groups" class="st-groups"></ul>
-    <button id="st-more" hidden>Show more</button>
-    <div id="st-pick" hidden>
-      <h3>To write, in this order</h3>
-      <ol id="st-picked" class="st-picked"></ol>
-      <div class="row wrap">
-        <label>From slot <input id="st-slot" type="number" min="1" value="1" style="width: 5em"></label>
-        <label><input id="st-place" type="checkbox" checked> Put them on the map</label>
+  <section id="ch-add" class="stations" hidden>
+    <div class="row">
+      <div class="tabs" role="tablist">
+        <button id="add-tab-near" role="tab">Stations near me</button>
+        <button id="add-tab-hand" role="tab">By hand</button>
       </div>
-      <p id="st-preview" class="meta"></p>
-      <button id="st-write">Write</button>
+      <button id="ch-add-close" class="link">Close</button>
     </div>
-    <p class="credit">Data courtesy of <a href="https://www.radioreference.com" target="_blank" rel="noopener">RadioReference.com</a></p>
+    <div id="add-near" hidden>
+      <h3 id="st-title">Stations near me</h3>
+      <p class="meta">From RadioReference, nearest first. Open a group and tick its frequencies to add them to the
+        list; only analog channels the radio can receive can be ticked. Each is added receive-only with the
+        listing's tone, except a ham repeater, which keeps its input frequency and tone.</p>
+      <ul id="st-groups" class="st-groups"></ul>
+      <button id="st-more" hidden>Show more</button>
+      <label class="st-place"><input id="st-place" type="checkbox" checked> Put them on the map when they're written</label>
+      <p class="credit">Data courtesy of <a href="https://www.radioreference.com" target="_blank" rel="noopener">RadioReference.com</a></p>
+    </div>
+    <p id="add-near-off" class="meta" hidden>Stations near you come from RadioReference: set it up in
+      Admin → RadioReference first.</p>
+    <div id="add-hand" hidden></div>
   </section>
+  <div id="ch-pending" class="pending" hidden>
+    <span id="ch-pending-text"></span>
+    <button id="ch-write">Write to radio</button>
+    <button id="ch-discard" class="link">Discard</button>
+  </div>
   <div class="scroll-x"><table class="slots" id="ch-table"></table></div>
   <h3>Backups</h3>
   <p class="meta">AirScribe backs a region up before it writes to it, and before it puts a backup back,

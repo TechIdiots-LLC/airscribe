@@ -74,6 +74,33 @@ class RecordTests(unittest.TestCase):
             with self.assertRaises(ValueError, msg=bad):
                 encode_channel(bad)
 
+    def test_a_change_to_some_fields_keeps_every_other_bit(self):
+        # Flags this doesn't model (0x08 de-emphasis bypass, 0x04, fixed bits in
+        # byte 14) and a name with a byte after its end: all must survive
+        rec = bytearray(encode_channel({**STATION, "mod": "AM", "bandwidth": "wide"}))
+        rec[13] |= 0x08 | 0x04
+        rec[14] |= 0x80 | 0x20
+        rec = bytes(rec)
+        off = bluez.patch_record(rec, {"scan": False})
+        self.assertEqual(off[13], rec[13] & ~0x80, "only the scan bit")
+        self.assertEqual(off[:13] + off[14:], rec[:13] + rec[14:], "and nothing else")
+        renamed = bluez.patch_record(rec, {"name": "HOLDEN"})
+        self.assertEqual(renamed[15:25], b"HOLDEN\x00\x00\x00\x00")
+        self.assertEqual(renamed[:15], rec[:15])
+        moved = decode_channel(bluez.patch_record(rec, {"rx_hz": 155880000}))
+        self.assertEqual((moved["rx_hz"], moved["tx_hz"], moved["mod"]), (155880000, 154250000, "AM"),
+                         "a frequency keeps the modulation bits")
+        fm = decode_channel(bluez.patch_record(rec, {"mod": "FM", "bandwidth": "narrow", "power": "high",
+                                                     "rx_tone": "D023", "tx_disable": False}))
+        self.assertEqual((fm["mod"], fm["bandwidth"], fm["power"], fm["rx_tone"], fm["tx_disable"]),
+                         ("FM", "narrow", "high", "D023", False))
+        self.assertEqual(bluez.patch_record(rec, {"power": "medium"})[13] & 0x42, 0x02)
+        for bad in ({"colour": "red"}, {"mod": "DMR"}, {"name": "ELEVEN CHAR"}, {"rx_hz": 0}, {"power": "max"}):
+            with self.assertRaises(ValueError, msg=bad):
+                bluez.patch_record(rec, bad)
+        self.assertEqual(channel_record({"id": 4, "raw": rec.hex(), "set": {"scan": False}}), off,
+                         "as the radio link is given it: the record read, and the change")
+
     def test_a_record_as_read_is_written_back_as_it_was(self):
         rec = encode_channel(STATION)[:20] + b"\xb5\xbe\xb5\xd8\x00"   # bits and bytes this doesn't model
         self.assertEqual(channel_record({"raw": rec.hex()}), rec)

@@ -411,9 +411,64 @@ def encode_channel(ch):
     return bytes(rec)
 
 
+def _name_bytes(name):
+    name = str(name or "").strip()
+    if any(not 32 <= ord(c) < 127 for c in name) or len(name) > 10:
+        raise ValueError(f"{name!r}: a channel's name is up to ten plain letters, digits and signs")
+    return name.encode("ascii").ljust(10, b"\x00")
+
+
+def patch_record(rec, changes):
+    """A record with only these fields changed (as decode_channel names them),
+    and every other bit as the radio had it, bits this doesn't model included:
+    so turning a channel's scan off changes that one bit."""
+    r = bytearray(rec)
+    known = {"name", "rx_hz", "tx_hz", "mod", "bandwidth", "rx_tone", "tx_tone",
+             "scan", "power", "talk_around", "tx_disable", "mute"}
+    unknown = set(changes) - known
+    if unknown:
+        raise ValueError(f"a channel has no {', '.join(sorted(unknown))}")
+    mod = r[5] >> 6
+    if "mod" in changes:
+        m = str(changes["mod"]).upper()
+        if m not in ("FM", "AM"):
+            raise ValueError(f"a channel is FM or AM here, not {m}")
+        mod = MODULATIONS.index(m)
+    for key, at in (("tx_hz", 1), ("rx_hz", 5)):
+        if key in changes:
+            hz = _number(changes[key], "a frequency", 1, MAX_HZ)
+            r[at:at + 4] = hz.to_bytes(4, "big")
+    r[1] = (r[1] & 0x3F) | (mod << 6)
+    r[5] = (r[5] & 0x3F) | (mod << 6)
+    if "tx_tone" in changes:
+        r[9:11] = tone_value(changes["tx_tone"]).to_bytes(2, "big")
+    if "rx_tone" in changes:
+        r[11:13] = tone_value(changes["rx_tone"]).to_bytes(2, "big")
+
+    def flag(byte, bit, on):
+        r[byte] = (r[byte] | bit) if on else (r[byte] & ~bit & 0xFF)
+
+    for key, byte, bit in (("scan", 13, 0x80), ("talk_around", 13, 0x20), ("tx_disable", 13, 0x01), ("mute", 14, 0x10)):
+        if key in changes:
+            flag(byte, bit, bool(changes[key]))
+    if "bandwidth" in changes:
+        if changes["bandwidth"] not in ("wide", "narrow"):
+            raise ValueError("bandwidth is wide or narrow")
+        flag(13, 0x10, changes["bandwidth"] == "wide")
+    if "power" in changes:
+        if changes["power"] not in ("high", "medium", "low"):
+            raise ValueError("power is high, medium or low")
+        flag(13, 0x40, changes["power"] == "high")
+        flag(13, 0x02, changes["power"] == "medium")
+    if "name" in changes:
+        r[15:25] = _name_bytes(changes["name"])
+    return bytes(r)
+
+
 def channel_record(ch):
     """What to write for one channel: a record as it was read ("raw", for
-    putting a backup back exactly), or one built from its fields."""
+    putting a backup back exactly), that record with some fields changed
+    ("raw" and "set"), or one built from its fields."""
     if ch.get("raw"):
         try:
             rec = bytes.fromhex(str(ch["raw"]))
@@ -423,6 +478,8 @@ def channel_record(ch):
             raise ValueError(f"a channel's record is {RECORD} bytes")
         if ch.get("id") is not None and _number(ch["id"], "a channel's slot", 0, 255) != rec[0]:
             rec = bytes([ch["id"]]) + rec[1:]
+        if ch.get("set"):
+            rec = patch_record(rec, ch["set"])
         return rec
     return encode_channel(ch)
 

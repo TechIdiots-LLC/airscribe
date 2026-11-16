@@ -53,8 +53,8 @@ asks for the county once. Saving the settings starts afresh.
 
 ## Stations near me: writing listings to a radio
 
-A radio's **Channels** dialog (docs/channels.md) has **Stations near me** once
-RadioReference is set up. It lists the county's groups (a town's fire
+A radio's **Channels** dialog (docs/channels.md) has **Stations near me**
+under **Add channels…** once RadioReference is set up. It lists the county's groups (a town's fire
 department, say), nearest the ZIP code first, with those RadioReference gives
 no place of their own (county-wide) last. Opening a group asks for its
 frequencies (`getSubcatFreqs`); a mode given as a number is named with
@@ -70,13 +70,12 @@ frequencies (`getSubcatFreqs`); a mode given as a number is named with
   band keeps its input frequency and its tone to transmit with, and no tone
   to receive, since the tone listed is the one it's accessed with.
 - **The name** is the listing's alpha tag cut to the radio's ten characters,
-  and can be changed before writing. Two picked with the same name get a
+  and can be edited before writing. A name the region already has gets a
   number at the end: the feed and the Map know a channel by its name.
 
-The picked stations are written in order into the region on show, from the
-first slot where they all fit into empty slots (or a slot chosen by hand);
-what would be replaced is shown first. The region is backed up before it's
-written, and each channel is read back from the radio. **Put them on the map**
+A ticked station joins the list in the region's first free slot, and is
+written with the list's other changes (**Write to radio**), after the region
+is backed up; each channel is read back from the radio. **Put them on the map**
 places each at its group's place, under the name the radio kept, unless that
 name has a place already; it shows once a transmission comes in on it.
 Afterwards, **Switch the radio to this region and scan** does that.

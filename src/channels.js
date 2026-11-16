@@ -165,3 +165,106 @@ export function checkChannels(list) {
   if (slots.size !== out.length) throw fail('a slot is given twice');
   return out;
 }
+
+const SETTABLE = ['name', 'rx_hz', 'tx_hz', 'mod', 'bandwidth', 'rx_tone', 'tx_tone', 'scan', 'power', 'tx_disable'];
+
+/**
+ * A change to some of an existing channel's fields, checked against the
+ * channel as the radio has it now. Transmit is never turned on outside the
+ * ham bands, and a channel moved out of them is made receive-only; one that
+ * only has its scan or name changed keeps its transmit as it was.
+ * @param {number} id - The slot.
+ * @param {object} current - The channel as read from the radio (decode_channel's fields).
+ * @param {object} set - The fields to change.
+ * @returns {object} The fields to change, normalised, for the radio link to patch in.
+ */
+export function applySet(id, current, set) {
+  const at = `channel ${id + 1}`;
+  if (!set || typeof set !== 'object' || Array.isArray(set)) throw fail(`${at}: a change is an object of fields`);
+  const unknown = Object.keys(set).filter((k) => !SETTABLE.includes(k));
+  if (unknown.length) throw fail(`${at}: a channel has no ${unknown.join(', ')} to change`);
+  if (!current || current.empty) throw fail(`${at} is empty: there’s nothing on it to change`);
+  const out = {};
+  if ('name' in set) {
+    out.name = radioName(set.name);
+    if (!out.name) throw fail(`${at}: a channel needs a name the radio can show`);
+  }
+  const rx = 'rx_hz' in set ? set.rx_hz : current.rx_hz;
+  const mod = 'mod' in set ? String(set.mod).toUpperCase() : current.mod;
+  if ('rx_hz' in set || 'mod' in set) {
+    if (!Number.isInteger(rx) || rx <= 0) throw fail(`${at}: the receive frequency is in whole hertz`);
+    const band = receiveBand(rx);
+    if (!band) throw fail(`${at}: the radio can’t receive ${rx / 1e6} MHz`);
+    if (mod !== 'FM' && mod !== 'AM') throw fail(`${at}: a channel is FM or AM`);
+    if (band.mod && mod !== band.mod) throw fail(`${at}: the ${band.name} is ${band.mod} only`);
+    if ('rx_hz' in set) out.rx_hz = rx;
+    if ('mod' in set) out.mod = mod;
+  }
+  const tx = 'tx_hz' in set ? set.tx_hz : current.tx_hz;
+  if ('tx_hz' in set) {
+    if (!Number.isInteger(tx) || tx <= 0) throw fail(`${at}: the transmit frequency is in whole hertz`);
+    out.tx_hz = tx;
+  }
+  if ('bandwidth' in set) {
+    if (set.bandwidth !== 'wide' && set.bandwidth !== 'narrow') throw fail(`${at}: bandwidth is wide or narrow`);
+    out.bandwidth = set.bandwidth;
+  }
+  if ('rx_tone' in set) out.rx_tone = tone(set.rx_tone);
+  if ('tx_tone' in set) out.tx_tone = tone(set.tx_tone);
+  if ('scan' in set) out.scan = Boolean(set.scan);
+  if ('power' in set) {
+    if (!['high', 'medium', 'low'].includes(set.power)) throw fail(`${at}: power is high, medium or low`);
+    out.power = set.power;
+  }
+  const ham = isHam(rx) && isHam(tx);
+  if ('tx_disable' in set) out.tx_disable = Boolean(set.tx_disable) || !ham;
+  else if (('rx_hz' in set || 'tx_hz' in set) && !ham) out.tx_disable = true;
+  return out;
+}
+
+/**
+ * A write's channels, checked as far as they can be before the radio is read:
+ * each a new channel (its fields), an empty slot ({id, rx_hz: 0}), or a change
+ * to the channel in a slot ({id, set}), which is checked once the region has
+ * been read for its backup (resolveWrite).
+ * @param {unknown} list - The channels.
+ * @returns {object[]} Each with its kind: 'new', 'clear' or 'set'.
+ */
+export function checkWrite(list) {
+  if (!Array.isArray(list) || !list.length) throw fail('channels is a list of at least one');
+  if (list.length > 256) throw fail('that’s more channels than a region holds');
+  const out = list.map((c) => {
+    if (c && typeof c === 'object' && 'set' in c) {
+      if (!Number.isInteger(c.id) || c.id < 0 || c.id > 255) throw fail('a channel’s slot (id) is a whole number from 0');
+      if (!c.set || typeof c.set !== 'object') throw fail(`channel ${c.id + 1}: a change is an object of fields`);
+      return { kind: 'set', id: c.id, set: c.set };
+    }
+    const checked = checkChannel(c);
+    return checked.rx_hz ? { kind: 'new', ...checked } : { kind: 'clear', ...checked };
+  });
+  if (new Set(out.map((c) => c.id)).size !== out.length) throw fail('a slot is given twice');
+  return out;
+}
+
+/**
+ * What the radio link writes, given the region as it was read: a change
+ * becomes the channel's record with those fields patched in, so the bits
+ * AirScribe doesn't model are kept. A change that changes nothing is left out.
+ * @param {object[]} items - From checkWrite.
+ * @param {object[]} slots - The region's every slot, as read (decode_channel's fields, with raw).
+ * @returns {object[]} For the radio link.
+ */
+export function resolveWrite(items, slots) {
+  const out = [];
+  for (const { kind, ...c } of items) {
+    if (kind !== 'set') {
+      out.push(c);
+      continue;
+    }
+    const current = slots.find((s) => s.id === c.id);
+    const set = applySet(c.id, current, c.set);
+    const changed = Object.fromEntries(Object.entries(set).filter(([k, v]) => current[k] !== v));
+    if (Object.keys(changed).length) out.push({ id: c.id, raw: current.raw, set: changed });
+  }
+  return out;
+}

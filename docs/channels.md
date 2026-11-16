@@ -6,9 +6,37 @@ its bandwidth, whether it transmits, and whether it's scanned. The region
 picker reads another region; the radio is moved there to read it and back
 again afterwards.
 
-**Stations near me** writes RadioReference's listings for the county to the
-radio, receive-only, after a backup: see
-[radioreference.md](radioreference.md#stations-near-me-writing-listings-to-a-radio).
+## How many channels
+
+A UV-Pro holds 30 channels in each region, and has six regions: 180 in all.
+The dialog says how many the radio reports ("3 of 30 channels programmed").
+The radio scans the region it's on, so it listens to at most those 30 at once
+(two, with dual watch on and scan off).
+
+## Changing them
+
+The list is edited in place, and nothing reaches the radio until **Write to
+radio**:
+
+- **Scan:** each channel's box. Unticked, the radio skips the channel when it
+  scans: the way to stop listening to a channel without removing it.
+- **Edit:** the channel's name, receive frequency, mode (FM narrow, FM wide,
+  AM), receive tone, and transmit (off, the same frequency, or another, with its
+  tone and power).
+- **Remove:** empties the slot when written. **Undo** takes back a change.
+- **Add channels…:** **Stations near me** (RadioReference's listings for the
+  county, see
+  [radioreference.md](radioreference.md#stations-near-me-writing-listings-to-a-radio))
+  or **By hand**. Each goes into the first free slot, receive-only unless it's
+  in a ham band, and a name already in the region gets a number at the end.
+
+Changes not written yet are highlighted and counted above the list; **Discard**
+drops them, and switching region or closing asks first. **Write to radio**
+reads the region, backs it up, and writes every change at once. A change to a
+channel writes only the fields that changed, over the channel's record as the
+radio has it, so the rest of it (bits AirScribe doesn't model included) is
+kept: turning scan off changes one bit. A change that didn't take stays in the
+list, to write again.
 
 ## Backups
 
@@ -37,7 +65,11 @@ What AirScribe writes is checked first:
 - **What the radio can receive:** 136–174 MHz and 400–520 MHz, FM, and the
   airband, 108–136 MHz, in AM only. These are the UV-Pro's ranges; the other
   radios HTCommander supports are built the same way.
-- **Transmit only in the ham bands:** a channel AirScribe writes transmits only
+- **Transmit only in the ham bands:** AirScribe never turns transmit on outside
+  the 2 m and 70 cm bands, and a channel moved out of them is made
+  receive-only. A channel programmed elsewhere to transmit outside them (GMRS,
+  say) keeps its transmit when only its name, tone or scan is changed.
+- **New channels:** a channel AirScribe writes new transmits only
   if both its frequencies are in the 2 m (144–148 MHz) or 70 cm (420–450 MHz)
   band. Anything else is written receive-only, with the radio's own "transmit
   off" setting, whatever was asked.
@@ -72,7 +104,7 @@ reason.
 | Request | Does |
 | --- | --- |
 | `GET /api/radios/:mac/channels?region=N` | every slot of a region, read from the radio now (the region it's on without `region`) |
-| `PUT /api/radios/:mac/channels` | `{region, channels, label}`: backs the region up, then writes the channels (each `{id, name, rx_hz, tx_hz, mod, bandwidth, rx_tone, tx_tone, scan, power, tx_disable}`, `id` the slot from 0; no `rx_hz` writes the slot empty) |
+| `PUT /api/radios/:mac/channels` | `{region, channels, label}`: reads the region, backs it up, then writes the channels. Each is a new channel (`{id, name, rx_hz, tx_hz, mod, bandwidth, rx_tone, tx_tone, scan, power, tx_disable}`, `id` the slot from 0), an empty slot (`{id, rx_hz: 0}`), or a change to some of a channel's fields (`{id, set: {scan: false}}`). A write that changes nothing keeps no backup. A new channel may carry `lat` and `lon`, to put it on the map |
 | `GET /api/radios/:mac/backups` | the radio's backups, newest first |
 | `POST /api/radios/:mac/backups` | `{region, label}`: back a region up |
 | `GET /api/radios/:mac/backups/:id` | one backup, every slot |
