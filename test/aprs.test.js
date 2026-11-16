@@ -93,10 +93,13 @@ test('weather: with a position, compressed, and the readings in metric', () => {
 test('Mic-E: the position half in the destination, speed, course, altitude and status', () => {
   let p = parseAprs('\'I\',l \x1C>/]', { destination: 'SX15S6' });
   near(p.lat, -38.256, 4); near(p.lon, 145.186, 4);
-  assert.deepEqual([p.format, p.speed, p.course, p.symbolTable, p.symbolCode, p.comment], ['mic-e', 0, 0, '/', '>', ']']);
+  assert.deepEqual([p.format, p.speed, p.course, p.symbolTable, p.symbolCode, p.comment, p.device],
+    ['mic-e', 0, 0, '/', '>', undefined, 'Kenwood TM-D700'], 'FAP leaves "]" as the comment: it is the radio');
   p = parseAprs('`c51!f?>/]"3x}=', { destination: 'TQ4W2V' });
   near(p.lat, 41.7877, 4); near(p.lon, -71.4202, 4); near(p.speed, 105.56, 2);
-  assert.deepEqual([p.course, p.altitude, p.comment, p.micE], [35, 6, ']=', 'En route']);
+  assert.deepEqual([p.course, p.altitude, p.comment, p.device, p.micE], [35, 6, undefined, 'Kenwood TM-D710', 'En route']);
+  p = parseAprs('`c51!f?>/`Heading home_%', { destination: 'TQ4W2V' });
+  assert.deepEqual([p.comment, p.device], ['Heading home', 'Yaesu FTM-400']);
   assert.equal(parseAprs('`\'O<l!{,,"4R}', { destination: '5U2V08' }).type, 'invalid', 'not a symbol table');
 });
 

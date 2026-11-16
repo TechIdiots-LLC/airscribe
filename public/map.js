@@ -1160,6 +1160,7 @@ function placeStation(s) {
 /** What a station last said, and how it was heard. */
 function stationPopup(s) {
   const facts = [];
+  if (s.device) facts.push(s.device);
   if (s.speed >= 1) facts.push(`${Math.round(s.speed / 1.609344)} mph${s.course ? ` heading ${s.course}°` : ''}`);
   if (Number.isFinite(s.altitude)) facts.push(`${Math.round(s.altitude / 0.3048).toLocaleString()} ft up`);
   const wx = s.wx ? [

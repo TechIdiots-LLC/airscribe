@@ -172,6 +172,19 @@ function micE(destination, info) {
     out.altitude = base91(alt[2]) - 10000;
     rest = alt[1] + rest.slice(alt[0].length);
   }
+  // Which radio sent it, from the characters Kenwood and Yaesu put around the
+  // comment: shown as the radio, not as part of what was said
+  const kenwood = /^([>\]])([\s\S]*?)([=^~]?)$/.exec(rest);
+  const yaesu = /^`([\s\S]*?)_([\x20-\x7e])$/.exec(rest);
+  if (kenwood) {
+    out.device = { '>=': 'Kenwood TH-D72', '>^': 'Kenwood TH-D74', '>~': 'Kenwood TH-D75', '>': 'Kenwood TH-D7',
+      ']=': 'Kenwood TM-D710', ']': 'Kenwood TM-D700' }[kenwood[1] + kenwood[3]] ?? 'Kenwood';
+    rest = kenwood[2];
+  } else if (yaesu) {
+    out.device = { ' ': 'Yaesu VX-8', '"': 'Yaesu FTM-350', '#': 'Yaesu VX-8G', $: 'Yaesu FT1D', '%': 'Yaesu FTM-400',
+      ')': 'Yaesu FTM-100', '(': 'Yaesu FT2D', 0: 'Yaesu FT3D', 3: 'Yaesu FT5D', 4: 'Yaesu FTM-300', 5: 'Yaesu FTM-500' }[yaesu[2]] ?? 'Yaesu';
+    rest = yaesu[1];
+  }
   out.rest = rest;
   return out;
 }
