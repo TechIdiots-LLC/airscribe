@@ -1,12 +1,12 @@
 """Packets the radio's own modem decoded: DATA_RXD notifications, put back
-together from their fragments, against FakeRadio (test_radio_controls.py).
-What it can't prove is that a real UV-Pro sends them unasked; that's checked
-on the radio, tuned to an APRS frequency."""
+together from their fragments, and KISS frames among the replies, against
+FakeRadio (test_radio_controls.py). What it can't prove is which a real UV-Pro
+sends unasked; that's checked on the radio, tuned to an APRS frequency."""
 import socket
 import unittest
 
 from airscribe_sidecar import SimBackend, ax25_frame, bss_packet
-from bluez import RadioLink
+from bluez import FEND, FESC, TFEND, TFESC, RadioLink, kiss_unescape
 from test_radio_controls import FakeRadio, link_to
 
 
@@ -24,7 +24,38 @@ def fragment(number, data, final=False, channel=None):
 FRAME = ax25_frame("N1HLD-9", "APRS", ["WIDE1-1"], "!4221.06N/07151.78W>090/035/A=000620 Mobile")
 
 
+def kiss(body, kind=0x00):
+    """A KISS frame as a TNC sends one: FEND, the type byte, the contents with FEND and FESC escaped, FEND."""
+    out = bytearray([FEND, kind])
+    for c in body:
+        out += bytes([FESC, TFEND]) if c == FEND else bytes([FESC, TFESC]) if c == FESC else bytes([c])
+    return bytes(out + bytes([FEND]))
+
+
 class PacketTests(unittest.TestCase):
+    def test_kiss_frames_among_the_replies_are_packets_and_leave_the_replies_in_step(self):
+        radio = FakeRadio()
+        link, events = link_to(radio)
+        link.channel = 3
+        # A FEND and an FESC inside the frame, sent escaped
+        awkward = ax25_frame("W1BIM", "APRS", [], ">tones \xc0 and \xdb")
+        radio.strays = [kiss(FRAME), b"\x00\x13\x37", kiss(awkward), kiss(b"\x05", kind=0x06), bytes([FEND, FEND])]
+        st = link.status()
+        self.assertIsNotNone(st, "the status reply comes through after them")
+        packets = [e for e in events if e["event"] == "packet"]
+        self.assertEqual([bytes.fromhex(p["data"]) for p in packets], [FRAME, awkward],
+                         "data frames only, unescaped; junk between them and a command frame left out")
+        self.assertEqual([p["channel"] for p in packets], [3, 3], "on the channel the radio is on")
+        self.assertEqual({p["via"] for p in packets}, {"kiss"})
+        self.assertEqual(link.volume(), 7, "and the next question gets its own answer")
+        # The tail of a frame whose start was missed, then a reply: the reply still comes
+        radio.strays = [kiss(FRAME)[9:]]
+        self.assertIsNotNone(link.status())
+        self.assertEqual(link.volume(), 7)
+
+    def test_kiss_unescape(self):
+        self.assertEqual(kiss_unescape(bytes([1, FESC, TFEND, 2, FESC, TFESC, 3])), bytes([1, FEND, 2, FESC, 3]))
+
     def test_fragments_read_as_the_status_poll_goes_become_one_packet(self):
         radio = FakeRadio()
         link, events = link_to(radio)

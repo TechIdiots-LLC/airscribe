@@ -48,6 +48,29 @@ NOTIFY_POSITION = 13        # its GPS position; while this is asked for, the rad
 READ_BSS_SETTINGS = 33      # its beacon: callsign, SSID, symbol, message, location sharing
 WRITE_BSS_SETTINGS = 34
 
+# KISS: the control channel (the radio's serial port service) also carries its
+# modem as a KISS TNC, the way APRSdroid and TAK-UV-CORE use it, and a packet
+# it decodes may come as a KISS frame among the GAIA replies: FEND, a type
+# byte (low nibble 0 for data), the AX.25 frame, FEND, with FEND and FESC in
+# it escaped
+FEND, FESC, TFEND, TFESC = 0xC0, 0xDB, 0xDC, 0xDD
+KISS_MAX = 1024             # longer than any AX.25 frame: past it, it wasn't one
+
+
+def kiss_unescape(body):
+    """A KISS frame's contents as sent before escaping: FESC TFEND was a FEND, FESC TFESC a FESC."""
+    out = bytearray()
+    escaped = False
+    for c in body:
+        if escaped:
+            out.append(FEND if c == TFEND else FESC if c == TFESC else c)
+            escaped = False
+        elif c == FESC:
+            escaped = True
+        else:
+            out.append(c)
+    return bytes(out)
+
 AUDIO_CMDS = {0x00, 0x03}   # received audio
 TRANSMIT_CMD = 0x09         # audio the radio is itself sending
 AUDIO_END = 0x01
@@ -684,7 +707,9 @@ class RadioLink:
         reply, or none on some firmware (SET_REGION, WRITE_SETTINGS), and
         their late or missing answer would otherwise be read as the answer to
         the next question, putting every one after it out by one. A command
-        sent with reply=False is sent and not waited for.
+        sent with reply=False is sent and not waited for. KISS frames from the
+        radio's modem come between replies too (_read_frame), and are handed
+        on as packets.
         """
         want = ((frame[6] << 8) | frame[7]) & 0x7FFF if len(frame) >= 8 else None
         with self.lock:
@@ -700,12 +725,12 @@ class RadioLink:
                     return b""
                 deadline = time.monotonic() + timeout
                 while time.monotonic() < deadline:
-                    head = self._recv_exactly(ctrl, 4)
-                    if len(head) < 4 or head[0] != 0xFF or head[1] != 0x01:
+                    kind, got = self._read_frame(ctrl)
+                    if kind is None:
                         return b""
-                    # header(4) + group/command(4) + payload + optional checksum
-                    rest = 4 + head[3] + (head[2] & 1)
-                    got = head + self._recv_exactly(ctrl, rest)
+                    if kind == "kiss":
+                        self._kiss(got)
+                        continue
                     if want is None or (len(got) >= 8 and (((got[6] << 8) | got[7]) & 0x7FFF) == want):
                         return got
                     # A stray: an earlier command's late reply, or a notification,
@@ -714,6 +739,61 @@ class RadioLink:
                 return b""
             except OSError:
                 return b""
+
+    def _read_frame(self, ctrl):
+        """The next frame on the control channel, of either kind it carries:
+        ("gaia", the whole frame) or ("kiss", its contents, unescaped);
+        (None, b"") when the channel closed. Bytes that start neither are
+        skipped rather than taken for a frame, so a KISS frame, or the tail of
+        one, can't put the replies after it out of step."""
+        held = None
+        while True:
+            b = held if held is not None else self._recv_exactly(ctrl, 1)
+            held = None
+            if not b:
+                return None, b""
+            if b[0] == 0xFF:
+                second = self._recv_exactly(ctrl, 1)
+                if not second:
+                    return None, b""
+                if second[0] != 0x01:
+                    held = second
+                    continue
+                head = b"\xff\x01" + self._recv_exactly(ctrl, 2)
+                if len(head) < 4:
+                    return None, b""
+                # header(4) + group/command(4) + payload + optional checksum
+                return "gaia", head + self._recv_exactly(ctrl, 4 + head[3] + (head[2] & 1))
+            if b[0] == FEND:
+                body = bytearray()
+                while True:
+                    c = self._recv_exactly(ctrl, 1)
+                    if not c:
+                        return None, b""
+                    if c[0] == FEND:
+                        if body:
+                            break
+                        continue    # the FEND before was the end of the frame before
+                    if not body and c[0] == 0xFF:
+                        held = c    # no type byte a modem sends: a GAIA frame starting
+                        break
+                    body += c
+                    if len(body) > KISS_MAX:
+                        body = None
+                        break
+                if held is not None or body is None:
+                    continue
+                return "kiss", kiss_unescape(body)
+
+    def _kiss(self, body):
+        """A KISS frame from the radio's modem. A data frame (type byte's low
+        nibble 0) is a packet it decoded, handed on as a DATA_RXD one is, on
+        the channel the radio is on; anything else (its settings, its own
+        commands) isn't a packet."""
+        if len(body) < 2 or body[0] & 0x0F != 0:
+            return
+        self.emit({"event": "packet", "mac": self.mac, "channel": self.channel,
+                   "region": self.channels_region, "data": bytes(body[1:]).hex(), "via": "kiss"})
 
     def _notified(self, frame):
         """A frame the radio sent of its own accord. A packet its modem decoded
@@ -755,7 +835,7 @@ class RadioLink:
             done, self._packet = self._packet, None
             self.emit({"event": "packet", "mac": self.mac,
                        "channel": done["channel"] if done["channel"] is not None else self.channel,
-                       "region": self.channels_region, "data": bytes(done["data"]).hex()})
+                       "region": self.channels_region, "data": bytes(done["data"]).hex(), "via": "notification"})
 
     @staticmethod
     def _recv_exactly(sock, n):

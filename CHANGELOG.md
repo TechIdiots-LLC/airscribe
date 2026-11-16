@@ -86,7 +86,8 @@
   to tune against real traffic (docs/channels.md).
 - **Packets: APRS and the radios' own location sharing:** the packets a radio's own modem decodes (APRS on the
   frequency it's listening to, 144.390 MHz in the US, and the BSS packets these radios send each other) come to
-  AirScribe over Bluetooth as HTCommander gets them, and are kept for a month. **Packets** lists them as they come in,
+  AirScribe over Bluetooth, as notifications the way HTCommander gets them or as KISS frames on the same link the way
+  APRSdroid and TAK-UV-CORE do, and are kept for a month. **Packets** lists them as they come in,
   by kind and by station; **Map → Stations** puts each station or object at its latest place with its symbol and what
   it last said, moving live. Positions (plain, compressed, Mic-E), weather, objects, messages and status are decoded
   (checked against Ham::APRS::FAP's test packets). A short transmission that was only a packet shows the packet and
@@ -124,6 +125,8 @@
 - Switching a radio to another region no longer leaves transmissions filed under the old region's channel names:
   the channel list is read again when the radio reports a different region. The radio link also matches each reply
   to its request, so a command the radio doesn't answer can't put every later answer out by one.
+- Bytes on a radio's control link that aren't a reply, such as a KISS frame from its modem, are skipped instead of
+  read as a broken reply, which could leave the next few replies unreadable and the radio taken for gone.
 - **Signing in has its own page.** The sign-in form no longer sits above radios and transmissions that can't be used
   yet; it covers the page until it's done, asks for a username only when one is set and for an API token where only
   tokens are, and a Sign out button joins the header.

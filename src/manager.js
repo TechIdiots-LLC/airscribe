@@ -383,10 +383,12 @@ export class Manager extends EventEmitter {
     const decodedBy = e.decoder === 'airscribe' ? 'airscribe' : 'radio';
     const id = this.store.addPacket({ mac: e.mac, receivedAt: at, channel, channelName: info?.name ?? null,
       channelHz: info?.rx_hz ?? null, raw: raw.toString('hex'), decodedBy, ...p });
-    // Each the radio's modem sends is logged, kept or not: whether it sends any is still to be seen on a real radio
+    // Each the radio's modem sends is logged, kept or not, and how (a KISS frame, or a notification): which, if
+    // either, a real radio uses is still to be seen
     if (decodedBy === 'radio' || id !== null) {
-      console.log(`[packet] ${e.mac}: ${p.tnc2 ?? p.summary} (${decodedBy === 'radio' ? 'from the radio\'s modem' : 'decoded by AirScribe'}` +
-        `${id === null ? ', already kept' : ''})`);
+      const how = decodedBy === 'radio' ? `from the radio's modem${e.via ? ` as ${e.via === 'kiss' ? 'KISS' : 'a notification'}` : ''}`
+        : 'decoded by AirScribe';
+      console.log(`[packet] ${e.mac}: ${p.tnc2 ?? p.summary} (${how}${id === null ? ', already kept' : ''})`);
     }
     if (id === null) return;
     // While a transmission is still coming in, the packet is in that one

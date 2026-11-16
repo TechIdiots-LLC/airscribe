@@ -5,8 +5,9 @@ Packets reach AirScribe two ways, and either is enough:
 - **The radio's own modem.** These radios have a packet modem (a TNC). It
   decodes AFSK 1200 packets on the channel the radio is listening to, APRS
   among them, and the BSS packets these radios send each other (messages, and
-  a shared location). Each comes to AirScribe over the Bluetooth control link,
-  the way HTCommander gets them.
+  a shared location). Each comes to AirScribe over the Bluetooth control link:
+  as a notification, the way HTCommander gets them, or as a KISS frame on the
+  same link, the way APRSdroid and TAK-UV-CORE do.
 - **AirScribe, from the audio.** AirScribe runs a 1200-baud AFSK modem of its
   own (`src/afsk.js`) on everything a radio plays, so an APRS packet the radio
   can be heard receiving is decoded whether or not the radio's modem hands it
@@ -35,9 +36,16 @@ a quick test.
 
 At connect AirScribe asks the radio to report its status changes (as
 HTCommander does). A packet the radio's modem decodes then arrives as a
-notification (DATA_RXD), in numbered fragments that are put back together,
-and is read as the status poll reads the control channel, within about a
-second.
+notification (DATA_RXD), in numbered fragments that are put back together.
+The control link is the radio's serial port service, which also works as a
+KISS TNC (that's what APRSdroid and TAK-UV-CORE connect to), so a packet may
+instead come as a KISS frame between the replies: FEND, a type byte (0 for
+data), the AX.25 frame with FEND and FESC escaped, FEND. AirScribe reads both
+as the status poll reads the control channel, within about a second, and
+skips any bytes that start neither, so a frame can't put the replies after it
+out of step. (Before, a KISS frame there was read as a broken reply, and
+could leave the next few replies unreadable, enough to have the radio taken
+for gone.)
 
 ## Two decoders
 
@@ -49,8 +57,10 @@ when AirScribe kept it first:
 
 ```
 [packet] 38:D2:00:01:56:51: N1HLD-9>APRS,WIDE1-1:!4221.06N/07151.78W>090/035 Mobile (decoded by AirScribe)
-[packet] 38:D2:00:01:56:51: N1HLD-9>APRS,WIDE1-1:!4221.06N/07151.78W>090/035 Mobile (from the radio's modem, already kept)
+[packet] 38:D2:00:01:56:51: N1HLD-9>APRS,WIDE1-1:!4221.06N/07151.78W>090/035 Mobile (from the radio's modem as KISS, already kept)
 ```
+
+"As KISS" or "as a notification" says which way the radio's modem sent it.
 
 AirScribe's modem reads a radio's receive audio as it arrives, and not what
 the radio transmits. It works much as software TNCs do: the audio is
@@ -152,8 +162,9 @@ event (`packet`) on the event stream.
 ## Tested
 
 The decoders against FAP's test packets and HTCommander's BSS examples; the
-fragments put back together against a stand-in for the radio's control
-channel; AirScribe's modem against packets from a separate modulator in the
+fragments put back together, and KISS frames among the replies (escaped
+bytes, junk between them, the tail of one whose start was missed), against a
+stand-in for the radio's control channel; AirScribe's modem against packets from a separate modulator in the
 tests (noise, the tones 6 dB apart, the bit rate 1% off, 8 to 48 kHz audio,
 audio in pieces of any size), and against two of a UV-Pro's real static
 clips, in which it rightly found nothing; the pages against the simulator
