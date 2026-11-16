@@ -60,13 +60,38 @@ Packets are kept for 30 days.
   transmission waits a second and a half for the modem's notice before it's
   transcribed.
 
-## API
+## Your profile, and a radio's beacon
+
+**Your account → Amateur radio** keeps your callsign, the SSID you use (by
+APRS custom, -7 for a handheld, -9 mobile), your symbol and a beacon message.
+Your own stations, any SSID, are marked on the Map ("you").
+
+A radio's **Controls → Beacon and location sharing** shows what the radio
+sends of itself (its "BSS settings", read from it): its callsign and SSID,
+symbol, message, whether it goes as APRS or only to radios like it (BSS),
+whether it shares its location (every few minutes) and whether it sends its
+position after each transmission. **Use my profile** fills in the callsign,
+SSID, symbol and message from your profile, as APRS; **Save to radio** writes
+what's on the form. Only the fields changed are written, over the block the
+radio keeps, and the radio is read again to check it took them.
+
+Sharing its location makes the radio transmit, on its own and after you talk,
+as that callsign: only with your licence. The radio sends its beacons only
+while its position is asked for (HTCommander's protocol notes), so when its
+settings have it share its location AirScribe asks for its position: at
+connect, and after saving. Where the radio sends them is its own business
+(HTCommander has it send APRS on a channel named APRS). The position it then
+reports moves the radio on the Map as it comes.
+
 
 | Request | Gives |
 | --- | --- |
 | `GET /api/packets?limit=&before=&kind=&q=&mac=` | packets, newest first; `kind` is positions, weather, messages, status, bss or other |
 | `GET /api/stations?hours=&mac=` | each station's latest packet with a place, with `heard` and `first_heard` |
 | `GET /api/stations/:who?hours=` | a station's `track` and its latest packets |
+| `PUT /api/account/radio` | `{callsign, ssid, symbol, beacon}`: your profile; no callsign clears it |
+| `GET /api/radios/:mac/beacon` | a radio's beacon settings (admins) |
+| `PUT /api/radios/:mac/beacon` | change some (`callsign`, `ssid`, `symbol`, `beacon`, `format`, `share_location`, `share_interval` in seconds, `ptt_send_location`), or `{profile: true}` to fill them in from yours (admins) |
 
 Anyone signed in may read them, as the feed. Open pages get each packet as an
 event (`packet`) on the event stream.

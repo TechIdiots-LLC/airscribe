@@ -44,6 +44,9 @@ REGISTER_NOTIFICATION = 6   # ask the radio to report something of its own accor
 EVENT_NOTIFICATION = 9      # what it then reports: byte 4 is the kind
 NOTIFY_STATUS = 1           # its status changed
 NOTIFY_DATA = 2             # a packet its own modem decoded (APRS, or the radios' BSS), in fragments
+NOTIFY_POSITION = 13        # its GPS position; while this is asked for, the radio sends its position beacons
+READ_BSS_SETTINGS = 33      # its beacon: callsign, SSID, symbol, message, location sharing
+WRITE_BSS_SETTINGS = 34
 
 AUDIO_CMDS = {0x00, 0x03}   # received audio
 TRANSMIT_CMD = 0x09         # audio the radio is itself sending
@@ -499,6 +502,107 @@ def same_channel(a, b):
     return da == db
 
 
+# ---- The radio's beacon (its "BSS settings") ----------------------------------
+# 46 bytes after the reply's status byte, as HTCommander's RadioBssSettings lays
+# them out: forwarding and time to live, flags, the APRS SSID, how often to
+# share its location (x 10 s), a BSS user id (the protocol's one little-endian
+# field), ID text sent on letting go of the talk button, the beacon message,
+# the APRS symbol and callsign.
+
+BSS_LEN = 46
+
+
+def _text(b):
+    return bytes(b).split(b"\x00")[0].decode("ascii", "replace").strip()
+
+
+def parse_bss(buf):
+    """The radio's beacon settings from a READ_BSS_SETTINGS reply, or None."""
+    m = unframe(buf)
+    if m is None or len(m) < 5 + BSS_LEN:
+        return None
+    b = bytes(m[5:5 + BSS_LEN])
+    flags = b[1]
+    return {
+        "callsign": _text(b[40:46]),
+        "ssid": b[2] >> 4,
+        "symbol": _text(b[38:40]),
+        "beacon": _text(b[20:38]),
+        "share_location": bool(flags & 0x10),
+        "share_interval": b[3] * 10,
+        "ptt_send_location": bool(flags & 0x80),
+        "ptt_send_id": bool(flags & 0x40),
+        "ptt_id_text": _text(b[8:20]),
+        "format": "aprs" if flags & 0x04 else "bss",
+        "send_voltage": bool(flags & 0x08),
+        "allow_position_check": bool(flags & 0x02),
+        "raw": b.hex(),
+    }
+
+
+def bss_payload(raw, changes):
+    """A WRITE_BSS_SETTINGS payload: the block as read, with only these changed."""
+    b = bytearray(bytes.fromhex(raw) if isinstance(raw, str) else raw)
+    if len(b) != BSS_LEN:
+        raise ValueError("the radio's beacon settings are 46 bytes")
+
+    def text(at, width, value, what):
+        s = str(value or "").strip()
+        if any(not 32 <= ord(c) < 127 for c in s) or len(s) > width:
+            raise ValueError(f"{what} is up to {width} plain characters")
+        b[at:at + width] = s.encode("ascii").ljust(width, b"\x00")
+
+    def flag(bit, on):
+        b[1] = (b[1] | bit) if on else (b[1] & ~bit & 0xFF)
+
+    for key, value in changes.items():
+        if key == "callsign":
+            s = str(value or "").strip().upper()
+            if s and not re_callsign(s):
+                raise ValueError(f"{value!r} isn't a callsign: up to six letters and digits")
+            text(40, 6, s, "a callsign")
+        elif key == "ssid":
+            if not isinstance(value, int) or not 0 <= value <= 15:
+                raise ValueError("an SSID is 0 to 15")
+            b[2] = (b[2] & 0x0F) | (value << 4)
+        elif key == "symbol":
+            s = str(value or "")
+            if s and (len(s) != 2 or s[0] not in "/\\" and not s[0].isalnum()):
+                raise ValueError("a symbol is two characters: its table (/ or \\) and its code")
+            text(38, 2, s, "a symbol")
+        elif key == "beacon":
+            text(20, 18, value, "the beacon message")
+        elif key == "ptt_id_text":
+            text(8, 12, value, "the ID text")
+        elif key == "share_interval":
+            if not isinstance(value, int) or not 0 <= value <= 2550 or value % 10:
+                raise ValueError("the sharing interval is 0 to 2550 seconds, in tens")
+            b[3] = value // 10
+        elif key == "share_location":
+            flag(0x10, bool(value))
+        elif key == "ptt_send_location":
+            flag(0x80, bool(value))
+        elif key == "ptt_send_id":
+            flag(0x40, bool(value))
+        elif key == "format":
+            if value not in ("aprs", "bss"):
+                raise ValueError("the format is aprs or bss")
+            flag(0x04, value == "aprs")
+        else:
+            raise ValueError(f"the beacon has no {key}")
+    return bytes(b)
+
+
+def re_callsign(s):
+    """Up to six letters and digits, with at least one of each, as a callsign has."""
+    return 1 <= len(s) <= 6 and s.isalnum() and s.isascii() and any(c.isdigit() for c in s) and any(c.isalpha() for c in s)
+
+
+def sharing(bss):
+    """Whether the radio's beacon settings have it send its position."""
+    return bool(bss and (bss["share_location"] or bss["ptt_send_location"]))
+
+
 class LinkControls:
     """The radio controls, for a backend that keeps a RadioLink per radio in
     `self.links` (BlueZ and Bumble alike)."""
@@ -520,6 +624,12 @@ class LinkControls:
 
     def write_region(self, mac, region, channels):
         return self._link(mac).write_region(region, channels)
+
+    def read_bss(self, mac):
+        return self._link(mac).read_bss()
+
+    def write_bss(self, mac, changes):
+        return self._link(mac).write_bss(changes)
 
 
 class RadioLink:
@@ -617,6 +727,13 @@ class RadioLink:
         if (((frame[6] << 8) | frame[7]) & 0x7FFF) != EVENT_NOTIFICATION:
             return
         m = frame[4:4 + 4 + frame[3]]
+        if len(m) >= 6 and m[4] == NOTIFY_POSITION:
+            # Laid out as a GET_POSITION reply, with the kind where its status goes
+            pos = parse_position(frame[:8] + b"\x00" + frame[9:])
+            if pos and pos != self.position:
+                self.position = pos
+                self.emit({"event": "radio-position", "mac": self.mac, **pos})
+            return
         if len(m) < 6 or m[4] != NOTIFY_DATA:
             return
         flags = m[5]
@@ -803,6 +920,37 @@ class RadioLink:
                 return
         raise RuntimeError("the radio didn't move to that region")
 
+    # -- the radio's beacon ----------------------------------------------
+
+    def _beaconing(self, bss):
+        """Ask for the radio's position when its settings have it share its
+        location: it sends its beacons only then. A power cycle forgets it, and
+        connecting asks again."""
+        if sharing(bss):
+            self.request(gaia(REGISTER_NOTIFICATION, [NOTIFY_POSITION]), reply=False)
+
+    def read_bss(self):
+        """The radio's beacon settings, read now."""
+        bss = parse_bss(self.request(gaia(READ_BSS_SETTINGS)))
+        if bss is None:
+            raise RuntimeError("the radio didn't send its beacon settings")
+        return bss
+
+    def write_bss(self, changes):
+        """Change some of the radio's beacon settings: read them fresh, alter only
+        what's asked, write the block back, and read again to see what it kept."""
+        before = self.read_bss()
+        reply = self.request(gaia(WRITE_BSS_SETTINGS, bss_payload(before["raw"], changes)))
+        if reply and unframe(reply) is None:
+            raise RuntimeError("the radio refused the beacon settings")
+        time.sleep(0.3)
+        after = self.read_bss()
+        unkept = [k for k, v in changes.items() if after.get(k) != (str(v).strip().upper() if k == "callsign" else v)]
+        if unkept:
+            raise RuntimeError(f"the radio didn't take the change to {', '.join(unkept)}")
+        self._beaconing(after)
+        return after
+
     # -- reading and writing whole channels -------------------------------
 
     def read_record(self, slot):
@@ -979,6 +1127,12 @@ class RadioLink:
         # Packets its modem decodes come as notifications too, picked up as the
         # status poll reads the control channel (request() hands them on).
         self.request(gaia(REGISTER_NOTIFICATION, [NOTIFY_STATUS]), reply=False)
+        # A radio set to share its location sends its beacons only while its
+        # position is asked for (HTCommander's protocol notes)
+        try:
+            self._beaconing(parse_bss(self.request(gaia(READ_BSS_SETTINGS))))
+        except OSError:
+            pass
         for target in (self._read_audio, self._poll_status):
             t = threading.Thread(target=target, daemon=True)
             t.start()

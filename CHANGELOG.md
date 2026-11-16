@@ -91,6 +91,11 @@
   (checked against Ham::APRS::FAP's test packets). A short transmission that was only a packet shows the packet and
   isn't transcribed; voice with a packet after it shows both. Receive only (docs/packets.md); tested against the
   simulator, not yet on a radio.
+- **Your callsign, and a radio's beacon:** **Your account → Amateur radio** keeps your callsign, SSID, symbol and
+  beacon message, and marks your own stations on the Map. A radio's **Controls → Beacon and location sharing** reads
+  what it sends of itself (callsign, symbol, message, APRS or BSS, location every few minutes, position after you
+  talk), and **Use my profile** fills it in from yours. Only the fields changed are written, and read back. A radio
+  set to share its location is asked for its position, which it needs to send its beacons (docs/packets.md).
 - **Insights:** a view beside the feed, for the last day, week, month or everything, for one radio or channel:
   a word cloud of what was said (common English words and a model's own annotations such as "(static)" left out;
   unit and call numbers kept), transmissions per hour or day, busy hours by weekday, and each channel's

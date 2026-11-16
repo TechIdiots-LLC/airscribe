@@ -275,6 +275,13 @@ table.slots td.heard { font-variant-numeric: tabular-nums; cursor: help; }
 .st-marker .label { position: absolute; left: 25px; top: 3px; white-space: nowrap; font: 600 11px system-ui, sans-serif;
   color: #fff; text-shadow: 0 0 3px #000, 0 0 3px #000, 0 0 2px #000; pointer-events: none; }
 .st-marker.flash .icon { animation: st-flash 1.6s ease-out 1; }
+.st-marker.mine .icon { background: #fff; box-shadow: 0 0 0 3px var(--ok), 0 0 6px rgba(0, 0, 0, .7); }
+.st-marker.mine .label { color: #b9f6ca; }
+/* A radio's beacon, in its Controls */
+.beacon { margin-top: 12px; border-top: 1px solid var(--line); padding-top: 8px; }
+.beacon h3 { margin: 4px 0; color: var(--fg); }
+.beacon .channel-form .row { margin: 0; gap: 6px; }
+.ham-form label { display: inline-flex; align-items: center; gap: 6px; }
 @keyframes st-flash { 0% { box-shadow: 0 0 0 0 var(--warn); } 30% { box-shadow: 0 0 0 10px var(--warn); }
   100% { box-shadow: 0 0 3px rgba(0, 0, 0, .7); } }
 .st-popup p { margin: 4px 0; }

@@ -88,7 +88,40 @@ export class Accounts {
         used_at INTEGER,
         PRIMARY KEY (provider, subject),
         UNIQUE (user_id, provider));
+      -- An account's amateur radio profile: what a radio's beacon is filled in
+      -- with when they use it, and how their own stations are known on the Map
+      CREATE TABLE IF NOT EXISTS radio_profiles (
+        user_id INTEGER PRIMARY KEY,
+        callsign TEXT NOT NULL, ssid INTEGER NOT NULL, symbol TEXT NOT NULL, beacon TEXT NOT NULL,
+        updated_at INTEGER NOT NULL);
     `);
+  }
+
+  /**
+   * @param {number} userId - The account.
+   * @returns {{callsign: string, ssid: number, symbol: string, beacon: string} | null} Its profile, if it has one.
+   */
+  profile(userId) {
+    const p = this.db.prepare('SELECT callsign, ssid, symbol, beacon FROM radio_profiles WHERE user_id = ?').get(userId);
+    return p ? { ...p } : null;
+  }
+
+  /**
+   * Set an account's profile, or clear it with null (checkProfile, src/beacon.js).
+   * @param {number} userId - The account.
+   * @param {object|null} p - The checked profile.
+   * @returns {object|null} The profile now.
+   */
+  setProfile(userId, p) {
+    if (!p) {
+      this.db.prepare('DELETE FROM radio_profiles WHERE user_id = ?').run(userId);
+      return null;
+    }
+    this.db.prepare(`INSERT INTO radio_profiles (user_id, callsign, ssid, symbol, beacon, updated_at) VALUES (?, ?, ?, ?, ?, ?)
+                     ON CONFLICT(user_id) DO UPDATE SET callsign = excluded.callsign, ssid = excluded.ssid,
+                       symbol = excluded.symbol, beacon = excluded.beacon, updated_at = excluded.updated_at`)
+      .run(userId, p.callsign, p.ssid, p.symbol, p.beacon, this.now());
+    return this.profile(userId);
   }
 
   /** @returns {number} How many accounts there are. */
@@ -108,6 +141,7 @@ export class Accounts {
       id: u.id, username: u.username, role: u.role, created_at: u.created_at, last_login_at: u.last_login_at,
       disabled: Boolean(u.disabled), has_password: Boolean(u.password_hash),
       links: this.linksFor(u.id).map((l) => ({ provider: l.provider, name: l.name, email: l.email, linked_at: l.linked_at })),
+      radio: this.profile(u.id),
     };
   }
 
@@ -174,6 +208,7 @@ export class Accounts {
     }
     this.db.prepare('DELETE FROM sessions WHERE user_id = ?').run(id);
     this.db.prepare('DELETE FROM linked_logins WHERE user_id = ?').run(id);
+    this.db.prepare('DELETE FROM radio_profiles WHERE user_id = ?').run(id);
     this.db.prepare('DELETE FROM users WHERE id = ?').run(id);
   }
 

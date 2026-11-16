@@ -33,7 +33,8 @@ import time
 
 import sbc
 from btinfo import is_radio, parse_devices
-from bluez import LinkControls, RadioLink, channel_record, decode_channel, encode_channel
+from bluez import (LinkControls, RadioLink, bss_payload, channel_record, decode_channel, encode_channel,
+                   parse_bss)
 
 RATE = 32000  # radio audio: 32 kHz, 16-bit, mono
 CHUNK_MS = 100
@@ -162,9 +163,13 @@ class SimBackend:
                 for ch in table:
                     slots[ch["id"]] = encode_channel(ch)
                 tables.append(slots)
+            # Its beacon as a new radio has it: no callsign, a person, sharing off
+            bss = bytearray(46)
+            bss[0], bss[1], bss[3] = 0x31, 0x04, 30
+            bss[38:40] = b"/["
             self.controls[mac] = {
                 "settings": {"channel_a": 0, "channel_b": 1, "scan": False, "dual": 0, "squelch": 3},
-                "volume": 7, "region": 0, "tables": tables,
+                "volume": 7, "region": 0, "tables": tables, "bss": bytes(bss),
                 "position": {"lat": 42.3601, "lon": -71.8551, "alt_m": 190, "speed": 0, "heading": 0},
             }
         return self.controls[mac]
@@ -179,6 +184,20 @@ class SimBackend:
         return {"settings": dict(s["settings"]), "volume": s["volume"], "region": s["region"],
                 "regions": list(self.SIM_REGIONS), "channels": self._table(s, s["region"]),
                 "scanning": s["settings"]["scan"], "position": s["position"]}
+
+    @staticmethod
+    def _bss_reply(raw):
+        """The block as a READ_BSS_SETTINGS reply frames it, for the same parser."""
+        body = b"\x00" + raw
+        return bytes([0xFF, 0x01, 0x00, len(body), 0x00, 0x02, 0x80, 33]) + body
+
+    def read_bss(self, mac):
+        return parse_bss(self._bss_reply(self._sim(mac)["bss"]))
+
+    def write_bss(self, mac, changes):
+        s = self._sim(mac)
+        s["bss"] = bss_payload(s["bss"], changes)
+        return self.read_bss(mac)
 
     def _region(self, s, region):
         region = s["region"] if region is None else int(region)
@@ -311,6 +330,12 @@ class Unavailable:
         raise RuntimeError(self.reason)
 
     def write_region(self, _mac, _region, _channels):
+        raise RuntimeError(self.reason)
+
+    def read_bss(self, _mac):
+        raise RuntimeError(self.reason)
+
+    def write_bss(self, _mac, _changes):
         raise RuntimeError(self.reason)
 
     def shutdown(self):
@@ -474,6 +499,11 @@ def main():
                 result = backend.read_region(req["mac"], req.get("region"))
             elif cmd == "write_channels":
                 result = backend.write_region(req["mac"], req.get("region"), req["channels"])
+            # Its beacon: callsign, SSID, symbol, message, location sharing
+            elif cmd == "bss":
+                result = backend.read_bss(req["mac"])
+            elif cmd == "write_bss":
+                result = backend.write_bss(req["mac"], req["changes"])
             elif cmd == "ping":
                 result = "pong"
             else:

@@ -222,6 +222,25 @@ export class Manager extends EventEmitter {
   }
 
   /**
+   * A radio's beacon (its BSS settings): callsign, SSID, symbol, message, and how it shares its location.
+   * @param {string} mac - The radio.
+   * @returns {Promise<object>} Them, as the radio has them.
+   */
+  radioBeacon(mac) {
+    return this.sidecar.call('bss', { mac });
+  }
+
+  /**
+   * Change some of a radio's beacon settings; read back to check (src/beacon.js checks them first).
+   * @param {string} mac - The radio.
+   * @param {object} changes - The fields to change.
+   * @returns {Promise<object>} The settings now.
+   */
+  setRadioBeacon(mac, changes) {
+    return this.sidecar.call('write_bss', { mac, changes });
+  }
+
+  /**
    * Write channels into slots of one region, each read back from the radio.
    * @param {string} mac - The radio.
    * @param {number|null} region - Which region; null for the one it's on.

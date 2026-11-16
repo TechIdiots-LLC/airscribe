@@ -40,6 +40,15 @@ class FakeRadio:
         self.take_channels = True     # False: a write is answered but not kept
         self.channel_status = 0       # a WRITE_RF_CH reply's status
         self.mangle = None            # changes a record as it's kept
+        # Its beacon: N0CALL-7, a person, "hello", sharing off, an ID text and a user id to keep
+        bss = bytearray(46)
+        bss[0], bss[1], bss[2], bss[3] = 0x31, 0x04 | 0x08, 7 << 4, 30
+        bss[4:8] = (123456).to_bytes(4, "little")
+        bss[8:20] = b"ID TEXT".ljust(12, b"\x00")
+        bss[20:38] = b"hello".ljust(18, b"\x00")
+        bss[38:40] = b"/["
+        bss[40:46] = b"N0CALL"
+        self.bss = bytes(bss)
         # channel_a 1, channel_b 2, squelch 3, and bytes that must survive a write
         self.settings = bytearray([0x12, 0x43] + [0x5D, 0xA1, 0x01, 0x0C, 0x20, 0x00, 0x00, 0x00]
                                   + [0x78, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00])
@@ -113,6 +122,12 @@ class FakeRadio:
             return reply(76, 0, coord(lat) + coord(lon) + bytes([0, 190, 0, 0, 0, 0]) + bytes(6))
         if cmd == 6:
             return b""   # REGISTER_NOTIFICATION has no reply
+        if cmd == 33:
+            return reply(33, 0, self.bss)
+        if cmd == 34:
+            if self.take_writes:
+                self.bss = bytes(p)
+            return reply(34, 0)
         return reply(cmd, 1)   # notSupported
 
     def region_records(self):

@@ -50,7 +50,9 @@ accounts never lock every admin out.
 
 The name in the header opens it: change your password (which signs out every
 other browser signed in to the account), link Google, GitHub, Discord or
-Facebook to sign in with ([linked-logins.md](linked-logins.md)), or sign out
+Facebook to sign in with ([linked-logins.md](linked-logins.md)), set your
+callsign for APRS and a radio's beacon (**Amateur radio**,
+[packets.md](packets.md#your-profile-and-a-radios-beacon)), or sign out
 everywhere but here.
 
 ## Signing in

@@ -1147,7 +1147,7 @@ function placeStation(s) {
     have.element.querySelector('.icon').textContent = s.symbol?.icon ?? '📍';
     return;
   }
-  const element = el('div', { className: 'st-marker', title: `${s.who}: ${s.symbol?.name ?? 'station'}` },
+  const element = el('div', { className: `st-marker${isMine(s) ? ' mine' : ''}`, title: `${s.who}: ${s.symbol?.name ?? 'station'}` },
     el('span', { className: 'icon' }, s.symbol?.icon ?? '📍'), el('span', { className: 'label' }, s.who));
   element.addEventListener('click', (e) => {
     e.stopPropagation();
@@ -1172,7 +1172,7 @@ function stationPopup(s) {
   const radio = radioNames.get(s.mac) ?? s.mac;
   const body = el('div', { className: 'st-popup' },
     el('div', { className: 'row' }, el('span', { className: 'pk-icon' }, s.symbol?.icon ?? '📍'), el('strong', {}, s.who),
-      el('span', { className: 'meta' }, s.symbol?.name ?? '')),
+      el('span', { className: 'meta' }, s.symbol?.name ?? ''), isMine(s) ? el('span', { className: 'pill' }, 'you') : ''),
     s.who !== s.source ? el('p', { className: 'meta' }, `${s.type === 'object' || s.type === 'item' ? 'Placed' : 'Sent'} by ${s.source}`) : '',
     s.comment ? el('p', {}, s.comment) : '',
     s.micE && s.micE !== 'Off duty' ? el('p', { className: 'meta' }, s.micE) : '',
@@ -1227,6 +1227,24 @@ $('map-st-hours').onchange = () => {
   if (map) loadStations().catch((e) => status(e.message));
 };
 document.addEventListener('airscribe:packet', (e) => onStation(e.detail?.packet));
+
+// Your own stations, by the callsign in your profile (any SSID), are marked
+let myCall = '';
+const baseCall = (c) => String(c ?? '').toUpperCase().replace(/-\d+$/, '');
+function isMine(s) {
+  return Boolean(myCall) && (baseCall(s.source) === myCall || baseCall(s.who) === myCall);
+}
+function markMine() {
+  for (const { element, station } of stationMarkers.values()) element.classList.toggle('mine', isMine(station));
+}
+document.addEventListener('airscribe:signed-in', (e) => {
+  myCall = e.detail?.user?.radio?.callsign ?? '';
+  markMine();
+});
+document.addEventListener('airscribe:profile', (e) => {
+  myCall = e.detail?.callsign ?? '';
+  markMine();
+});
 // From the Packets view: open this station on the map, once it's loaded
 document.addEventListener('airscribe:show-station', (e) => {
   showTab('st');

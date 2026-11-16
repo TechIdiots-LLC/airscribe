@@ -247,6 +247,20 @@
     </div>
     <p class="meta" id="links-status"></p>
   </div>
+  <div class="panel" id="ham-panel">
+    <div class="row"><h3>Amateur radio</h3></div>
+    <p class="meta">Your callsign and how your station shows on APRS. A radio's beacon can be filled in from it
+      (<strong>Controls → Beacon</strong>), and your own stations are marked on the Map.</p>
+    <div class="row wrap ham-form">
+      <label>Callsign <input id="ham-callsign" maxlength="6" size="8" autocapitalize="characters" spellcheck="false"></label>
+      <label>SSID <select id="ham-ssid"></select></label>
+      <label>Symbol <select id="ham-symbol"></select></label>
+      <label>Beacon message <input id="ham-beacon" maxlength="18" size="20" spellcheck="false"></label>
+      <button id="ham-save">Save</button>
+    </div>
+    <p class="meta" id="ham-status">The radio holds six characters of callsign (without the SSID) and eighteen of message.
+      Leave the callsign empty to clear it.</p>
+  </div>
   <div class="panel">
     <div class="row"><h3>Signed in elsewhere</h3></div>
     <p class="meta">Signs out every other browser and device signed in to this account. This one stays signed in.</p>

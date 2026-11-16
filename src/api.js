@@ -9,6 +9,7 @@ import { PUBLISH_DEFAULTS, publicCutoff, publishable, publicView } from './publi
 import { insights } from './insights.js';
 import { checkWrite, resolveWrite } from './channels.js';
 import { judge } from './quality.js';
+import { checkBeacon, checkProfile } from './beacon.js';
 
 const PUBLIC = fileURLToPath(new URL('../public', import.meta.url));
 
@@ -359,6 +360,8 @@ export function createApp({ manager, store, sidecar, config, dataDir, updates, c
     };
     // With the providers one may link, for the account page
     api.get('/account', answer((req) => ({ ...accounts.user(mine(req)), providers: linked?.enabled() ?? [] })));
+    // One's amateur radio profile: callsign, SSID, symbol, beacon message. No callsign clears it.
+    api.put('/account/radio', answer((req) => ({ radio: accounts.setProfile(mine(req), checkProfile(req.body ?? {})) })));
     if (linked) {
       // Linking asks for the password, and goes on at the provider; unlinking asks for it too
       api.post('/account/links/:provider', answer((req, res) => {
@@ -604,6 +607,22 @@ export function createApp({ manager, store, sidecar, config, dataDir, updates, c
     const backup = await backUp(mac, b.region, `Before putting back “${b.label}”`);
     const wrote = await fromRadio(manager.writeChannels(mac, b.region, b.channels.map((c) => ({ id: c.id, raw: c.raw }))));
     return { ...wrote, backup };
+  }));
+  // A radio's beacon: what it sends of itself (APRS, or to the radios like it).
+  // `profile: true` fills it in from the signed-in account's amateur radio profile.
+  api.get('/radios/:mac/beacon', admin, answer((req) => fromRadio(manager.radioBeacon(macOf(req)))));
+  api.put('/radios/:mac/beacon', admin, answer((req) => {
+    const mac = macOf(req);
+    const { profile, ...rest } = req.body ?? {};
+    let changes = Object.keys(rest).length ? checkBeacon(rest) : {};
+    if (profile === true) {
+      if (!req.user || !accounts) throw refuse('Only an account has a profile: this sign-in is the settings file’s password, or a token', 400);
+      const p = accounts.profile(req.user.id);
+      if (!p) throw refuse('Your account has no amateur radio profile yet: add your callsign on your account page', 400);
+      changes = { ...changes, callsign: p.callsign, ssid: p.ssid, symbol: p.symbol, beacon: p.beacon, format: 'aprs' };
+    }
+    if (!Object.keys(changes).length) throw refuse('nothing to change', 400);
+    return fromRadio(manager.setRadioBeacon(mac, changes));
   }));
   api.delete('/radios/:mac/backups/:id', admin, answer((req) => {
     const mac = macOf(req);
