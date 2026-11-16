@@ -1,6 +1,7 @@
-// Packets the radios' own modems decoded (APRS, and the BSS packets these
-// radios send each other): newest first, live as they come in, by kind and by
-// station or words. A station with a place opens on the Map.
+// Packets decoded, by a radio's own modem or by AirScribe from its audio
+// (APRS, and the BSS packets these radios send each other): newest first,
+// live as they come in, by kind and by station or words. A station with a
+// place opens on the Map.
 import { showView } from './views.js';
 
 const $ = (id) => document.getElementById(id);
@@ -31,6 +32,11 @@ const KINDS = {
 };
 const TYPE_NAMES = { position: 'position', object: 'object', item: 'item', weather: 'weather', message: 'message',
   status: 'status', bss: 'BSS', telemetry: 'telemetry', other: 'other', invalid: 'unreadable' };
+const DECODED_BY = {
+  radio: ['the radio', 'The radio’s own modem decoded it'],
+  airscribe: ['AirScribe', 'AirScribe decoded it from the radio’s audio'],
+  both: ['both', 'The radio’s own modem and AirScribe, from the radio’s audio, both decoded it'],
+};
 
 let opened = false;
 let oldest = null;          // the oldest packet listed, for Load older
@@ -60,8 +66,10 @@ function row(p) {
     : el('strong', {}, p.who);
   const to = p.type === 'message' ? '' : p.destination && p.format === 'aprs' ? ` → ${p.destination}` : '';
   const via = p.path?.length ? ` via ${p.path.join(', ')}` : '';
+  const [by, byTitle] = DECODED_BY[p.decoded_by] ?? DECODED_BY.radio;
   const li = el('li', {},
-    el('div', { className: 'meta' }, `${when} · ${radio}${heardOn ? ` · ${heardOn}` : ''}`),
+    el('div', { className: 'meta' }, `${when} · ${radio}${heardOn ? ` · ${heardOn}` : ''} · `,
+      el('span', { className: 'pk-by', title: byTitle }, `decoded by ${by}`)),
     el('div', { className: 'pk-head' },
       el('span', { className: 'pk-icon', title: p.symbol?.name ?? '' }, p.symbol?.icon ?? '📦'), who,
       p.who !== p.source ? el('span', { className: 'meta' }, ` from ${p.source}`) : '',

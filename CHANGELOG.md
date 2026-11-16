@@ -96,6 +96,9 @@
   what it sends of itself (callsign, symbol, message, APRS or BSS, location every few minutes, position after you
   talk), and **Use my profile** fills it in from yours. Only the fields changed are written, and read back. A radio
   set to share its location is asked for its position, which it needs to send its beacons (docs/packets.md).
+- **APRS decoded from the audio too:** AirScribe runs a 1200-baud AFSK modem of its own on everything a radio receives,
+  so packets come in even if the radio's own modem doesn't hand them over. Each packet says what decoded it (the
+  radio, AirScribe, or both, kept once), and the log lists each one with its source (docs/packets.md).
 - **Insights:** a view beside the feed, for the last day, week, month or everything, for one radio or channel:
   a word cloud of what was said (common English words and a model's own annotations such as "(static)" left out;
   unit and call numbers kept), transmissions per hour or day, busy hours by weekday, and each channel's

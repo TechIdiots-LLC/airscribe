@@ -58,10 +58,11 @@ export class Store {
         mac TEXT NOT NULL, region INTEGER NOT NULL, region_name TEXT,
         label TEXT NOT NULL, created_at INTEGER NOT NULL, channels TEXT NOT NULL);
       CREATE INDEX IF NOT EXISTS channel_backups_mac ON channel_backups(mac, id DESC);
-      -- Packets the radios' own modems decoded (APRS, or their BSS), each once:
-      -- who it's about (an object's name, else the sender), what it said in a
-      -- line, where, and everything else decoded as JSON; the transmission
-      -- it came in, when the radio's audio carried it too
+      -- Packets decoded (APRS, or the radios' BSS), each once: who it's about
+      -- (an object's name, else the sender), what it said in a line, where,
+      -- and everything else decoded as JSON; the transmission it came in, when
+      -- the radio's audio carried it too; and what decoded it: the radio's own
+      -- modem, AirScribe from the audio (src/afsk.js), or both
       CREATE TABLE IF NOT EXISTS packets (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         mac TEXT NOT NULL, received_at INTEGER NOT NULL,
@@ -69,7 +70,7 @@ export class Store {
         format TEXT NOT NULL, source TEXT NOT NULL, destination TEXT, path TEXT,
         who TEXT NOT NULL, type TEXT NOT NULL, summary TEXT NOT NULL,
         lat REAL, lon REAL, info TEXT, raw TEXT NOT NULL, data TEXT NOT NULL,
-        transmission_id INTEGER);
+        transmission_id INTEGER, decoded_by TEXT NOT NULL DEFAULT 'radio');
       CREATE INDEX IF NOT EXISTS packets_time ON packets(received_at DESC);
       CREATE INDEX IF NOT EXISTS packets_who ON packets(who, received_at DESC);
       CREATE INDEX IF NOT EXISTS packets_tx ON packets(transmission_id);
@@ -113,6 +114,10 @@ export class Store {
       if (!radioCols.some((c) => `"${c.name}"` === name || c.name === name)) {
         this.db.exec(`ALTER TABLE radios ADD COLUMN ${name} ${decl}`);
       }
+    }
+    // What decoded a packet; every one kept before AirScribe decoded any itself was the radio's
+    if (!this.db.prepare('PRAGMA table_info(packets)').all().some((c) => c.name === 'decoded_by')) {
+      this.db.exec("ALTER TABLE packets ADD COLUMN decoded_by TEXT NOT NULL DEFAULT 'radio'");
     }
     this.migrateTranscripts(columns);
     // whisper.cpp's "heard nothing" marker, stored as text before the engines
@@ -515,22 +520,30 @@ export class Store {
 
   /**
    * Keep a decoded packet (src/aprs.js), unless the same one from the same
-   * sender came in the last 30 seconds: a digipeater's copy of it.
-   * @param {object} p - Where and when it was heard (mac, receivedAt, channel, channelName, channelHz, raw), and the packet.
+   * sender came in the last 30 seconds: a digipeater's copy of it, or the
+   * same packet from the other decoder, which marks the one kept as decoded
+   * by both.
+   * @param {object} p - Where and when it was heard (mac, receivedAt, channel, channelName, channelHz, raw), what
+   *   decoded it (decodedBy: radio or airscribe), and the packet.
    * @returns {number|null} Its id, or null for a copy.
    */
-  addPacket({ mac, receivedAt, channel = null, channelName = null, channelHz = null, raw, ...p }) {
+  addPacket({ mac, receivedAt, channel = null, channelName = null, channelHz = null, raw, decodedBy = 'radio', ...p }) {
     const { format, source, destination = null, path = [], type, summary, lat = null, lon = null, info = null, ...rest } = p;
-    const copy = this.db.prepare('SELECT 1 FROM packets WHERE source = ? AND info IS ? AND received_at > ? LIMIT 1')
+    const copy = this.db.prepare('SELECT id, decoded_by FROM packets WHERE source = ? AND info IS ? AND received_at > ? ORDER BY id DESC LIMIT 1')
       .get(source, info, receivedAt - 30000);
-    if (copy) return null;
+    if (copy) {
+      if (copy.decoded_by !== decodedBy && copy.decoded_by !== 'both') {
+        this.db.prepare("UPDATE packets SET decoded_by = 'both' WHERE id = ?").run(copy.id);
+      }
+      return null;
+    }
     // Who it's about: an object or item by its own name, so a station's several objects are several places
     const who = (type === 'object' || type === 'item' || (type === 'weather' && rest.name)) && rest.name ? rest.name : source;
     const r = this.db.prepare(`INSERT INTO packets (mac, received_at, channel, channel_name, channel_hz, format, source,
-        destination, path, who, type, summary, lat, lon, info, raw, data)
-      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+        destination, path, who, type, summary, lat, lon, info, raw, data, decoded_by)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
       .run(mac, receivedAt, channel, channelName, channelHz, format, source, destination, path.join(','), who, type, summary,
-        Number.isFinite(lat) ? lat : null, Number.isFinite(lon) ? lon : null, info, raw, JSON.stringify(rest));
+        Number.isFinite(lat) ? lat : null, Number.isFinite(lon) ? lon : null, info, raw, JSON.stringify(rest), decodedBy);
     return Number(r.lastInsertRowid);
   }
 

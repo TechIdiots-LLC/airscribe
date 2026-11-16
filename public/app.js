@@ -288,10 +288,10 @@ function renderTx(t) {
   // Only worth labelling once more than one model has had a go at it.
   const others = scripts.filter((s) => s !== primaryScript);
   const dir = t.transmit ? 'sent' : 'heard';
-  // Only a packet, which the radio's own modem decoded: shown as what it said, not transcribed.
+  // Only a packet, decoded by the radio's own modem or from its audio: shown as what it said, not transcribed.
   // Otherwise, mostly noise by how it measured: whatever a model wrote for it, nobody said.
   const noise = t.data ? el('span', {
-    className: 'tag packet', title: 'A packet: the radio’s own modem decoded it, so it isn’t transcribed',
+    className: 'tag packet', title: 'Only a packet, which was decoded, so it isn’t transcribed',
   }, 'packet') : t.static ? el('span', {
     className: 'tag static',
     title: `Static: its loudest moments stood ${t.snr_db} dB above its quietest (speech on a clear signal is 20 dB and more)` +

@@ -127,6 +127,50 @@ test('a packet in a transmission: shown with it, and a short one that was only d
   assert.equal(store.packets().find((p) => p.source === 'N1HLD-9' && p.type === 'position').transmission_id, null);
 });
 
+test('packets decoded from the radio\'s audio too: kept once, and marked by what decoded them', { skip: !sqlite }, async () => {
+  const { Store } = await import('../src/store.js');
+  const { Manager } = await import('../src/manager.js');
+  const { modulate, toPcm } = await import('./fixtures/afsk.js');
+  const store = new Store(':memory:', 'mock');
+  const sidecar = Object.assign(new EventEmitter(), { call: async () => {} });
+  const transcribed = [];
+  const manager = new Manager({
+    sidecar, store, dataDir: mkdtempSync(join(tmpdir(), 'htpk-')), packetWaitMs: 30,
+    audio: { sampleRate: 32000, preRollMs: 0, holdMs: 500, minMs: 100, maxMs: 60000, overlapMs: 0, energyThreshold: 0.05 },
+    engine: { name: 'mock', transcribe: async (wav) => { transcribed.push(wav); return { text: 'heard' }; } },
+  });
+  const fire = (e) => sidecar.emit('event', { mac: MAC, ...e });
+  // A packet's burst as the radio played it, in 50 ms pieces as the sidecar sends audio
+  const play = (frames, o) => {
+    const pcm = toPcm(modulate(frames, o));
+    fire({ event: 'audio-start', transmit: false });
+    for (let at = 0; at < pcm.length; at += 3200) fire({ event: 'audio', pcm: pcm.subarray(at, at + 3200).toString('base64'), rx: true });
+    fire({ event: 'audio-end' });
+  };
+
+  play([POS]);
+  const [p] = store.packets();
+  assert.deepEqual([p?.source, p?.decoded_by], ['N1HLD-9', 'airscribe'], 'decoded from the audio');
+  const tx = store.transmission(p.transmission_id);
+  assert.equal(tx.data, 1, 'the burst it came in was only the packet');
+  // The radio's own modem sends the same packet: not kept again, and the one kept was decoded by both
+  fire({ event: 'packet', channel: 0, data: POS.toString('hex') });
+  assert.equal(store.packets().length, 1);
+  assert.equal(store.packets()[0].decoded_by, 'both');
+  // One only the radio's modem got
+  fire({ event: 'packet', channel: 0, data: frame('W1BIM', 'APRS', [], '>On the air').toString('hex') });
+  assert.equal(store.packets()[0].decoded_by, 'radio');
+  // Audio the radio sent itself isn't read for packets
+  fire({ event: 'audio-start', transmit: true });
+  const own = toPcm(modulate([frame('N1HLD-9', 'APRS', [], '>My own beacon')]));
+  fire({ event: 'audio', pcm: own.toString('base64'), rx: false, transmit: true });
+  fire({ event: 'audio-end' });
+  assert.equal(store.packets().length, 2);
+  await new Promise((r) => setTimeout(r, 80));
+  await manager.pump();
+  assert.equal(transcribed.length, 1, 'the burst of data wasn\'t transcribed; the radio\'s own transmission was');
+});
+
 test('the API: packets and stations, for anyone signed in', { skip: !sqlite }, async () => {
   const { Store } = await import('../src/store.js');
   const { decodePacket } = await import('../src/aprs.js');

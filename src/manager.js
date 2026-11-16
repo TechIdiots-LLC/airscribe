@@ -5,6 +5,7 @@ import { Segmenter } from './segmenter.js';
 import { decodeWav, encodeWav, halveRate } from './wav.js';
 import { quieting } from './quality.js';
 import { decodePacket } from './aprs.js';
+import { AfskDecoder } from './afsk.js';
 
 /** A transmission this short with a packet in it was only the packet: data, not speech. */
 const DATA_MS = 2500;
@@ -49,6 +50,7 @@ export class Manager extends EventEmitter {
     this.onAir = new Map();    // mac -> the channel a run started on
     this.signal = new Map();   // mac -> the strongest signal reading during the run on the air
     this.waiting = new Map();  // mac -> packets heard before the transmission they came in had ended
+    this.modems = new Map();   // mac -> the packet decoder reading its audio (src/afsk.js)
     sidecar.on('event', (e) => this.onEvent(e));
     sidecar.on('restart', () => this.reconnectAll());
   }
@@ -116,14 +118,18 @@ export class Manager extends EventEmitter {
         this.signal.delete(e.mac);
         this.setActivity(e.mac, { rx: false, tx: false });
         break;
-      case 'audio':
-        this.segmenterFor(e.mac).push(Buffer.from(e.pcm, 'base64'), {
+      case 'audio': {
+        const pcm = Buffer.from(e.pcm, 'base64');
+        this.segmenterFor(e.mac).push(pcm, {
           rx: !!e.rx,
           transmit: !!e.transmit,
         });
+        // Packets in what it heard, decoded here as well as by its own modem
+        if (!e.transmit && !this.state.get(e.mac)?.tx) this.modemFor(e.mac).push(pcm);
         // A backend that sends no run markers still drives the indicator.
         this.setActivity(e.mac, { rx: !!e.rx, tx: !!e.transmit });
         break;
+      }
       // What one transmission's audio actually amounted to. Logged rather
       // than shown, because it answers a question about the capture, not
       // about the traffic: a clip shorter than the transmission it came from
@@ -270,6 +276,27 @@ export class Manager extends EventEmitter {
   }
 
   /**
+   * @param {string} mac - Radio MAC.
+   * @returns {AfskDecoder} The packet decoder reading that radio's audio, created on first use. Each frame it
+   *   finds is a packet as the radio's own modem's are, on the channel the radio was on.
+   */
+  modemFor(mac) {
+    let modem = this.modems.get(mac);
+    if (!modem) {
+      modem = new AfskDecoder(this.audio?.sampleRate ?? 32000, (frame) => {
+        try {
+          this.onPacket({ mac, channel: this.onAir.get(mac) ?? this.state.get(mac)?.channel ?? null,
+            data: frame.toString('hex'), decoder: 'airscribe' });
+        } catch (err) {
+          console.error(`[packet] ${mac}: ${err.message}`);
+        }
+      });
+      this.modems.set(mac, modem);
+    }
+    return modem;
+  }
+
+  /**
    * @param {string} mac - Radio that produced the clip.
    * @param {{startMs: number, durationMs: number, pcm: Buffer, transmit: boolean}} clip - The audio.
    * @returns {void}
@@ -332,13 +359,15 @@ export class Manager extends EventEmitter {
   }
 
   /**
-   * A packet the radio's own modem decoded: kept (once: a digipeater's copy of
-   * one just heard isn't), shown, and tied to the transmission it came in when
-   * the radio's audio carried it too. The modem's notice comes as the burst
-   * ends, or within the second after, so a transmission on this radio that
-   * ended in the last 3 seconds is the one; otherwise it waits, briefly, for
-   * the transmission still coming in.
-   * @param {{mac: string, channel?: number, data: string}} e - The sidecar's event: the packet's bytes in hex.
+   * A packet decoded, by the radio's own modem or from its audio here: kept
+   * (once: a digipeater's copy of one just heard isn't, nor the other
+   * decoder's), shown, and tied to the transmission it came in when the
+   * radio's audio carried it too. The modem's notice comes as the burst ends,
+   * or within the second after, so a transmission on this radio that ended in
+   * the last 3 seconds is the one; otherwise it waits, briefly, for the
+   * transmission still coming in.
+   * @param {{mac: string, channel?: number, data: string, decoder?: string}} e - The sidecar's event (the packet's
+   *   bytes in hex), or the audio decoder's, whose decoder is `airscribe`.
    * @returns {void}
    */
   onPacket(e) {
@@ -351,8 +380,14 @@ export class Manager extends EventEmitter {
     const at = Date.now();
     const channel = Number.isInteger(e.channel) ? e.channel : null;
     const info = this.channels.get(e.mac)?.get(channel);
+    const decodedBy = e.decoder === 'airscribe' ? 'airscribe' : 'radio';
     const id = this.store.addPacket({ mac: e.mac, receivedAt: at, channel, channelName: info?.name ?? null,
-      channelHz: info?.rx_hz ?? null, raw: raw.toString('hex'), ...p });
+      channelHz: info?.rx_hz ?? null, raw: raw.toString('hex'), decodedBy, ...p });
+    // Each the radio's modem sends is logged, kept or not: whether it sends any is still to be seen on a real radio
+    if (decodedBy === 'radio' || id !== null) {
+      console.log(`[packet] ${e.mac}: ${p.tnc2 ?? p.summary} (${decodedBy === 'radio' ? 'from the radio\'s modem' : 'decoded by AirScribe'}` +
+        `${id === null ? ', already kept' : ''})`);
+    }
     if (id === null) return;
     // While a transmission is still coming in, the packet is in that one
     const tx = this.segmenters.get(e.mac)?.open ? null : this.store.lastTransmission(e.mac);

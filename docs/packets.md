@@ -1,24 +1,76 @@
 # Packets: APRS, and the radios' own location sharing
 
-These radios have a packet modem of their own (a TNC). It decodes AFSK 1200
-packets on the channel the radio is listening to, APRS among them, and the BSS
-packets these radios send each other (messages, and a shared location). Each
-packet comes to AirScribe over the Bluetooth control link, the way HTCommander
-gets them, and AirScribe keeps it, shows it in **Packets**, puts a station
-with a place on the **Map**, and shows it with the transmission it came in.
+Packets reach AirScribe two ways, and either is enough:
+
+- **The radio's own modem.** These radios have a packet modem (a TNC). It
+  decodes AFSK 1200 packets on the channel the radio is listening to, APRS
+  among them, and the BSS packets these radios send each other (messages, and
+  a shared location). Each comes to AirScribe over the Bluetooth control link,
+  the way HTCommander gets them.
+- **AirScribe, from the audio.** AirScribe runs a 1200-baud AFSK modem of its
+  own (`src/afsk.js`) on everything a radio plays, so an APRS packet the radio
+  can be heard receiving is decoded whether or not the radio's modem hands it
+  over. It can't read BSS packets, whose format isn't known beyond what the
+  radio's modem reports.
+
+AirScribe keeps each packet, shows it in **Packets**, puts a station with a
+place on the **Map**, and shows it with the transmission it came in.
 
 Nothing is transmitted: this only listens.
 
 ## Setting it up
 
 Put a radio, or its second channel with dual watch on, on the APRS frequency:
-**144.390 MHz** in North America (144.800 in Europe). That's all. A radio
-scanning voice channels decodes a packet only on a channel it stops on.
+**144.390 MHz** in North America (144.800 in Europe). A radio scanning voice
+channels decodes a packet only on a channel it stops on.
+
+Set the radio's squelch (**Controls → Squelch**) so it stays closed when
+nothing is there. With the squelch opening on noise the radio records a
+steady run of hiss: the feed fills with transmissions marked **static**,
+seconds long and back to back, and there's nothing in them to decode. A
+packet sounds like a short buzzy burst, not hiss. Hiss that keeps coming with
+a signal reading of several bars can also be local noise (a USB charger, a
+computer close by) rather than the squelch; unplugging the radio's charger is
+a quick test.
 
 At connect AirScribe asks the radio to report its status changes (as
-HTCommander does). A packet the modem decodes then arrives as a notification
-(DATA_RXD), in numbered fragments that are put back together, and is read as
-the status poll reads the control channel, within about a second.
+HTCommander does). A packet the radio's modem decodes then arrives as a
+notification (DATA_RXD), in numbered fragments that are put back together,
+and is read as the status poll reads the control channel, within about a
+second.
+
+## Two decoders
+
+Each packet in **Packets** says what decoded it: **the radio**, **AirScribe**
+or **both**. The two usually both get a strong packet; the same packet from
+the second one isn't kept again, and marks the one kept as decoded by both.
+The log says each as it comes, and every packet from the radio's modem even
+when AirScribe kept it first:
+
+```
+[packet] 38:D2:00:01:56:51: N1HLD-9>APRS,WIDE1-1:!4221.06N/07151.78W>090/035 Mobile (decoded by AirScribe)
+[packet] 38:D2:00:01:56:51: N1HLD-9>APRS,WIDE1-1:!4221.06N/07151.78W>090/035 Mobile (from the radio's modem, already kept)
+```
+
+AirScribe's modem reads a radio's receive audio as it arrives, and not what
+the radio transmits. It works much as software TNCs do: the audio is
+band-passed (800 to 2600 Hz) and brought down to 16 kHz, each tone's
+strength is measured over a bit or so, a phase-locked clock samples the
+difference mid-bit, and NRZI, bit stuffing and HDLC framing are undone. A
+frame counts only when its check sequence (CRC-16) is right. Radios rarely
+play the two tones equally loud (de-emphasis takes a few dB off 2200 Hz, and
+some senders pre-emphasize), so two demodulators run side by side with five
+slicers each, weighing the tones differently, and one more each that evens
+them out; whichever gets a frame, it's handed on once. On synthesized packets
+with white noise in the 300 to 3000 Hz band it decoded all of them at a
+signal-to-noise ratio of 8 dB, nine in ten at 7 dB and about half at 6 dB;
+with the tones 9 dB apart either way and 12 dB of signal to noise, nearly
+all; with the bit rate 1% off, all at 8 dB. It costs a few percent of one
+core per radio while the radio is receiving.
+
+If the radio mutes the speaker while its own modem decodes a packet (the
+radios' settings have a "digital mute"), the audio carries nothing to decode,
+and only the radio's modem gets it.
 
 ## What's decoded
 
@@ -45,8 +97,9 @@ Packets are kept for 30 days.
 ## Where they show
 
 - **Packets** (in the header): every packet, newest first, as they come in,
-  by kind and by station or words, each with how it was received (the frame
-  as text, and its bytes). A station with a place opens on the Map.
+  by kind and by station or words, each with what decoded it and how it was
+  received (the frame as text, and its bytes). A station with a place opens
+  on the Map.
 - **Map → Stations**: each station's (or object's) latest place within the
   hours chosen, with its symbol; a popup with what it last said, how fast and
   how high, its weather, and which radio heard it, by which digipeaters. A
@@ -100,7 +153,11 @@ event (`packet`) on the event stream.
 
 The decoders against FAP's test packets and HTCommander's BSS examples; the
 fragments put back together against a stand-in for the radio's control
-channel; the pages against the simulator (`--simulate`), whose radio's modem
-decodes a packet after every other transmission. Not yet on a real radio:
-whether a UV-Pro sends packets to AirScribe unasked is the first thing to see,
-with one tuned to 144.390.
+channel; AirScribe's modem against packets from a separate modulator in the
+tests (noise, the tones 6 dB apart, the bit rate 1% off, 8 to 48 kHz audio,
+audio in pieces of any size), and against two of a UV-Pro's real static
+clips, in which it rightly found nothing; the pages against the simulator
+(`--simulate`), whose radio's modem decodes a packet after every other
+transmission. Not yet on a real radio: whether a UV-Pro sends packets to
+AirScribe unasked, and AirScribe's modem on a real packet's audio, are the
+things to see, with one tuned to 144.390 and its squelch closed on noise.
