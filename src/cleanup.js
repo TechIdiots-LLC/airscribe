@@ -3,6 +3,8 @@ import { join, resolve, sep } from 'node:path';
 
 const DAY = 24 * 60 * 60 * 1000;
 const KEEP_DAYS = 'retentionDays';
+/** Packets the radios' modems decoded are kept this long. */
+export const PACKET_DAYS = 30;
 
 /**
  * Admin → Storage: how much is kept, deleting transmissions by age or by
@@ -116,6 +118,8 @@ export class Cleanup {
     const run = () => {
       try {
         this.sweep();
+        // Packets the radios decoded are kept a month
+        this.store.prunePackets?.(this.now() - PACKET_DAYS * DAY);
       } catch (e) {
         console.warn(`[cleanup] ${e.message}`);
       }

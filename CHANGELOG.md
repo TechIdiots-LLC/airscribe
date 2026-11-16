@@ -83,6 +83,14 @@
   channel's transmissions in the last week, tagged **static** when most were and **weak** when the signal reading
   was low, with the numbers on hover; unticking **Scan** has the radio skip one. The thresholds are first guesses,
   to tune against real traffic (docs/channels.md).
+- **Packets: APRS and the radios' own location sharing:** the packets a radio's own modem decodes (APRS on the
+  frequency it's listening to, 144.390 MHz in the US, and the BSS packets these radios send each other) come to
+  AirScribe over Bluetooth as HTCommander gets them, and are kept for a month. **Packets** lists them as they come in,
+  by kind and by station; **Map → Stations** puts each station or object at its latest place with its symbol and what
+  it last said, moving live. Positions (plain, compressed, Mic-E), weather, objects, messages and status are decoded
+  (checked against Ham::APRS::FAP's test packets). A short transmission that was only a packet shows the packet and
+  isn't transcribed; voice with a packet after it shows both. Receive only (docs/packets.md); tested against the
+  simulator, not yet on a radio.
 - **Insights:** a view beside the feed, for the last day, week, month or everything, for one radio or channel:
   a word cloud of what was said (common English words and a model's own annotations such as "(static)" left out;
   unit and call numbers kept), transmissions per hour or day, busy hours by weekday, and each channel's

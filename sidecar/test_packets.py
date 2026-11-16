@@ -1,0 +1,100 @@
+"""Packets the radio's own modem decoded: DATA_RXD notifications, put back
+together from their fragments, against FakeRadio (test_radio_controls.py).
+What it can't prove is that a real UV-Pro sends them unasked; that's checked
+on the radio, tuned to an APRS frequency."""
+import socket
+import unittest
+
+from airscribe_sidecar import SimBackend, ax25_frame, bss_packet
+from bluez import RadioLink
+from test_radio_controls import FakeRadio, link_to
+
+
+def notify(kind, payload):
+    """An EVENT_NOTIFICATION frame, as the radio sends one unasked."""
+    body = bytes([kind]) + bytes(payload)
+    return bytes([0xFF, 0x01, 0x00, len(body), 0x00, 0x02, 0x00, 0x09]) + body
+
+
+def fragment(number, data, final=False, channel=None):
+    flags = (0x80 if final else 0) | (0x40 if channel is not None else 0) | (number & 0x3F)
+    return notify(2, bytes([flags]) + data + (bytes([channel]) if channel is not None else b""))
+
+
+FRAME = ax25_frame("N1HLD-9", "APRS", ["WIDE1-1"], "!4221.06N/07151.78W>090/035/A=000620 Mobile")
+
+
+class PacketTests(unittest.TestCase):
+    def test_fragments_read_as_the_status_poll_goes_become_one_packet(self):
+        radio = FakeRadio()
+        link, events = link_to(radio)
+        radio.strays = [fragment(0, FRAME[:20]), notify(1, b"\x00\x01"), fragment(1, FRAME[20:40])]
+        self.assertIsNotNone(link.status(), "the status reply still comes through")
+        self.assertEqual([e for e in events if e["event"] == "packet"], [], "not until the last fragment")
+        radio.strays = [fragment(2, FRAME[40:], final=True, channel=4)]
+        link.status()
+        packets = [e for e in events if e["event"] == "packet"]
+        self.assertEqual(len(packets), 1)
+        self.assertEqual(bytes.fromhex(packets[0]["data"]), FRAME, "the fragments in order, the channel byte off")
+        self.assertEqual(packets[0]["channel"], 4)
+
+    def test_a_gap_drops_the_packet_and_the_next_one_still_comes(self):
+        radio = FakeRadio()
+        link, events = link_to(radio)
+        link.channel = 2
+        radio.strays = [fragment(0, b"\x01\x02"), fragment(2, b"\x03", final=True)]
+        link.volume()
+        self.assertEqual([e for e in events if e["event"] == "packet"], [], "fragment 1 never came")
+        radio.strays = [fragment(1, b"\x09", final=True), fragment(0, FRAME, final=True)]
+        link.volume()
+        packets = [e for e in events if e["event"] == "packet"]
+        self.assertEqual(len(packets), 1, "a fragment with nothing before it is dropped too")
+        self.assertEqual(bytes.fromhex(packets[0]["data"]), FRAME)
+        self.assertEqual(packets[0]["channel"], 2, "no channel byte: the one the radio is on")
+
+    def test_connecting_asks_the_radio_to_report(self):
+        radio = FakeRadio()
+
+        class Quiet:
+            def settimeout(self, _t):
+                pass
+
+            def recv(self, _n):
+                raise socket.timeout("timed out")
+
+            def shutdown(self, _how=None):
+                pass
+
+            def close(self):
+                pass
+
+        link = RadioLink("38:D2:00:01:56:51", lambda e: None, control_ch=1, audio_ch=2,
+                         opener=lambda mac, ch, timeout: radio if ch == 1 else Quiet())
+        try:
+            link.open()
+            self.assertIn((6, b"\x01"), radio.sent, "REGISTER_NOTIFICATION for status changes, as HTCommander does")
+        finally:
+            link.close()
+
+    def test_the_simulated_radio_s_packets(self):
+        frames = SimBackend.SIM_PACKETS
+        self.assertTrue(all(isinstance(f, bytes) and len(f) > 16 for f in frames))
+        bss = bss_packet("N1BSS", "hi", 42.3551, -71.8702)
+        self.assertEqual(bss[:2], b"\x01\x06", "0x01, then the from field's length")
+        self.assertEqual(bss[2], 0x20)
+        # The location as the radio gives its own: 24-bit signed minutes x 500
+        loc = bss[bss.index(b"\x07\x25") + 2:]
+        lat = int.from_bytes(loc[:3], "big")
+        lon = int.from_bytes(loc[3:6], "big") - (1 << 24)
+        self.assertAlmostEqual(lat / 500 / 60, 42.3551, places=4)
+        self.assertAlmostEqual(lon / 500 / 60, -71.8702, places=4)
+        # An address: shifted ASCII, the SSID, and the last one marked
+        frame = ax25_frame("N1HLD-9", "APRS", ["W1BIM*"], "x")
+        self.assertEqual(bytes(b >> 1 for b in frame[:6]), b"APRS  ")
+        self.assertEqual(frame[13] & 0x1E, 9 << 1, "source SSID 9")
+        self.assertEqual(frame[20] & 0x81, 0x81, "the digipeater repeated it, and is the last address")
+        self.assertEqual(frame[21:23], b"\x03\xf0", "UI frame, no layer 3")
+
+
+if __name__ == "__main__":
+    unittest.main()

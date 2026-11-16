@@ -4,6 +4,10 @@ import { join, resolve, sep } from 'node:path';
 import { Segmenter } from './segmenter.js';
 import { decodeWav, encodeWav, halveRate } from './wav.js';
 import { quieting } from './quality.js';
+import { decodePacket } from './aprs.js';
+
+/** A transmission this short with a packet in it was only the packet: data, not speech. */
+const DATA_MS = 2500;
 
 /**
  * Ties the sidecar, the segmenter, the transcriber and the store together.
@@ -23,10 +27,12 @@ export class Manager extends EventEmitter {
    * @param {import('./stt/index.js').SttEngine} o.engine - Transcriber.
    * @param {object} o.audio - The `audio` config section.
    * @param {string} o.dataDir - Where clips are written.
+   * @param {number} [o.packetWaitMs] - How long a short transmission waits for the radio's modem to say it was a
+   *   packet before it's transcribed; 0 transcribes it at once.
    */
-  constructor({ sidecar, store, engine, engines, primary, extra, audio, dataDir, reconnect }) {
+  constructor({ sidecar, store, engine, engines, primary, extra, audio, dataDir, reconnect, packetWaitMs = 0 }) {
     super();
-    Object.assign(this, { sidecar, store, audio, dataDir });
+    Object.assign(this, { sidecar, store, audio, dataDir, packetWaitMs });
     // One engine or several. A lone engine becomes a set of one, so there is
     // a single path through the rest of this class.
     this.engines = engines ?? new Map([[engine.name, engine]]);
@@ -42,6 +48,7 @@ export class Manager extends EventEmitter {
     this.channels = new Map(); // mac -> Map(index -> {name, rx_hz})
     this.onAir = new Map();    // mac -> the channel a run started on
     this.signal = new Map();   // mac -> the strongest signal reading during the run on the air
+    this.waiting = new Map();  // mac -> packets heard before the transmission they came in had ended
     sidecar.on('event', (e) => this.onEvent(e));
     sidecar.on('restart', () => this.reconnectAll());
   }
@@ -128,6 +135,10 @@ export class Manager extends EventEmitter {
               ? ''
               : ` (expected ${e.expected_pcm_bytes} bytes of PCM, got ${e.pcm_bytes})`),
         );
+        break;
+      // A packet the radio's own modem decoded: APRS, or the radios' BSS
+      case 'packet':
+        this.onPacket(e);
         break;
       // Something the sidecar could not do — a missing SBC decoder, a radio
       // that stopped answering. Logged as well as forwarded, because these
@@ -270,10 +281,82 @@ export class Manager extends EventEmitter {
     });
     this.emit('update', { type: 'transmission', ...this.store.transmission(id) });
 
-    this.enqueue({ priority: 0, id, engineName: this.primary, wav: engineWav });
-    for (const name of this.extra) {
-      this.enqueue({ priority: 1, id, engineName: name, wav: engineWav });
+    // Packets the radio's modem decoded while this was coming in were in it
+    const waiting = (this.waiting.get(mac) ?? []).filter((w) => w.at >= startedAt - 500);
+    this.waiting.delete(mac);
+    if (waiting.length && !clip.transmit) {
+      this.attachPackets({ id, duration_ms: clip.durationMs }, waiting.map((w) => w.id));
+      if (clip.durationMs <= DATA_MS) return;
     }
+
+    const transcribe = () => {
+      this.enqueue({ priority: 0, id, engineName: this.primary, wav: engineWav });
+      for (const name of this.extra) {
+        this.enqueue({ priority: 1, id, engineName: name, wav: engineWav });
+      }
+    };
+    // A short one may be a packet whose modem's notice is still to come, within
+    // the status poll's second: it's given a moment before a model is set on it
+    if (this.packetWaitMs > 0 && !clip.transmit && clip.durationMs <= DATA_MS) {
+      const t = setTimeout(() => {
+        if (this.store.hasTransmission(id) && !this.store.transmission(id)?.data) transcribe();
+      }, this.packetWaitMs);
+      t.unref?.();
+    } else {
+      transcribe();
+    }
+  }
+
+  /**
+   * A packet the radio's own modem decoded: kept (once: a digipeater's copy of
+   * one just heard isn't), shown, and tied to the transmission it came in when
+   * the radio's audio carried it too. The modem's notice comes as the burst
+   * ends, or within the second after, so a transmission on this radio that
+   * ended in the last 3 seconds is the one; otherwise it waits, briefly, for
+   * the transmission still coming in.
+   * @param {{mac: string, channel?: number, data: string}} e - The sidecar's event: the packet's bytes in hex.
+   * @returns {void}
+   */
+  onPacket(e) {
+    const raw = Buffer.from(/^[0-9a-f]*$/i.test(e.data ?? '') ? e.data : '', 'hex');
+    const p = raw.length ? decodePacket(raw) : null;
+    if (!p) {
+      console.log(`[packet] ${e.mac}: ${raw.length} bytes that aren't a packet AirScribe can read: ${raw.toString('hex').slice(0, 64)}`);
+      return;
+    }
+    const at = Date.now();
+    const channel = Number.isInteger(e.channel) ? e.channel : null;
+    const info = this.channels.get(e.mac)?.get(channel);
+    const id = this.store.addPacket({ mac: e.mac, receivedAt: at, channel, channelName: info?.name ?? null,
+      channelHz: info?.rx_hz ?? null, raw: raw.toString('hex'), ...p });
+    if (id === null) return;
+    // While a transmission is still coming in, the packet is in that one
+    const tx = this.segmenters.get(e.mac)?.open ? null : this.store.lastTransmission(e.mac);
+    if (tx && !tx.transmit && at >= tx.started_at && at - (tx.started_at + tx.duration_ms) <= 3000) {
+      this.attachPackets(tx, [id]);
+    } else {
+      const list = (this.waiting.get(e.mac) ?? []).filter((w) => at - w.at < 10000);
+      list.push({ id, at });
+      this.waiting.set(e.mac, list);
+    }
+    // Wrapped: a packet has a type of its own (position, message, ...)
+    this.emit('update', { type: 'packet', packet: this.store.packet(id) });
+  }
+
+  /**
+   * Packets came in a transmission: they're shown with it, and one short
+   * enough to have been nothing but them isn't transcribed (a burst of data
+   * gives a speech model nothing but noise). A longer one, voice with a packet
+   * after it as these radios can send on letting go of the talk button, is.
+   * @param {{id: number, duration_ms: number}} tx - The transmission.
+   * @param {number[]} ids - The packets.
+   * @returns {void}
+   */
+  attachPackets(tx, ids) {
+    const dataOnly = tx.duration_ms <= DATA_MS;
+    this.store.linkPackets(tx.id, ids, dataOnly);
+    if (dataOnly) this.jobs = this.jobs.filter((j) => j.id !== tx.id);
+    this.emit('update', { type: 'transmission', ...this.store.transmission(tx.id) });
   }
 
   /**

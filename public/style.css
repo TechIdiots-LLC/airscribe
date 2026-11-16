@@ -268,6 +268,33 @@ table.slots td.heard { font-variant-numeric: tabular-nums; cursor: help; }
   box-shadow: 0 0 3px rgba(0, 0, 0, .7); }
 .radio-marker .label { position: absolute; left: 18px; top: -3px; white-space: nowrap; font: 600 12px system-ui, sans-serif;
   color: #fff; text-shadow: 0 0 3px #000, 0 0 3px #000, 0 0 2px #000; pointer-events: none; }
+/* Stations the radios' modems placed: their symbol and name, a flash when heard */
+.st-marker { position: relative; width: 22px; height: 22px; cursor: pointer; }
+.st-marker .icon { position: absolute; inset: 0; display: grid; place-items: center; font-size: 16px; line-height: 1;
+  border-radius: 50%; background: rgba(255, 255, 255, .85); box-shadow: 0 0 3px rgba(0, 0, 0, .7); }
+.st-marker .label { position: absolute; left: 25px; top: 3px; white-space: nowrap; font: 600 11px system-ui, sans-serif;
+  color: #fff; text-shadow: 0 0 3px #000, 0 0 3px #000, 0 0 2px #000; pointer-events: none; }
+.st-marker.flash .icon { animation: st-flash 1.6s ease-out 1; }
+@keyframes st-flash { 0% { box-shadow: 0 0 0 0 var(--warn); } 30% { box-shadow: 0 0 0 10px var(--warn); }
+  100% { box-shadow: 0 0 3px rgba(0, 0, 0, .7); } }
+.st-popup p { margin: 4px 0; }
+.st-popup .row { gap: 6px; margin: 0; }
+#map-st-list li .row { margin: 0; gap: 6px; width: 100%; }
+#map-st-list li .row .meta { margin-left: auto; }
+/* Packets: the list, and the lines under a transmission they came in */
+.pk-list li { display: block; }
+.pk-head { display: flex; flex-wrap: wrap; align-items: baseline; gap: 6px; margin: 2px 0; }
+.pk-icon { font-size: 15px; }
+.pk-summary { margin: 2px 0; }
+.pk-raw { font: 12px ui-monospace, monospace; white-space: pre-wrap; word-break: break-all; margin: 4px 0 0;
+  color: var(--muted); }
+.pk-list details summary { cursor: pointer; font-size: 12px; color: var(--muted); }
+.tag.packet, .tag.pk-position, .tag.pk-object, .tag.pk-item { color: var(--accent); }
+.tag.pk-message { color: var(--ok); }
+.tag.pk-weather { color: var(--warn); }
+.tag.pk-invalid { color: var(--bad); }
+.tx-packets { margin: 4px 0; font-size: 14px; }
+.tx-packet { margin: 2px 0; }
 .ch-latest { margin: 6px 0; }
 .ch-latest li { background: none; border: 0; padding: 2px 0; margin: 0; }
 /* Insights */

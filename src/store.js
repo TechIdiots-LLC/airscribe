@@ -58,6 +58,21 @@ export class Store {
         mac TEXT NOT NULL, region INTEGER NOT NULL, region_name TEXT,
         label TEXT NOT NULL, created_at INTEGER NOT NULL, channels TEXT NOT NULL);
       CREATE INDEX IF NOT EXISTS channel_backups_mac ON channel_backups(mac, id DESC);
+      -- Packets the radios' own modems decoded (APRS, or their BSS), each once:
+      -- who it's about (an object's name, else the sender), what it said in a
+      -- line, where, and everything else decoded as JSON; the transmission
+      -- it came in, when the radio's audio carried it too
+      CREATE TABLE IF NOT EXISTS packets (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        mac TEXT NOT NULL, received_at INTEGER NOT NULL,
+        channel INTEGER, channel_name TEXT, channel_hz INTEGER,
+        format TEXT NOT NULL, source TEXT NOT NULL, destination TEXT, path TEXT,
+        who TEXT NOT NULL, type TEXT NOT NULL, summary TEXT NOT NULL,
+        lat REAL, lon REAL, info TEXT, raw TEXT NOT NULL, data TEXT NOT NULL,
+        transmission_id INTEGER);
+      CREATE INDEX IF NOT EXISTS packets_time ON packets(received_at DESC);
+      CREATE INDEX IF NOT EXISTS packets_who ON packets(who, received_at DESC);
+      CREATE INDEX IF NOT EXISTS packets_tx ON packets(transmission_id);
     `);
     this.migrate();
   }
@@ -82,6 +97,9 @@ export class Store {
       // (0 to 15), and its quieting in dB (src/quality.js). Older rows have none.
       ['rssi', 'INTEGER'],
       ['snr_db', 'REAL'],
+      // A short transmission that was only a packet (the radio's modem decoded
+      // it): shown as the packet, and not transcribed
+      ['data', 'INTEGER NOT NULL DEFAULT 0'],
     ];
     for (const [name, decl] of added) {
       if (!columns.some((c) => c.name === name)) {
@@ -348,6 +366,19 @@ export class Store {
       if (!byTx.has(t.transmission_id)) byTx.set(t.transmission_id, []);
       byTx.get(t.transmission_id).push(t);
     }
+    // Packets that came in each one, as one line each
+    const linked = new Map();
+    for (let i = 0; i < ids.length; i += 500) {
+      const chunk = ids.slice(i, i + 500);
+      for (const p of this.db
+        .prepare(`SELECT id, transmission_id, source, type, summary, data FROM packets
+                   WHERE transmission_id IN (${chunk.map(() => '?').join(',')}) ORDER BY id`)
+        .all(...chunk)) {
+        if (!linked.has(p.transmission_id)) linked.set(p.transmission_id, []);
+        linked.get(p.transmission_id).push({ id: p.id, source: p.source, type: p.type, summary: p.summary,
+          icon: JSON.parse(p.data).symbol?.icon ?? null });
+      }
+    }
     return rows.map((r) => {
       const ts = byTx.get(r.id) ?? [];
       const best = ts.find((t) => t.engine === this.defaultEngine && t.status === 'done')
@@ -356,7 +387,8 @@ export class Store {
       return { ...r, transcripts: ts, text: best?.text ?? null,
                engine: best?.engine ?? null, error: best?.error ?? null,
                // Mostly noise, by its quieting: marked in the feed, whatever a model wrote for it
-               static: isStatic(r.snr_db) };
+               static: isStatic(r.snr_db),
+               packets: linked.get(r.id) ?? [] };
     });
   }
 
@@ -449,7 +481,8 @@ export class Store {
   #noSpeech() {
     // Static counts too, whatever a model made of it: Whisper writes sentences
     // into a minute of hiss (src/quality.js)
-    const noise = `(t.snr_db IS NOT NULL AND t.snr_db < ${STATIC_DB})`;
+    // And a transmission that was only a packet: data, not speech
+    const noise = `(t.data = 1 OR (t.snr_db IS NOT NULL AND t.snr_db < ${STATIC_DB}))`;
     if (!this.defaultEngine) return { sql: noise, args: [] };
     return {
       sql: `(${noise} OR EXISTS (SELECT 1 FROM transcripts x WHERE x.transmission_id = t.id AND x.engine = ?
@@ -476,6 +509,121 @@ export class Store {
    */
   setQuality(id, snrDb) {
     this.db.prepare('UPDATE transmissions SET snr_db = ? WHERE id = ?').run(snrDb, id);
+  }
+
+  // ---- Packets ---------------------------------------------------------------
+
+  /**
+   * Keep a decoded packet (src/aprs.js), unless the same one from the same
+   * sender came in the last 30 seconds: a digipeater's copy of it.
+   * @param {object} p - Where and when it was heard (mac, receivedAt, channel, channelName, channelHz, raw), and the packet.
+   * @returns {number|null} Its id, or null for a copy.
+   */
+  addPacket({ mac, receivedAt, channel = null, channelName = null, channelHz = null, raw, ...p }) {
+    const { format, source, destination = null, path = [], type, summary, lat = null, lon = null, info = null, ...rest } = p;
+    const copy = this.db.prepare('SELECT 1 FROM packets WHERE source = ? AND info IS ? AND received_at > ? LIMIT 1')
+      .get(source, info, receivedAt - 30000);
+    if (copy) return null;
+    // Who it's about: an object or item by its own name, so a station's several objects are several places
+    const who = (type === 'object' || type === 'item' || (type === 'weather' && rest.name)) && rest.name ? rest.name : source;
+    const r = this.db.prepare(`INSERT INTO packets (mac, received_at, channel, channel_name, channel_hz, format, source,
+        destination, path, who, type, summary, lat, lon, info, raw, data)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+      .run(mac, receivedAt, channel, channelName, channelHz, format, source, destination, path.join(','), who, type, summary,
+        Number.isFinite(lat) ? lat : null, Number.isFinite(lon) ? lon : null, info, raw, JSON.stringify(rest));
+    return Number(r.lastInsertRowid);
+  }
+
+  /** A packets row as the API gives it: its columns, with everything else decoded spread in. */
+  #packetRow(r) {
+    if (!r) return undefined;
+    const { data, path, rn, ...cols } = r;
+    return { ...JSON.parse(data), ...cols, path: path ? path.split(',') : [] };
+  }
+
+  /** @returns {object|undefined} One packet. */
+  packet(id) {
+    return this.#packetRow(this.db.prepare('SELECT * FROM packets WHERE id = ?').get(id));
+  }
+
+  /**
+   * Packets, newest first.
+   * @param {{limit?: number, before?: number, kind?: string, q?: string, mac?: string}} f - How many; only ids below
+   *   `before`; a kind (positions, weather, messages, status, bss, other); text in who, the sender, or what it said.
+   * @returns {object[]} The packets.
+   */
+  packets({ limit = 100, before, kind, q, mac } = {}) {
+    const where = ['1 = 1'];
+    const args = [];
+    if (before) (where.push('id < ?'), args.push(before));
+    if (mac) (where.push('mac = ?'), args.push(mac));
+    const kinds = { positions: ['position', 'object', 'item'], weather: ['weather'], messages: ['message'],
+      status: ['status'], bss: ['bss'], other: ['telemetry', 'other', 'invalid'] }[kind];
+    if (kinds) where.push(`type IN (${kinds.map(() => '?').join(', ')})`), args.push(...kinds);
+    if (q) (where.push('(who LIKE ? OR source LIKE ? OR summary LIKE ?)'), args.push(`%${q}%`, `%${q}%`, `%${q}%`));
+    return this.db.prepare(`SELECT * FROM packets WHERE ${where.join(' AND ')} ORDER BY id DESC LIMIT ?`)
+      .all(...args, Math.min(500, Math.max(1, limit)))
+      .map((r) => this.#packetRow(r));
+  }
+
+  /**
+   * Each station's (or object's) latest place since a time, most recently heard first, with how many
+   * places it sent and when it was first heard. Objects taken off the map are left out.
+   * @param {{since?: number, mac?: string}} f - Since when (ms), and which radio heard them.
+   * @returns {object[]} The latest packet with a place, per station.
+   */
+  stations({ since = 0, mac } = {}) {
+    return this.db.prepare(`SELECT * FROM (
+        SELECT p.*, ROW_NUMBER() OVER (PARTITION BY who ORDER BY received_at DESC, id DESC) AS rn,
+               COUNT(*) OVER (PARTITION BY who) AS heard, MIN(received_at) OVER (PARTITION BY who) AS first_heard
+          FROM packets p WHERE received_at >= ? AND lat IS NOT NULL ${mac ? 'AND mac = ?' : ''})
+       WHERE rn = 1 ORDER BY received_at DESC`)
+      .all(since, ...(mac ? [mac] : []))
+      .map((r) => this.#packetRow(r))
+      .filter((p) => p.alive !== false);
+  }
+
+  /**
+   * Where a station has been since a time, oldest first, each place once.
+   * @param {string} who - The station, or object.
+   * @param {number} [since] - Since when (ms).
+   * @returns {{lat: number, lon: number, at: number}[]} Its places.
+   */
+  stationTrack(who, since = 0) {
+    const out = [];
+    for (const r of this.db.prepare(`SELECT lat, lon, received_at AS at FROM packets
+                                     WHERE who = ? AND received_at >= ? AND lat IS NOT NULL ORDER BY received_at`).all(who, since)) {
+      const last = out.at(-1);
+      if (!last || last.lat !== r.lat || last.lon !== r.lon) out.push(r);
+    }
+    return out;
+  }
+
+  /** @returns {object|undefined} A radio's latest transmission: id, when, how long, and which way. */
+  lastTransmission(mac) {
+    return this.db.prepare('SELECT id, started_at, duration_ms, transmit FROM transmissions WHERE mac = ? ORDER BY id DESC LIMIT 1')
+      .get(mac);
+  }
+
+  /**
+   * Packets came in a transmission (the radio's audio carried them too).
+   * @param {number} transmissionId - The transmission.
+   * @param {number[]} packetIds - The packets.
+   * @param {boolean} dataOnly - Whether the transmission was nothing but them.
+   * @returns {void}
+   */
+  linkPackets(transmissionId, packetIds, dataOnly) {
+    const set = this.db.prepare('UPDATE packets SET transmission_id = ? WHERE id = ?');
+    for (const id of packetIds) set.run(transmissionId, id);
+    if (dataOnly) this.db.prepare('UPDATE transmissions SET data = 1 WHERE id = ?').run(transmissionId);
+  }
+
+  /**
+   * @param {number} before - Packets older than this (ms) go.
+   * @returns {number} How many went.
+   */
+  prunePackets(before) {
+    return Number(this.db.prepare('DELETE FROM packets WHERE received_at < ?').run(before).changes);
   }
 
   /**
@@ -514,6 +662,8 @@ export class Store {
         const marks = chunk.map(() => '?').join(',');
         gone.push(...this.db.prepare(`SELECT id, audio_file FROM transmissions WHERE id IN (${marks})`).all(...chunk));
         this.db.prepare(`DELETE FROM transcripts WHERE transmission_id IN (${marks})`).run(...chunk);
+        // Its packets stay, a record of their own, no longer pointing at it
+        this.db.prepare(`UPDATE packets SET transmission_id = NULL WHERE transmission_id IN (${marks})`).run(...chunk);
         this.db.prepare(`DELETE FROM transmissions WHERE id IN (${marks})`).run(...chunk);
       }
       this.db.exec('COMMIT');
@@ -553,7 +703,7 @@ export class Store {
     const texts = !this.defaultEngine ? [] : this.db
       .prepare(`SELECT x.text FROM transmissions t LEFT JOIN radios r ON r.mac = t.mac
                   JOIN transcripts x ON x.transmission_id = t.id AND x.engine = ? AND x.status = 'done'
-                 WHERE ${where.join(' AND ')} AND NOT (t.snr_db IS NOT NULL AND t.snr_db < ${STATIC_DB})
+                 WHERE ${where.join(' AND ')} AND t.data = 0 AND NOT (t.snr_db IS NOT NULL AND t.snr_db < ${STATIC_DB})
                  ORDER BY t.started_at DESC LIMIT ?`)
       .all(this.defaultEngine, ...args, textLimit)
       .map((r) => r.text);

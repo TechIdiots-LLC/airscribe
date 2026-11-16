@@ -40,6 +40,10 @@ POSITION_EVERY = 60  # seconds; a monitoring radio rarely moves
 GET_DEV_INFO = bytes([0xFF, 0x01, 0x00, 0x01, 0x00, 0x02, 0x00, 0x04, 0x03])
 READ_RF_CH = 13     # one channel's name and frequencies, by index
 WRITE_RF_CH = 14    # one channel, the same 25-byte record READ_RF_CH returns
+REGISTER_NOTIFICATION = 6   # ask the radio to report something of its own accord; no reply
+EVENT_NOTIFICATION = 9      # what it then reports: byte 4 is the kind
+NOTIFY_STATUS = 1           # its status changed
+NOTIFY_DATA = 2             # a packet its own modem decoded (APRS, or the radios' BSS), in fragments
 
 AUDIO_CMDS = {0x00, 0x03}   # received audio
 TRANSMIT_CMD = 0x09         # audio the radio is itself sending
@@ -553,6 +557,7 @@ class RadioLink:
         # is moved there and back, which the status poll mustn't take for a
         # region changed on the radio and read the table for
         self.editing = threading.Event()
+        self._packet = None            # a packet being put back together from its fragments
 
     # -- control channel ---------------------------------------------------
 
@@ -593,10 +598,47 @@ class RadioLink:
                     got = head + self._recv_exactly(ctrl, rest)
                     if want is None or (len(got) >= 8 and (((got[6] << 8) | got[7]) & 0x7FFF) == want):
                         return got
-                    # A stray: an earlier command's late reply, or a notification
+                    # A stray: an earlier command's late reply, or a notification,
+                    # which is handed on (a packet the radio decoded arrives so)
+                    self._notified(got)
                 return b""
             except OSError:
                 return b""
+
+    def _notified(self, frame):
+        """A frame the radio sent of its own accord. A packet its modem decoded
+        (DATA_RXD) comes in fragments: a control byte (0x80 the last, 0x40 a
+        channel id at the end, 0x3F the fragment's number from 0), its bytes,
+        and the channel. Numbers must run on by one; a gap drops the packet,
+        as HTCommander does. Called with the control channel's lock held, so it
+        only reads and says, and never asks the radio anything."""
+        if len(frame) < 10 or ((frame[4] << 8) | frame[5]) != 2:
+            return
+        if (((frame[6] << 8) | frame[7]) & 0x7FFF) != EVENT_NOTIFICATION:
+            return
+        m = frame[4:4 + 4 + frame[3]]
+        if len(m) < 6 or m[4] != NOTIFY_DATA:
+            return
+        flags = m[5]
+        with_channel = bool(flags & 0x40) and len(m) > 6
+        data = bytes(m[6:len(m) - 1] if with_channel else m[6:])
+        channel = m[-1] if with_channel else None
+        number = flags & 0x3F
+        if number == 0:
+            self._packet = {"next": 1, "data": bytearray(data), "channel": channel}
+        elif self._packet is not None and number == self._packet["next"]:
+            self._packet["next"] += 1
+            self._packet["data"] += data
+            if channel is not None:
+                self._packet["channel"] = channel
+        else:
+            self._packet = None
+            return
+        if flags & 0x80:
+            done, self._packet = self._packet, None
+            self.emit({"event": "packet", "mac": self.mac,
+                       "channel": done["channel"] if done["channel"] is not None else self.channel,
+                       "region": self.channels_region, "data": bytes(done["data"]).hex()})
 
     @staticmethod
     def _recv_exactly(sock, n):
@@ -933,6 +975,10 @@ class RadioLink:
             self.read_channels()
         except OSError:
             pass   # names are a convenience; the radio still works without them
+        # As HTCommander does at connect: the radio reports its status changing.
+        # Packets its modem decodes come as notifications too, picked up as the
+        # status poll reads the control channel (request() hands them on).
+        self.request(gaia(REGISTER_NOTIFICATION, [NOTIFY_STATUS]), reply=False)
         for target in (self._read_audio, self._poll_status):
             t = threading.Thread(target=target, daemon=True)
             t.start()

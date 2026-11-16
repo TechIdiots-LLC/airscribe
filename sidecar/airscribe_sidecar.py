@@ -62,9 +62,52 @@ def _bluetoothctl(*args):
     ).stdout
 
 
+def ax25_frame(source, destination, path, info):
+    """An AX.25 UI frame as a radio's modem hands one over: the addresses
+    (destination, source, then the path; "*" marks one that repeated it), UI
+    control and no-layer-3 PID, then the information field. No flags or check."""
+    calls = [destination, source] + list(path)
+
+    def address(call, last):
+        base, _, ssid = call.rstrip("*").partition("-")
+        a = bytearray(c << 1 for c in base.upper().ljust(6).encode("ascii")[:6])
+        a.append(0x60 | ((int(ssid or 0) & 0x0F) << 1) | (0x80 if call.endswith("*") else 0) | (1 if last else 0))
+        return bytes(a)
+
+    return (b"".join(address(c, i == len(calls) - 1) for i, c in enumerate(calls))
+            + bytes([0x03, 0xF0]) + info.encode("latin-1"))
+
+
+def bss_packet(source, message, lat, lon):
+    """The radios' own BSS packet: 0x01, then length/tag/value fields: from
+    (0x20), message (0x24), and location (0x25) as the radio gives its own GPS,
+    24-bit signed minutes x 500 for latitude then longitude."""
+    def field(tag, value):
+        return bytes([len(value) + 1, tag]) + value
+
+    def coord(deg):
+        return (round(deg * 60 * 500) & 0xFFFFFF).to_bytes(3, "big")
+
+    return (b"\x01" + field(0x20, source.encode()) + field(0x24, message.encode())
+            + field(0x25, coord(lat) + coord(lon)))
+
+
 class SimBackend:
+    # What the pretend radio's modem decodes now and then, around Holden, MA
+    SIM_PACKETS = [
+        ax25_frame("N1HLD-9", "APRS", ["WIDE1-1"], "!4221.06N/07151.78W>090/035/A=000620 Mobile in Holden"),
+        ax25_frame("W1BIM", "APRS", ["N1RUT*", "WIDE2-1"], "=4222.15N/07157.28W#PHG5360 W1BIM digi, Rutland"),
+        ax25_frame("KC1WX-13", "APRS", ["WIDE1-1"],
+                   "@151200z4220.50N/07150.10W_180/004g009t045r000p012P008h82b10132 Holden WX"),
+        ax25_frame("N1MCE-9", "TQ4W2V", ["WIDE2-1"], "`c51!f?>/]\"3x}="),
+        ax25_frame("N1HLD-9", "APRS", ["WIDE1-1"], ":W1BIM    :Net tonight at 8pm{12"),
+        ax25_frame("W1BIM", "APRS", [], ";CRANE    *151200z4221.30N/07152.40WcRoad work on Main St"),
+        bss_packet("N1BSS", "On my way", 42.3551, -71.8702),
+    ]
+
     def __init__(self):
         self.active = {}
+        self.sent = 0
 
     def scan(self):
         return [
@@ -234,6 +277,12 @@ class SimBackend:
                     time.sleep(CHUNK_MS / 1000)
                 if talking:
                     emit({"event": "audio-end", "mac": mac})
+                    # Every other burst was a packet, which its modem decoded
+                    # as it ended, as a real radio's does
+                    if self.sent % 2 == 0 and not stop.is_set():
+                        frame = self.SIM_PACKETS[(self.sent // 2) % len(self.SIM_PACKETS)]
+                        emit({"event": "packet", "mac": mac, "channel": 0, "region": 0, "data": frame.hex()})
+                    self.sent += 1
         emit({"event": "status", "mac": mac, "state": "disconnected"})
 
 

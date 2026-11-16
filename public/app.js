@@ -286,13 +286,21 @@ function renderTx(t) {
   // Only worth labelling once more than one model has had a go at it.
   const others = scripts.filter((s) => s !== primaryScript);
   const dir = t.transmit ? 'sent' : 'heard';
-  // Mostly noise, by how it measured: whatever a model wrote for it, nobody said
-  const noise = t.static ? el('span', {
+  // Only a packet, which the radio's own modem decoded: shown as what it said, not transcribed.
+  // Otherwise, mostly noise by how it measured: whatever a model wrote for it, nobody said.
+  const noise = t.data ? el('span', {
+    className: 'tag packet', title: 'A packet: the radio’s own modem decoded it, so it isn’t transcribed',
+  }, 'packet') : t.static ? el('span', {
     className: 'tag static',
     title: `Static: its loudest moments stood ${t.snr_db} dB above its quietest (speech on a clear signal is 20 dB and more)` +
       `${Number.isInteger(t.rssi) ? `; signal ${t.rssi} of 15` : ''}. Any words shown were made up by the speech model.`,
   }, 'static') : '';
-  const li = el('li', { id: `tx-${t.id}`, className: [t.transmit ? 'sent' : '', t.static ? 'static' : ''].filter(Boolean).join(' ') },
+  // What the packets that came in it said, one line each
+  const packets = (t.packets ?? []).length ? el('div', { className: 'tx-packets' },
+    ...t.packets.map((p) => el('div', { className: 'tx-packet' },
+      el('span', { className: 'pk-icon' }, p.icon ?? '📦'), ` ${p.source}: ${p.summary}`))) : '';
+  const li = el('li', { id: `tx-${t.id}`,
+    className: [t.transmit ? 'sent' : '', !t.data && t.static ? 'static' : '', t.data ? 'data' : ''].filter(Boolean).join(' ') },
     el('div', { className: 'meta' },
       el('span', { className: `tag ${dir}` }, dir), ' ', noise, noise ? ' ' : '',
       `${new Date(t.started_at).toLocaleString()} · ${radio?.name ?? t.mac} · ${(t.duration_ms / 1000).toFixed(1)}s`,
@@ -303,11 +311,12 @@ function renderTx(t) {
             ` · ${t.channel_name || `ch ${t.channel}`}` +
             (t.channel_hz ? ` ${(t.channel_hz / 1e6).toFixed(4)} MHz` : ''))
         : ''),
-    el('div', { className: `tx-text ${(primaryScript?.status ?? t.status) === 'done' ? '' : (primaryScript?.status ?? t.status)}` },
+    t.data ? '' : el('div', { className: `tx-text ${(primaryScript?.status ?? t.status) === 'done' ? '' : (primaryScript?.status ?? t.status)}` },
       others.length ? el('span', { className: 'engine' }, `${primaryScript.engine} `) : '', text),
-    ...others.map((s) =>
+    ...(t.data ? [] : others.map((s) =>
       el('div', { className: `tx-text alt ${s.status === 'done' ? '' : s.status}` },
-        el('span', { className: 'engine' }, `${s.engine} `), bodyOf(s))),
+        el('span', { className: 'engine' }, `${s.engine} `), bodyOf(s)))),
+    packets,
     // 'metadata' rather than 'none' so the player shows the clip's length
     // instead of 0:00 until it is played. A transmission is seconds long, so
     // the headers this costs are cheap; the audio itself is still not fetched.
@@ -429,7 +438,7 @@ function matchesFilter(t) {
   if (channel && t.channel_name !== channel) return false;
   // Hiding no speech: a live clip joins once it has words, rather than
   // showing while it's transcribed and vanishing if it turns out a chirp
-  if ($('hide-silent').checked && (t.static || !(t.text ?? '').trim())) return false;
+  if ($('hide-silent').checked && (t.data || t.static || !(t.text ?? '').trim())) return false;
   if (!q) return true;
   return [t.channel_name, t.text, ...(t.transcripts ?? []).map((s) => s.text)]
     .some((s) => (s ?? '').toLowerCase().includes(q));
@@ -440,7 +449,7 @@ function matchesFilter(t) {
  * @returns {boolean} Whether the transcript it shows is finished and empty:
  *   "(no speech recognised)", as the server decides for "Hide no speech".
  */
-const silent = (t) => t.static || ((t.transcripts ?? []).find((s) => s.engine === t.engine)?.status === 'done'
+const silent = (t) => t.data || t.static || ((t.transcripts ?? []).find((s) => s.engine === t.engine)?.status === 'done'
   && !(t.text ?? '').trim());
 
 /**

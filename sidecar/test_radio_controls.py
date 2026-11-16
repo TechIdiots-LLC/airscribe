@@ -111,6 +111,8 @@ class FakeRadio:
                 return reply(76, 6)
             lat, lon = self.position
             return reply(76, 0, coord(lat) + coord(lon) + bytes([0, 190, 0, 0, 0, 0]) + bytes(6))
+        if cmd == 6:
+            return b""   # REGISTER_NOTIFICATION has no reply
         return reply(cmd, 1)   # notSupported
 
     def region_records(self):

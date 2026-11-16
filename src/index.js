@@ -60,6 +60,8 @@ const manager = new Manager({
   audio: config.audio,
   dataDir: config.dataDir,
   reconnect: config.reconnect,
+  // A short transmission waits this long for the radio's modem to say it was a packet
+  packetWaitMs: 1500,
 });
 sidecar.start();
 

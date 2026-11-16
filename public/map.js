@@ -107,7 +107,13 @@ async function open() {
   }
   // Loaded once, then kept up to date by the event stream
   if (!listOpen) loadList().catch(listError);
+  // And the stations the radios' modems placed: on opening, or again for a station to show
+  if (!stationsLoaded || showingStation) {
+    stationsLoaded = true;
+    await loadStations().catch((e) => status(e.message));
+  }
 }
+let stationsLoaded = false;
 
 $('map-style').onchange = () => {
   const url = $('map-style').value;
@@ -472,6 +478,8 @@ function drawSaid() {
  *   engine's transcript, or how far that has got.
  */
 function words(t) {
+  // A packet the radio's modem decoded: what it said
+  if (t.data) return { text: (t.packets ?? []).map((p) => `${p.source}: ${p.summary}`).join(' · ') || '(packet)', state: 'silent' };
   // Static, by how it measured: what a model made of the hiss isn't shown
   if (t.static) return { text: '(static)', state: 'silent' };
   const scripts = t.transcripts ?? [];
@@ -943,7 +951,7 @@ function listMatches(t) {
   if (mac && t.mac !== mac) return false;
   // Hiding no speech: a clip joins once it has words, rather than showing
   // while it's transcribed and vanishing if it turns out a chirp
-  if ($('map-hide-silent').checked && (t.static || !(t.text ?? '').trim())) return false;
+  if ($('map-hide-silent').checked && (t.data || t.static || !(t.text ?? '').trim())) return false;
   const scope = listScope();
   return !scope || scope.includes(t.channel_name);
 }
@@ -1081,10 +1089,149 @@ function showTab(name) {
   for (const b of document.querySelectorAll('#map-side [data-tab]')) b.classList.toggle('active', b.dataset.tab === name);
   $('map-tab-tx').hidden = name !== 'tx';
   $('map-tab-ch').hidden = name !== 'ch';
+  $('map-tab-st').hidden = name !== 'st';
   remember(TAB_KEY, name);
 }
 for (const b of document.querySelectorAll('#map-side [data-tab]')) b.onclick = () => showTab(b.dataset.tab);
-showTab(recall(TAB_KEY, 'tx') === 'ch' ? 'ch' : 'tx');
+showTab(['ch', 'st'].includes(recall(TAB_KEY, 'tx')) ? recall(TAB_KEY, 'tx') : 'tx');
+
+// ---- Stations: positions the radios' own modems decoded ----------------------------
+// APRS stations, objects and the location these radios share with each other,
+// each where its latest packet put it, within the hours chosen. Kept up to date
+// by the event stream: a packet with a place moves its station, and lights it.
+
+const ST_SHOW_KEY = 'airscribe.map.stations';
+const ST_HOURS_KEY = 'airscribe.map.stationHours';
+const stationMarkers = new Map();   // who -> {marker, element, station}
+let stationList = [];               // the latest packet with a place, per station, newest first
+let showingStation = null;          // a station to open once the map has its stations: {who, lat, lon}
+
+$('map-st-show').checked = recall(ST_SHOW_KEY, '1') === '1';
+$('map-st-hours').value = recall(ST_HOURS_KEY, '24');
+
+const ago = (ms) => {
+  const s = Math.max(0, Math.round((Date.now() - ms) / 1000));
+  if (s < 90) return `${s} s ago`;
+  if (s < 5400) return `${Math.round(s / 60)} min ago`;
+  if (s < 129600) return `${Math.round(s / 3600)} h ago`;
+  return `${Math.round(s / 86400)} days ago`;
+};
+const stationHours = () => Number($('map-st-hours').value) || 24;
+
+/** @returns {Promise<void>} The stations heard in the hours chosen, on the map and in the list. */
+async function loadStations() {
+  stationList = await api(`/stations?hours=${stationHours()}`);
+  const keep = new Set(stationList.map((s) => s.who));
+  for (const [who, m] of stationMarkers) {
+    if (!keep.has(who) || !$('map-st-show').checked) {
+      m.marker.remove();
+      stationMarkers.delete(who);
+    }
+  }
+  if ($('map-st-show').checked) for (const s of stationList) placeStation(s);
+  renderStations();
+  if (showingStation) {
+    const want = showingStation;
+    showingStation = null;
+    goToStation(stationList.find((s) => s.who === want.who) ?? want);
+  }
+}
+
+/** A station's marker: its symbol and its name. */
+function placeStation(s) {
+  if (!map || !Number.isFinite(s.lat) || !Number.isFinite(s.lon)) return;
+  const have = stationMarkers.get(s.who);
+  if (have) {
+    have.marker.setLngLat([s.lon, s.lat]);
+    have.station = s;
+    have.element.querySelector('.icon').textContent = s.symbol?.icon ?? '📍';
+    return;
+  }
+  const element = el('div', { className: 'st-marker', title: `${s.who}: ${s.symbol?.name ?? 'station'}` },
+    el('span', { className: 'icon' }, s.symbol?.icon ?? '📍'), el('span', { className: 'label' }, s.who));
+  element.addEventListener('click', (e) => {
+    e.stopPropagation();
+    stationPopup(stationMarkers.get(s.who)?.station ?? s);
+  });
+  const marker = new maplibregl.Marker({ element, anchor: 'center' }).setLngLat([s.lon, s.lat]).addTo(map);
+  stationMarkers.set(s.who, { marker, element, station: s });
+}
+
+/** What a station last said, and how it was heard. */
+function stationPopup(s) {
+  const facts = [];
+  if (s.speed >= 1) facts.push(`${Math.round(s.speed / 1.609344)} mph${s.course ? ` heading ${s.course}°` : ''}`);
+  if (Number.isFinite(s.altitude)) facts.push(`${Math.round(s.altitude / 0.3048).toLocaleString()} ft up`);
+  const wx = s.wx ? [
+    s.wx.temp !== undefined ? `${Math.round((s.wx.temp * 9) / 5 + 32)}°F` : '',
+    s.wx.windSpeed !== undefined ? `wind ${s.wx.windDirection ?? '?'}° at ${Math.round((s.wx.windSpeed * 3.6) / 1.609344)} mph` : '',
+    s.wx.humidity !== undefined ? `${s.wx.humidity}% humidity` : '',
+    s.wx.pressure !== undefined ? `${s.wx.pressure} hPa` : '',
+  ].filter(Boolean).join(', ') : '';
+  const radio = radioNames.get(s.mac) ?? s.mac;
+  const body = el('div', { className: 'st-popup' },
+    el('div', { className: 'row' }, el('span', { className: 'pk-icon' }, s.symbol?.icon ?? '📍'), el('strong', {}, s.who),
+      el('span', { className: 'meta' }, s.symbol?.name ?? '')),
+    s.who !== s.source ? el('p', { className: 'meta' }, `${s.type === 'object' || s.type === 'item' ? 'Placed' : 'Sent'} by ${s.source}`) : '',
+    s.comment ? el('p', {}, s.comment) : '',
+    s.micE && s.micE !== 'Off duty' ? el('p', { className: 'meta' }, s.micE) : '',
+    wx ? el('p', {}, wx) : '',
+    facts.length ? el('p', { className: 'meta' }, facts.join(' · ')) : '',
+    el('p', { className: 'meta' }, `${s.format === 'bss' ? 'Shared location' : 'Heard'} ${ago(s.received_at)}` +
+      `${s.heard > 1 ? `, ${s.heard} places since ${when(s.first_heard)}` : ''}, by ${radio}` +
+      `${s.channel_name ? ` on ${s.channel_name}` : ''}${s.path?.length ? `, via ${s.path.join(', ')}` : ''}.`),
+    s.format === 'aprs'
+      ? el('a', { href: `https://aprs.fi/#!call=a%2F${encodeURIComponent(s.who)}`, target: '_blank', rel: 'noopener' }, 'On aprs.fi')
+      : '');
+  openPopup([s.lon, s.lat], body);
+}
+
+function goToStation(s) {
+  if (!map || !Number.isFinite(s.lat) || !Number.isFinite(s.lon)) return;
+  map.flyTo({ center: [s.lon, s.lat], zoom: Math.max(map.getZoom(), 12) });
+  stationPopup(stationMarkers.get(s.who)?.station ?? s);
+}
+
+function renderStations() {
+  $('map-st-list').replaceChildren(...(stationList.length ? stationList.map((s) => el('li', {},
+    el('div', { className: 'row' },
+      el('span', { className: 'pk-icon' }, s.symbol?.icon ?? '📍'),
+      el('button', { className: 'link', onclick: () => goToStation(s) }, s.who),
+      el('span', { className: 'meta' }, ago(s.received_at))),
+    el('div', { className: 'meta' }, s.summary)))
+    : [el('li', { className: 'meta' }, 'No stations heard in that time. They come in when a radio is listening on a packet frequency.')]));
+}
+
+/** A station moved or was heard: its marker, its place in the list, and a flash. */
+function onStation(p) {
+  if (!Number.isFinite(p?.lat) || !Number.isFinite(p?.lon) || p.alive === false) return;
+  const was = stationList.find((s) => s.who === p.who);
+  const s = { ...p, heard: (was?.heard ?? 0) + 1, first_heard: was?.first_heard ?? p.received_at };
+  stationList = [s, ...stationList.filter((x) => x.who !== p.who)];
+  renderStations();
+  if (!map || !$('map-st-show').checked) return;
+  placeStation(s);
+  const element = stationMarkers.get(s.who)?.element;
+  element?.classList.remove('flash');
+  void element?.offsetWidth;   // start the animation again
+  element?.classList.add('flash');
+}
+
+$('map-st-show').onchange = () => {
+  remember(ST_SHOW_KEY, $('map-st-show').checked ? '1' : '0');
+  if (map) loadStations().catch((e) => status(e.message));
+};
+$('map-st-hours').onchange = () => {
+  remember(ST_HOURS_KEY, $('map-st-hours').value);
+  if (map) loadStations().catch((e) => status(e.message));
+};
+document.addEventListener('airscribe:packet', (e) => onStation(e.detail?.packet));
+// From the Packets view: open this station on the map, once it's loaded
+document.addEventListener('airscribe:show-station', (e) => {
+  showTab('st');
+  if (map && stationList.length) goToStation(stationList.find((s) => s.who === e.detail.who) ?? e.detail);
+  else showingStation = e.detail;
+});
 
 // ---- The event stream ----------------------------------------------------------
 

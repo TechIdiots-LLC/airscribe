@@ -445,6 +445,29 @@ export function createApp({ manager, store, sidecar, config, dataDir, updates, c
   // their place on the map where one is set
   api.get('/channels', (req, res) => res.json(store.channelsSeen()));
 
+  // Packets the radios' own modems decoded (APRS, or their BSS), and the
+  // stations among them with a place: anyone's to see, as the feed is
+  api.get('/packets', (req, res) => {
+    const n = (v) => (v === undefined ? undefined : Number(v));
+    res.json(store.packets({
+      limit: n(req.query.limit) || 100, before: n(req.query.before) || undefined,
+      kind: req.query.kind ? String(req.query.kind) : undefined, q: req.query.q ? String(req.query.q) : undefined,
+      mac: req.query.mac ? normalizeMac(String(req.query.mac)) : undefined,
+    }));
+  });
+  const sinceHours = (req) => {
+    const h = req.query.hours === undefined ? 24 : Number(req.query.hours);
+    return Number.isFinite(h) && h > 0 ? Date.now() - Math.min(h, 24 * 365) * 3600000 : 0;
+  };
+  api.get('/stations', (req, res) => res.json(store.stations({
+    since: sinceHours(req), mac: req.query.mac ? normalizeMac(String(req.query.mac)) : undefined,
+  })));
+  api.get('/stations/:who', (req, res) => {
+    const who = String(req.params.who);
+    const since = sinceHours(req);
+    res.json({ who, track: store.stationTrack(who, since), packets: store.packets({ q: who, limit: 50 }).filter((p) => p.who === who) });
+  });
+
   // Placing a channel on the map is an admin's; seeing the map is anyone's
   api.put('/channels/:name/place', auth.requireRole('admin'), (req, res) => {
     const lat = Number(req.body?.lat);
