@@ -1,8 +1,8 @@
 # Digital modes (design, not implemented)
 
-Receiving APRS is done another way, by the radio's own modem: see
-[packets.md](packets.md). What follows is for a software modem, which would
-add modes the radio's doesn't have, and transmitting.
+Receiving APRS is done by the radio's own modem and by AirScribe's AFSK 1200
+modem on the audio (`src/afsk.js`): see [packets.md](packets.md). What follows
+is for modes beyond that one, and transmitting.
 
 The radios expose the same 32 kHz audio for voice and for data, so digital modes
 are software modems working on that PCM stream. HTCommander (upstream `main`)
