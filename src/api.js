@@ -8,6 +8,7 @@ import { PROVIDERS } from './logins.js';
 import { PUBLISH_DEFAULTS, publicCutoff, publishable, publicView } from './publish.js';
 import { insights } from './insights.js';
 import { checkWrite, resolveWrite } from './channels.js';
+import { judge } from './quality.js';
 
 const PUBLIC = fileURLToPath(new URL('../public', import.meta.url));
 
@@ -526,7 +527,16 @@ export function createApp({ manager, store, sidecar, config, dataDir, updates, c
     const read = await fromRadio(manager.readChannels(mac, region));
     return store.addChannelBackup({ mac, region: read.region, regionName: read.name, label, channels: read.channels });
   };
-  api.get('/radios/:mac/channels', admin, answer((req) => fromRadio(manager.readChannels(macOf(req), regionOf(req.query.region)))));
+  // With how each channel came through this radio in the last week, by name:
+  // how many transmissions, the typical signal reading and quieting, and
+  // whether that looks like static or a weak signal (src/quality.js)
+  const QUALITY_DAYS = 7;
+  api.get('/radios/:mac/channels', admin, answer(async (req) => {
+    const mac = macOf(req);
+    const read = await fromRadio(manager.readChannels(mac, regionOf(req.query.region)));
+    const rows = store.channelQuality({ since: Date.now() - QUALITY_DAYS * 24 * 60 * 60 * 1000, mac });
+    return { ...read, qualityDays: QUALITY_DAYS, quality: Object.fromEntries([...rows].map(([name, r]) => [name, judge(r)])) };
+  }));
   api.put('/radios/:mac/channels', admin, answer(async (req) => {
     const mac = macOf(req);
     // New channels, emptied slots, and changes to some fields of a channel,

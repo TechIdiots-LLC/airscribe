@@ -125,7 +125,7 @@ function fakeRadio() {
 test('a radio\'s channels: read, written after a backup, and put back', { skip: !sqlite }, async () => {
   const { Store } = await import('../src/store.js');
   const { createApp } = await import('../src/api.js');
-  const store = new Store(':memory:');
+  const store = new Store(':memory:', 'base');
   store.saveRadio({ mac: MAC, name: 'Bench', model: 'uv-pro' });
   store.saveRadio({ mac: OTHER, name: 'Off', model: 'uv-pro' });
   const { manager, calls, tables } = fakeRadio();
@@ -148,8 +148,22 @@ test('a radio\'s channels: read, written after a backup, and put back', { skip: 
     }
     assert.equal(calls.length, 0);
 
-    // Reading: the region the radio is on, or another
-    assert.equal((await call('GET', `/${MAC}/channels`)).body.channels.length, 30);
+    // Reading: the region the radio is on, or another, with how each channel came through this week
+    const now = Date.now();
+    for (const [name, rssi, snrDb, text, ago] of [['Holden PD', 11, 28, 'car 4', 1], ['Holden PD', 12, 31, 'clear', 2],
+      ['Holden PD', 10, 26, 'en route', 3], ['Rutland FD', 2, 3, '', 1], ['Rutland FD', 3, 4, '', 2], ['Rutland FD', 2, 2.5, 'uh', 3],
+      ['Rutland FD', 9, 30, 'eight days ago', 8 * 24]]) {
+      const id = store.addTransmission({ mac: MAC, startedAt: now - ago * 3600000, durationMs: 1000, audioFile: 'q.wav',
+        channelName: name, rssi, snrDb });
+      store.saveTranscript(id, 'base', { status: 'done', text });
+    }
+    store.addTransmission({ mac: OTHER, startedAt: now, durationMs: 1000, audioFile: 'o.wav', channelName: 'Holden PD', rssi: 1, snrDb: 1 });
+    const read = (await call('GET', `/${MAC}/channels`)).body;
+    assert.equal(read.channels.length, 30);
+    assert.equal(read.qualityDays, 7);
+    assert.deepEqual(read.quality['Holden PD'], { count: 3, noSpeech: 0, rssi: 11, snrDb: 28, tags: [] }, 'this radio\'s only');
+    assert.deepEqual(read.quality['Rutland FD'].tags, ['static', 'weak'], 'not counting the one from last week');
+    assert.equal(read.quality['Rutland FD'].count, 3);
     assert.equal((await call('GET', `/${MAC}/channels?region=1`)).body.name, 'Travel');
     assert.deepEqual(calls.map((c) => c[2]), [null, 1]);
     assert.equal((await call('GET', `/${MAC}/channels?region=x`)).status, 400);

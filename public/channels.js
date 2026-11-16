@@ -196,8 +196,11 @@ const STATE = { adding: 'new', editing: 'changed', removing: 'removed when writt
 function render() {
   renderPending();
   if (!shown) return;
-  const head = el('tr', {}, ...['#', 'Name', 'Receive', 'Transmit', 'Tone', 'Mode', 'Scan', '']
-    .map((t, i) => el('th', { className: i === 0 ? 'num' : '' }, t)));
+  const head = el('tr', {}, ...['#', 'Name', 'Receive', 'Transmit', 'Tone', 'Mode', 'Scan', 'Heard', '']
+    .map((t, i) => el('th', {
+      className: i === 0 ? 'num' : '',
+      title: t === 'Heard' ? `Transmissions on it in the last ${shown.qualityDays ?? 7} days, and whether they were mostly static or weak` : '',
+    }, t)));
   const all = shown.channels;
   const rows = [];
   for (let i = 0; i < all.length; i++) {
@@ -208,12 +211,12 @@ function render() {
       while (j + 1 < all.length && all[j + 1].empty && !pending.has(j + 1) && marks[j + 1] === marks[i]) j++;
       rows.push(el('tr', { className: `empty${marks[i] ? ` ${marks[i]}` : ''}` },
         el('td', { className: 'num' }, j > i ? `${i + 1}–${j + 1}` : String(i + 1)),
-        el('td', { colSpan: 7 }, j > i ? `${j - i + 1} empty` : 'empty')));
+        el('td', { colSpan: 8 }, j > i ? `${j - i + 1} empty` : 'empty')));
       i = j;
       continue;
     }
     rows.push(row(i));
-    if (editing === i) rows.push(el('tr', { className: 'edit' }, el('td', { colSpan: 8 }, editForm(i))));
+    if (editing === i) rows.push(el('tr', { className: 'edit' }, el('td', { colSpan: 9 }, editForm(i))));
   }
   $('ch-table').replaceChildren(el('thead', {}, head), el('tbody', {}, ...rows));
   renderPending();
@@ -241,7 +244,31 @@ function row(slot) {
     el('td', {}, tones(c)),
     el('td', {}, modeText(c)),
     el('td', {}, scan),
+    heard(state === 'adding' ? null : shown.quality?.[c.name]),
     el('td', { className: 'acts' }, ...actions));
+}
+
+const TAG_SAYS = {
+  static: 'mostly static: it may be out of range, or the squelch opening on noise. Untick Scan to skip it, or remove it',
+  weak: 'a weak signal: the radio’s reading is low',
+};
+
+/**
+ * How a channel came through lately: how many transmissions, and a tag when
+ * they were mostly static or weak, with the numbers behind it.
+ * @param {object|undefined} q - The channel's summary, as src/quality.js judges it.
+ * @returns {HTMLElement} The cell.
+ */
+function heard(q) {
+  if (!q?.count) return el('td', { className: 'heard meta' }, '–');
+  const days = shown.qualityDays ?? 7;
+  const facts = [`${plural(q.count, 'transmission')} in the last ${days} days`,
+    q.noSpeech ? `${q.noSpeech} came to no speech` : '',
+    q.rssi !== null ? `typical signal ${q.rssi} of 15` : '',
+    q.snrDb !== null ? `typically ${Math.round(q.snrDb)} dB above its quiet moments` : '',
+    ...q.tags.map((t) => TAG_SAYS[t])].filter(Boolean);
+  return el('td', { className: 'heard', title: `${facts.join('; ')}.` },
+    String(q.count), ...q.tags.map((t) => el('span', { className: `pill tag-${t}` }, t)));
 }
 
 function renderPending() {

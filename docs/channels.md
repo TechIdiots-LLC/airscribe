@@ -38,6 +38,35 @@ radio has it, so the rest of it (bits AirScribe doesn't model included) is
 kept: turning scan off changes one bit. A change that didn't take stays in the
 list, to write again.
 
+## How each channel came through: static and weak
+
+The **Heard** column counts each channel's transmissions on this radio in the
+last week, by the name the radio gives it, and tags it:
+
+- **static**: most of it was noise. A station out of range, or a channel with
+  no tone whose squelch opens on noise, fills the feed with hiss.
+- **weak**: the radio's signal reading was low.
+
+Untick **Scan** to have the radio skip a channel like that, or remove it.
+Hovering over the count shows the numbers behind the tag.
+
+Two things are measured for each transmission as it comes in:
+
+- **The signal reading:** the strongest of the radio's own readings (0 to 15)
+  while the transmission came in, from the status it reports every second.
+- **Quieting:** how far the transmission's loud moments stood above its quiet
+  ones, in dB, over 20 ms frames (the loudest tenth over the quietest tenth).
+  A strong FM signal is near silent between words, 20 dB and more. A weak one
+  is hiss between words, a few dB to the low teens. Static that opened the
+  squelch is hiss throughout, a few dB.
+
+A channel with three or more transmissions in the week is tagged **static**
+when its typical (median) transmission stood under 6 dB above its quiet
+moments, or, for transmissions from before these were measured, when four in
+five came to no speech; and **weak** when its typical signal reading was 3 or
+less. These are first guesses (src/quality.js), to be tuned against real
+traffic.
+
 ## Backups
 
 **Back up this region** keeps every slot of the region, the empty ones too,
@@ -103,7 +132,7 @@ reason.
 
 | Request | Does |
 | --- | --- |
-| `GET /api/radios/:mac/channels?region=N` | every slot of a region, read from the radio now (the region it's on without `region`) |
+| `GET /api/radios/:mac/channels?region=N` | every slot of a region, read from the radio now (the region it's on without `region`), and `quality`: by channel name, the last week's `count`, `noSpeech`, median `rssi` and `snrDb`, and `tags` |
 | `PUT /api/radios/:mac/channels` | `{region, channels, label}`: reads the region, backs it up, then writes the channels. Each is a new channel (`{id, name, rx_hz, tx_hz, mod, bandwidth, rx_tone, tx_tone, scan, power, tx_disable}`, `id` the slot from 0), an empty slot (`{id, rx_hz: 0}`), or a change to some of a channel's fields (`{id, set: {scan: false}}`). A write that changes nothing keeps no backup. A new channel may carry `lat` and `lon`, to put it on the map |
 | `GET /api/radios/:mac/backups` | the radio's backups, newest first |
 | `POST /api/radios/:mac/backups` | `{region, label}`: back a region up |

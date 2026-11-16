@@ -75,6 +75,11 @@
   them all after one backup; **Discard** drops them. A change writes only the fields that changed over the radio's
   own record, so turning scan off changes one bit, and a channel programmed elsewhere to transmit keeps its
   transmit. AirScribe never turns transmit on outside the ham bands (docs/channels.md).
+- **Static and weak channels tagged:** each transmission now keeps the radio's strongest signal reading while it
+  came in and its quieting (how far its loud moments stood above its quiet ones, in dB), and a radio's **Channels**
+  shows each channel's transmissions in the last week, tagged **static** when most of it was noise and **weak**
+  when the signal reading was low, with the numbers on hover; unticking **Scan** has the radio skip one. The
+  thresholds are first guesses, to tune against real traffic (docs/channels.md).
 - **Insights:** a view beside the feed, for the last day, week, month or everything, for one radio or channel:
   a word cloud of what was said (common English words and a model's own annotations such as "(static)" left out;
   unit and call numbers kept), transmissions per hour or day, busy hours by weekday, and each channel's

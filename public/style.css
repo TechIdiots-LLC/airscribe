@@ -135,6 +135,10 @@ table.slots .pill { margin-left: 6px; font-size: 11px; }
 table.slots .pill.adding { color: var(--ok); }
 table.slots .pill.editing { color: var(--warn); }
 table.slots tr.edit td { background: var(--card); white-space: normal; }
+table.slots td.heard { font-variant-numeric: tabular-nums; cursor: help; }
+.pill.tag-static { color: var(--bad); border-color: var(--bad); margin-left: 6px; font-size: 11px; }
+.pill.tag-weak { color: var(--warn); border-color: var(--warn); margin-left: 6px; font-size: 11px; }
+.slots-key { font-size: 12px; margin: 0 0 8px; }
 .channel-form { display: grid; grid-template-columns: repeat(auto-fill, minmax(150px, 1fr)); gap: 8px 12px; padding: 6px 0; }
 .channel-form label { display: flex; flex-direction: column; gap: 2px; font-size: 12px; color: var(--muted); }
 .channel-form label[hidden] { display: none; }
