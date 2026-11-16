@@ -546,6 +546,12 @@ async function deleteTx(t) {
  * @returns {void}
  */
 function onTransmission(t) {
+  // A scanner's card says when its last recording came
+  const scanner = radios.find((r) => r.mac === t.mac && r.state === 'recordings');
+  if (scanner && !txs.has(t.id) && t.started_at > (scanner.last_recording ?? 0)) {
+    scanner.last_recording = t.started_at;
+    renderRadios();
+  }
   // A channel not in the filter yet: it has just been heard for the first time
   if (t.channel_name && ![...$('filter-channel').options].some((o) => o.value === t.channel_name)) {
     loadChannels().catch(() => {});
