@@ -75,8 +75,8 @@ them out; whichever gets a frame, it's handed on once. On synthesized packets
 with white noise in the 300 to 3000 Hz band it decoded all of them at a
 signal-to-noise ratio of 8 dB, nine in ten at 7 dB and about half at 6 dB;
 with the tones 9 dB apart either way and 12 dB of signal to noise, nearly
-all; with the bit rate 1% off, all at 8 dB. It costs a few percent of one
-core per radio while the radio is receiving.
+all; with the bit rate 1% off, nine in ten or more at 8 dB. It costs a few
+percent of one core per radio while the radio is receiving.
 
 If the radio mutes the speaker while its own modem decodes a packet (the
 radios' settings have a "digital mute"), the audio carries nothing to decode,
