@@ -81,7 +81,8 @@
   speech whatever a model wrote: **Hide no speech** hides it, a cleanup of no speech deletes it, and Insights leaves
   its words out. Clips saved before are measured from their audio at startup. A radio's **Channels** shows each
   channel's transmissions in the last week, tagged **static** when most were and **weak** when the signal reading
-  was low, with the numbers on hover; unticking **Scan** has the radio skip one. The thresholds are first guesses,
+  was low, with the numbers on hover; unticking **Scan** has the radio skip one. A static transmission's tooltip
+  says what a feed full of static means: the radio's squelch opening on noise. The thresholds are first guesses,
   to tune against real traffic (docs/channels.md).
 - **Packets: APRS and the radios' own location sharing:** the packets a radio's own modem decodes (APRS on the
   frequency it's listening to, 144.390 MHz in the US, and the BSS packets these radios send each other) come to

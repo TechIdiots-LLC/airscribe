@@ -295,7 +295,8 @@ function renderTx(t) {
   }, 'packet') : t.static ? el('span', {
     className: 'tag static',
     title: `Static: its loudest moments stood ${t.snr_db} dB above its quietest (speech on a clear signal is 20 dB and more)` +
-      `${Number.isInteger(t.rssi) ? `; signal ${t.rssi} of 15` : ''}. Any words shown were made up by the speech model.`,
+      `${Number.isInteger(t.rssi) ? `; signal ${t.rssi} of 15` : ''}. Any words shown were made up by the speech model.` +
+      ' A radio that hears mostly static has its squelch opening on noise: raise its squelch in Controls.',
   }, 'static') : '';
   // What the packets that came in it said, one line each
   const packets = (t.packets ?? []).length ? el('div', { className: 'tx-packets' },
