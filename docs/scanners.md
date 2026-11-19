@@ -1,9 +1,73 @@
-# Scanners: a Uniden SDS150 (or SDS100, SDS200) through radiocli
+# Scanners: a Uniden SDS150 over Bluetooth, or an SDS150, SDS100 or SDS200 through radiocli
 
-A Uniden SDS scanner doesn't connect to AirScribe the way the handhelds do.
-Its USB cable carries commands but no sound, and its Bluetooth sends audio only
-to Uniden's own app. [radiocli](https://github.com/albeebe/radiocli) handles it
-instead:
+An SDS150 can reach AirScribe two ways:
+- **over Bluetooth**, as Uniden's U/AWARE app reaches it, with no cable or sound
+  card (below);
+- **through radiocli**, over USB and its headphone socket, which works for the
+  SDS100 and SDS200 as well ([radiocli](#through-radiocli)).
+
+## Over Bluetooth (SDS150)
+
+Needs the `bumble` backend (docs/proxmox.md), as the scanner speaks only
+Bluetooth Low Energy.
+
+1. On the scanner: **Menu → Settings → Bluetooth Options → Set Bluetooth
+   Function → Enable**.
+2. **Radios → Scan for radios.** It's listed as `SDS150:` and its serial
+   number; **Add** it (model *SDS150 (Bluetooth)*).
+3. The first time, put the scanner in **Bluetooth Options → Pairing**, then
+   **Connect**. It pairs without a PIN. After that, Connect needs nothing on
+   the scanner.
+
+The scanner talks to one device at a time: close U/AWARE on the phone first.
+Its card shows what it's on. Each transmission is filed under the channel (or
+talkgroup) and frequency it names, with its system and department as details,
+then transcribed. There are no Controls or Channels: set the scanner up on the
+scanner.
+
+**If it won't stay connected:** after **Reset Pairings** on the scanner, the
+pairing AirScribe kept is refused, and the scanner hangs up about 0.3 s later.
+AirScribe forgets that pairing when it happens, so put the scanner back in
+**Pairing** and connect again. A phone that kept its old pairing does the same
+until it's unpaired in Android's Bluetooth settings; removing it in U/AWARE
+isn't enough.
+
+### How it works
+
+Worked out from a capture of U/AWARE and an SDS150 (Android's HCI snoop log);
+the app wasn't taken apart. `sidecar/sds.py` has the details:
+- **The link:** the scanner advertises from a static random address. It pairs
+  "Just Works" (LE Secure Connections). Its vendor service has one
+  characteristic that notifies and takes writes without response, and
+  everything goes through it.
+- **Frames, both ways:** `09 50 54`, a 2-byte length, the payload, and a
+  2-byte sum of the payload's bytes.
+- **Polling:** the app sends one thing, `GST` (the remote command spec's Get
+  Status, as over USB), every 200 ms. That alone keeps the audio coming.
+- **What the scanner sends:**
+  - its system and channel as a transmission starts;
+  - the audio, as Opus packets (wideband CELT, 20 ms, about 24 kbit/s);
+  - a line with system, department, channel, frequency and talkgroup just
+    after it ends.
+- **Transmissions:** the scanner's squelch decides them, since audio comes
+  only while it's open. AirScribe ends one after 0.6 s without audio and
+  decodes it with ffmpeg.
+
+**Tested:**
+- the framing against bytes from the capture;
+- decoding of real captured audio (it sounded right);
+- a fake scanner on Bumble's virtual controller: connecting, polling,
+  transmissions, drops, reconnecting;
+- the page, with the simulator's pretend SDS150.
+
+Not yet with AirScribe connected to a real SDS150. The vendor service's UUID
+isn't known, since the phone used its cached copy, so AirScribe picks the
+characteristic by what it does.
+
+## Through radiocli
+
+Its USB cable carries commands but no sound.
+[radiocli](https://github.com/albeebe/radiocli) handles it:
 - it reads what the scanner is receiving over USB;
 - it records the headphone socket through a sound input;
 - it writes one WAV per transmission, with a `.json` beside it saying what the
@@ -23,7 +87,7 @@ radiocli is a separate, young project (MIT). Its author has run it only on an
 SDS150 at firmware 1.00.37, from macOS. Its Linux and Windows builds haven't
 met a scanner yet.
 
-## Setting it up
+### Setting it up
 
 1. **In AirScribe:** **Radios → Add a scanner**, pick the model and name it.
    Its card's **How to send** shows the command for step 3, with this
@@ -53,7 +117,7 @@ The computer can be the AirScribe host itself (the scanner's USB and the
 sound input passed through to the container, as the Bluetooth dongle is), or
 any other on the network.
 
-## What the uploader does
+### What the uploader does
 
 - **What it sends:** every WAV in the folder (and the folders radiocli makes in
   it) whose `.json` is there too. It waits until both have been still for two
@@ -71,7 +135,7 @@ any other on the network.
 - **Sent twice:** a recording sent again (the same scanner, the same start) is
   kept once. AirScribe answers with the transmission it already has.
 
-## What AirScribe keeps
+### What AirScribe keeps
 
 | From radiocli's `.json` | Becomes |
 | --- | --- |
@@ -90,7 +154,7 @@ radiocli's level normalising doesn't change that measure.
 
 **Not handled yet:** the radios' packet decoding doesn't run on recordings.
 
-## The API
+### The API
 
 `POST /api/radios/:id/recordings`, by an admin account or a token:
 - **Body:** the WAV.
@@ -108,7 +172,7 @@ radiocli's level normalising doesn't change that measure.
 adds a scanner and answers with its id. Connect and Disconnect are refused
 for one.
 
-## Tested
+### Tested
 
 Against recordings and `.json` files made in the tests, in radiocli's
 documented format:

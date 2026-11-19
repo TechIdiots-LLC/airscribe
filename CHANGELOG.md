@@ -106,6 +106,12 @@
   uploader signs in by account or token, files what it sent away, and keeps what AirScribe refused aside with the
   reason. A recording sent twice is kept once. Tested against recordings made in the tests, not yet with radiocli
   or a scanner (docs/scanners.md).
+- **An SDS150 over Bluetooth, no sound card:** with the `bumble` backend, **Scan for radios** finds an SDS150 by the
+  name it advertises, and AirScribe connects to it as Uniden's U/AWARE app does: it pairs (no PIN, with the scanner
+  in its Pairing menu), asks for its status five times a second, and takes each transmission as the scanner sends
+  it, Opus audio with the system, department, channel, frequency and talkgroup. Each is filed under that channel and
+  frequency and transcribed. The protocol was worked out from a capture of the app (docs/scanners.md). Tested
+  against a fake scanner and a decode of real captured audio; not yet connected to a real SDS150.
 - **APRS decoded from the audio too:** AirScribe runs a 1200-baud AFSK modem of its own on everything a radio receives,
   so packets come in even if the radio's own modem doesn't hand them over. Each packet says what decoded it (the
   radio, AirScribe, or both, kept once), and the log lists each one with its source (docs/packets.md).
