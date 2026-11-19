@@ -429,6 +429,9 @@ class BumbleStack:
                 await conn.disconnect()
             except Exception:
                 pass
+            # Bumble cancels what's waiting when the link drops: the scanner hung up at this step
+            if isinstance(e, asyncio.CancelledError) or conn.handle not in self.device.connections:
+                raise RuntimeError(f"{mac} hung up while AirScribe was {step}. {SCANNER_HINT}") from e
             if isinstance(e, Exception) and not isinstance(e, RuntimeError):
                 raise RuntimeError(f"{mac} over LE, {step}: {type(e).__name__} {e}".strip()) from e
             raise
@@ -449,7 +452,7 @@ class BumbleStack:
             try:
                 await asyncio.wait_for(conn.encrypt(), ENCRYPT_SECONDS)
                 return None
-            except Exception as e:
+            except (Exception, asyncio.CancelledError) as e:
                 # It has forgotten us (Reset Pairings). It asks to pair, then hangs up ~0.3 s later, so
                 # this link is usually gone: drop the key, or every retry tries it again. Seen with a
                 # phone that kept its old key: 57 connections in a row, none lasting half a second.
@@ -463,7 +466,9 @@ class BumbleStack:
         try:
             await asyncio.wait_for(conn.pair(), LE_PAIR_SECONDS)
             return None
-        except Exception as e:
+        except (Exception, asyncio.CancelledError) as e:
+            if conn.handle not in self.device.connections:
+                raise RuntimeError(f"{mac} hung up while pairing ({type(e).__name__}). {SCANNER_HINT}") from e
             return f"the link to {mac} isn't encrypted ({type(e).__name__} {e}). {SCANNER_HINT}"
 
     def _on_le_disconnection(self, mac, session):
