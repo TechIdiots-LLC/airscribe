@@ -17,6 +17,7 @@ handed to RadioLink as a DlcSocket, which has the few socket methods it uses.
 """
 
 import asyncio
+import concurrent.futures
 import socket
 import threading
 
@@ -28,6 +29,7 @@ CONNECT_SECONDS = 20
 PAIR_SECONDS = 60       # the first connection pairs, which can wait on the radio
 ENCRYPT_SECONDS = 10    # the UV-Pro took well under one
 LE_PAIR_SECONDS = 30    # the SDS150: Just Works, no PIN, while it's in its Pairing menu
+GATT_SECONDS = 15       # each step of finding its characteristic
 SCAN_SECONDS = 8
 # The radios' advertised names, so a scan lists them first. Which model a name
 # is stays src/models.js's job; these only sort.
@@ -376,8 +378,11 @@ class BumbleStack:
     def connect_le(self, mac, on_notify):
         """Link to a scanner over LE, pair or reuse the pairing, and subscribe to its frames."""
         self.drop_le(mac)
-        session = self.run(self._connect_le(mac, on_notify),
-                           2 * CONNECT_SECONDS + ENCRYPT_SECONDS + LE_PAIR_SECONDS + 30)
+        try:
+            session = self.run(self._connect_le(mac, on_notify),
+                               2 * CONNECT_SECONDS + ENCRYPT_SECONDS + LE_PAIR_SECONDS + 2 * GATT_SECONDS + 15)
+        except concurrent.futures.TimeoutError as e:
+            raise RuntimeError(f"connecting to {mac} over LE took too long") from e
         self.le_sessions[mac] = session
         return session
 
@@ -388,34 +393,44 @@ class BumbleStack:
         # As a scan saw it; otherwise random (an SDS150's address is static random), then public
         known = self.le_addresses.get(mac)
         tries = [known] if known else [hci.Address(mac, hci.Address.RANDOM_DEVICE_ADDRESS), hci.Address(f"{mac}/P")]
-        conn, error = None, None
+        conn, errors = None, []
         for address in tries:
             try:
                 conn = await self.device.connect(address, transport=core.PhysicalTransport.LE,
                                                  timeout=CONNECT_SECONDS)
                 break
             except Exception as e:
-                error = e
+                errors.append(f"{address}: {type(e).__name__} {e}".strip())
         if conn is None:
-            raise error
+            raise RuntimeError(f"couldn't reach {mac} over LE ({'; '.join(errors)}). Is its Bluetooth on, "
+                               "and nothing else (U/AWARE) connected to it?")
+        step = "pairing"
         try:
             warning = await self._secure_le(conn, mac)
             peer = Peer(conn)
+            step = "asking for a larger MTU"
             try:
-                await peer.request_mtu(517)     # its frames run to ~480 bytes; the app's link had 495
+                await asyncio.wait_for(peer.request_mtu(517), GATT_SECONDS)   # its frames run to ~480 bytes
             except Exception:
                 pass
-            await peer.discover_services()
-            found = [(s.uuid.to_bytes(), await s.discover_characteristics()) for s in peer.services]
+            step = "finding its services"
+            await asyncio.wait_for(peer.discover_services(), GATT_SECONDS)
+            found = []
+            for s in peer.services:
+                step = f"finding the characteristics of service {s.uuid}"
+                found.append((s.uuid.to_bytes(), await asyncio.wait_for(s.discover_characteristics(), GATT_SECONDS)))
             char = pick_characteristic(found)
             if char is None:
                 raise RuntimeError(f"{mac} has no characteristic that notifies and takes writes: is it an SDS150?")
-            await peer.subscribe(char, on_notify)
-        except BaseException:
+            step = "subscribing to its frames"
+            await asyncio.wait_for(peer.subscribe(char, on_notify), GATT_SECONDS)
+        except BaseException as e:
             try:
                 await conn.disconnect()
             except Exception:
                 pass
+            if isinstance(e, Exception) and not isinstance(e, RuntimeError):
+                raise RuntimeError(f"{mac} over LE, {step}: {type(e).__name__} {e}".strip()) from e
             raise
         session = LeSession(conn, peer, char, warning)
         session.on_disconnect = None

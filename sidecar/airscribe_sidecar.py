@@ -585,7 +585,9 @@ def main():
                 raise ValueError(f"unknown command {cmd}")
             emit({"id": req["id"], "ok": True, "result": result})
         except Exception as e:  # report to the caller; never kill the loop
-            emit({"id": req.get("id") if isinstance(req, dict) else None, "ok": False, "error": str(e)})
+            # A timeout has no message of its own: its name, rather than an empty error
+            emit({"id": req.get("id") if isinstance(req, dict) else None, "ok": False,
+                  "error": str(e) or type(e).__name__})
 
     # stdin closed: the parent has gone away.
     shutdown()

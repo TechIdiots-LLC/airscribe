@@ -700,7 +700,11 @@ export class Manager extends EventEmitter {
   async connect(mac) {
     this.wanted.add(mac);
     this.clearRetry(mac);
-    await this.sidecar.call('connect', this.connectArgs(mac));
+    await this.sidecar.call('connect', this.connectArgs(mac)).catch((err) => {
+      // Said in the log as well as to whoever pressed Connect: the step it failed at is the clue
+      console.error(`[radio] ${mac}: couldn't connect: ${err.message}`);
+      throw err;
+    });
   }
 
   /**
@@ -741,6 +745,7 @@ export class Manager extends EventEmitter {
       this.emit('update', { type: 'status', mac, state: 'connecting', detail: 'retrying' });
       this.sidecar.call('connect', this.connectArgs(mac)).catch((err) => {
         // Still unreachable. Say so once, and wait longer next time.
+        console.error(`[radio] ${mac}: retry failed: ${err.message}`);
         this.emit('update', { type: 'status', mac, state: 'disconnected', detail: err.message });
         if (this.wanted.has(mac)) this.scheduleRetry(mac);
       });
