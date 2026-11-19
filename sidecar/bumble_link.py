@@ -33,6 +33,9 @@ GATT_SECONDS = 15       # each step of finding its characteristic
 # The link's supervision timeout. Bumble's default, 720 ms, lost the SDS150 about a second after encryption started
 # (reason 0x08), as it goes quiet then, saving the pairing; it asks a phone for 4 s itself
 LE_SUPERVISION_MS = 4000
+# As often as LE allows: its audio and screen need ~250 packets a second, and a Bluetooth 4.0 dongle carries
+# 27 bytes in each and only a few each interval. At 30 ms (Bumble's default top) audio came in scraps
+LE_INTERVAL_MS = (7.5, 15)
 SCAN_SECONDS = 8
 # The radios' advertised names, so a scan lists them first. Which model a name
 # is stays src/models.js's job; these only sort.
@@ -402,7 +405,7 @@ class BumbleStack:
                 conn = await self.device.connect(
                     address, transport=core.PhysicalTransport.LE, timeout=CONNECT_SECONDS,
                     connection_parameters_preferences={hci.HCI_LE_1M_PHY: ConnectionParametersPreferences(
-                        connection_interval_min=15, connection_interval_max=30,
+                        connection_interval_min=LE_INTERVAL_MS[0], connection_interval_max=LE_INTERVAL_MS[1],
                         supervision_timeout=LE_SUPERVISION_MS)})
                 break
             except Exception as e:
