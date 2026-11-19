@@ -29,6 +29,9 @@ import threading
 import time
 
 MAGIC = b"\x09\x50\x54"
+# Its vendor service and the one characteristic in it (handles 0x10-0x13 on the one seen), from its GATT table
+SERVICE = "3a5b9d10-f2ec-4f5c-bb2e-2f1a8d98a0a6"
+CHARACTERISTIC = "ab8c17d4-c1c5-4c91-8c56-7d01954c471e"
 POLL_SECONDS = 0.2          # as often as the app asks
 AUDIO_SCREEN_SECONDS = 1.0  # how often GST is asked for while a transmission comes in
 GAP_SECONDS = 0.6           # audio stops this long: the transmission is over (A2 comes ~0.2 s after)

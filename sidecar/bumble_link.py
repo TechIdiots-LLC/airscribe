@@ -193,16 +193,20 @@ class LeSession:
 
 
 def pick_characteristic(services):
-    """The SDS150's: notifies and takes writes without response. One in a vendor (128-bit) service first.
+    """The SDS150's, by its UUID (sds.CHARACTERISTIC); failing that, one that notifies and takes writes without
+    response, in a vendor (128-bit) service first.
 
     :param services: [(service uuid bytes, [characteristic])] as discovered.
     """
+    from bumble.core import UUID
     from bumble.gatt import Characteristic
 
+    known = UUID(sds.CHARACTERISTIC)
     want = Characteristic.Properties.NOTIFY | Characteristic.Properties.WRITE_WITHOUT_RESPONSE
-    found = [(len(uuid) == 16, c) for uuid, chars in services for c in chars if c.properties & want == want]
-    found.sort(key=lambda f: not f[0])
-    return found[0][1] if found else None
+    found = [(c.uuid != known, len(uuid) != 16, c) for uuid, chars in services for c in chars
+             if c.properties & want == want]
+    found.sort(key=lambda f: f[:2])
+    return found[0][2] if found else None
 
 
 def make_delegate(pin):

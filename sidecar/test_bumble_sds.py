@@ -126,6 +126,15 @@ class ScannerOverBumbleTests(unittest.TestCase):
         # And at the 15 ms the scanner asks for itself
         self.assertLessEqual(params.connection_interval, bumble_link.LE_INTERVAL_MS[1], params)
 
+    def test_the_real_characteristic_is_known_by_its_uuid(self):
+        both = Characteristic.Properties.NOTIFY | Characteristic.Properties.WRITE_WITHOUT_RESPONSE
+        made_up = Characteristic(VENDOR_CHAR, both, Characteristic.Permissions.WRITEABLE)
+        real = Characteristic(sds.CHARACTERISTIC, both | Characteristic.Properties.READ,
+                              Characteristic.Permissions.WRITEABLE)
+        services = [(bytes(16), [made_up]), (bytes(16), [real])]
+        self.assertIs(bumble_link.pick_characteristic(services), real, "ahead of one that only looks like it")
+        self.assertIs(bumble_link.pick_characteristic(services[:1]), made_up, "and failing it, what does the same")
+
     def test_it_pairs_with_the_address_we_connect_from(self):
         self.backend.connect(SCANNER, "sds-ble")
         theirs = next(iter(self.scanner.device.connections.values()))
