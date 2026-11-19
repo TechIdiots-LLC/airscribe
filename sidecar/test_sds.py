@@ -155,5 +155,116 @@ class LinkTests(unittest.TestCase):
         self.assertEqual(len(self.of("status")), 1, "said once")
 
 
+def gst_text(lines, tail):
+    """A GST reply as the scanner words one: the font bits, each line and its mode, then the tail."""
+    form = "".join("1" if large else "0" for _, _, large in lines)
+    return ("GST," + form + "," + ",".join(f"{t},{m}" for t, m, _ in lines) + "," + ",".join(tail) + "\r").encode()
+
+
+WATERFALL = gst_text(
+    [("              Nov19  0:11     ", "", False), ("SPAN:2.88MHz    GAIN:Auto     ", "", False),
+     ("CF:97.9000MHz   VOL: 0 SQL: 2 ", "", False),
+     (" to Scan     SPAN      HOLD   ", "********* ********** *********", False)],
+    ["1", "0", "0", "1", "00979000", "FMB", "120", "00979000", "00964600", "00993400", "0", "1"])
+
+
+def pieces(seq, text, size=200):
+    """A reply cut as the scanner cuts a long one: 0x01 on the first piece, 0x80 set on the last."""
+    parts = [text[i:i + size] for i in range(0, len(text), size)]
+    out = b""
+    for i, part in enumerate(parts):
+        flag = (0x01 if i == 0 else 0x02) | (0x80 if i == len(parts) - 1 else 0)
+        out += scanner_frame(seq + i, 0xC0, bytes([flag]) + part)
+    return out
+
+
+class ScreenTests(unittest.TestCase):
+    def test_a_gst_reply_is_the_screen(self):
+        s = sds.parse_gst(WATERFALL)
+        self.assertEqual(len(s["lines"]), 4)
+        self.assertEqual(s["lines"][3]["mode"], "********* ********** *********", "the soft keys' labels, highlighted")
+        self.assertEqual((s["mode"], s["muted"], s["led"]), ("waterfall", True, 0))
+        self.assertEqual(s["waterfall"], {"hz": 97900000, "mod": "FMB", "marker": 120, "center_hz": 97900000,
+                                          "lower_hz": 96460000, "upper_hz": 99340000})
+        quick = sds.parse_gst(gst_text([("Quick Key Navigation    ", "________________________", True),
+                                        ("415                     ", "   *                    ", True)],
+                                       ["1", "0", "0", "", "", "", "", "", "", "", "0", ""]))
+        self.assertEqual((quick["mode"], quick["lines"][1]["large"]), ("normal", True))
+        self.assertNotIn("waterfall", quick)
+        self.assertIsNone(sds.parse_gst(b"KEY,OK\r"))
+
+
+class ControlTests(unittest.TestCase):
+    def setUp(self):
+        self.events = []
+        self.sent = []
+        self.clock = Clock()
+        self.link = sds.ScannerLink("DE:B8:5F:00:00:01", self.events.append, self.sent.append, clock=self.clock)
+        self.addCleanup(self.link.stop.set)
+
+    def texts(self):
+        out = []
+        for msg in self.sent:
+            payload = msg[5:-2]
+            out.append(payload[8:].decode().strip("\r"))   # seq, ack, type, length, 0x81
+        return out
+
+    def of(self, kind):
+        return [e for e in self.events if e["event"] == kind]
+
+    def test_a_long_reply_is_put_back_together_and_sent_once_changed(self):
+        self.link.on_notify(pieces(1, WATERFALL))
+        self.link.tick()
+        screens = self.of("scanner-screen")
+        self.assertEqual(len(screens), 1)
+        self.assertEqual(screens[0]["lines"][2]["text"], "CF:97.9000MHz   VOL: 0 SQL: 2 ")
+        self.link.on_notify(pieces(10, WATERFALL))
+        self.link.tick()
+        self.assertEqual(len(self.of("scanner-screen")), 1, "the same screen again isn't sent again")
+        # The end of a reply whose start was missed is no screen at all
+        self.link.on_notify(scanner_frame(20, 0xC0, b"\x82PT     CHANNEL ,*****\r"))
+        self.link.tick()
+        self.assertEqual(len(self.of("scanner-screen")), 1)
+
+    def test_a_key_is_pressed_then_let_go(self):
+        self.link.press("M", hold_ms=50)
+        self.assertTrue(wait(lambda: len(self.sent) == 2))
+        self.assertEqual(self.texts(), ["KEY,M,H", "KEY,M,R"])
+        self.link.press(">")
+        self.assertEqual(self.texts()[-1], "KEY,>,R", "the knob only turns")
+        self.assertEqual(len(self.sent), 3)
+        with self.assertRaises(ValueError):
+            self.link.press("KEY,M,H")
+
+    def test_the_waterfall_is_asked_for_only_while_wanted(self):
+        self.link.tick()
+        self.assertEqual(self.texts(), ["GST"])
+        self.link.waterfall(1)
+        self.link.tick()
+        self.assertEqual(self.texts()[-2:], ["GST", "GW2,1,ON"])
+        self.clock.t += 0.2
+        self.link.tick()
+        self.assertEqual(self.texts()[-1], "GST", "not more often than the app asks")
+        levels = bytes(range(240))
+        self.link.on_notify(pieces(5, b"GW2," + levels + b"\r"))
+        self.clock.t += 0.2
+        self.link.tick()
+        self.assertEqual(base64.b64decode(self.of("scanner-waterfall")[0]["levels"]), levels)
+        self.clock.t += 1
+        n = len(self.sent)
+        self.link.tick()
+        self.assertEqual(self.texts()[n:], ["GST"], "and stops when nobody asks again")
+
+
+def wait(pred, seconds=3):
+    import time
+    end = time.monotonic() + seconds
+    while time.monotonic() < end:
+        if pred():
+            return True
+        time.sleep(0.02)
+    return False
+
+
 if __name__ == "__main__":
     unittest.main()

@@ -117,6 +117,16 @@ class ScannerOverBumbleTests(unittest.TestCase):
             self.assertEqual(self.of("run-stats")[0]["frames"], len(TONE), "every packet arrived")
             self.assertGreater(len(self.of("audio")), 0, "and was decoded")
 
+    def test_keys_and_the_waterfall_reach_it(self):
+        self.backend.connect(SCANNER, "sds-ble")
+        self.backend.scanner_key(SCANNER, "M", 50)
+        self.backend.scanner_waterfall(SCANNER, 5)
+        sent = lambda: b"".join(self.scanner.writes)  # noqa: E731
+        self.assertTrue(self.wait_for(lambda: b"KEY,M,R" in sent() and b"GW2,1,ON" in sent()), sent()[-200:])
+        self.assertLess(sent().index(b"KEY,M,H"), sent().index(b"KEY,M,R"))
+        with self.assertRaisesRegex(RuntimeError, "isn't connected"):
+            self.backend.scanner_key("DE:B8:5F:00:00:09", "M")
+
     def test_a_scanner_that_drops_is_reported_and_can_be_reconnected(self):
         self.backend.connect(SCANNER, "sds-ble")
         conn = next(iter(self.scanner.device.connections.values()))

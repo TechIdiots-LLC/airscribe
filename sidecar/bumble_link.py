@@ -584,6 +584,18 @@ class BumbleBackend(LinkControls):
         self.scanners[mac] = scanner
         scanner.open(detail="Bluetooth LE")
 
+    def _scanner(self, mac):
+        scanner = self.scanners.get(mac.upper())
+        if scanner is None or scanner.stop.is_set():
+            raise RuntimeError(f"{mac} isn't connected over Bluetooth LE")
+        return scanner
+
+    def scanner_key(self, mac, key, hold_ms=100):
+        self._scanner(mac).press(key, hold_ms)
+
+    def scanner_waterfall(self, mac, seconds):
+        self._scanner(mac).waterfall(seconds)
+
     def _scanner_gone(self, mac, scanner):
         """It disconnected, or stopped answering: say so; the server retries."""
         if self.scanners.get(mac) is scanner:

@@ -7,13 +7,15 @@ characteristic that takes writes without response and sends notifications, and b
 
 The app's payload is its sequence number (2), the last sequence number it heard from the scanner (2), then one
 field: a type (1), a length (2) and the bytes. The scanner's payload is its sequence number and a field, with no
-acknowledgement. The app sends one thing, `GST` (the remote command spec's Get Status, as over USB) as field
-type C0 with 0x81 before it, every 200 ms; that alone keeps the audio coming. The scanner sends:
+acknowledgement. Commands are the remote command spec's, as over USB, in field type C0 with 0x81 before them:
+the app sends `GST` (Get Status, which is the screen) every 200 ms, which alone keeps the audio coming; its
+buttons are `KEY,<code>,H` then `KEY,<code>,R` (the knob, `<` or `>`, is R alone); and while its waterfall is
+shown, `GW2,1,ON` every 300 ms. The scanner sends:
 
   A0  "System,Channel" as a transmission starts
   A1  audio: a counter byte, then one Opus packet (wideband CELT, 20 ms, mono)
   A2  "System,Department,Channel, frequency,talkgroup,..." just after it ends
-  C0  replies (0x81 then the command's answer) and its own status lines (0x82)
+  C0  replies, in pieces: a flag byte (0x01 first, 0x80 set on the last, so 0x81 is a whole one), then text
   AF  a one-byte tick, unexplained
 
 The scanner's squelch decides what's a transmission: audio comes only while it's open. A transmission is the
@@ -50,9 +52,50 @@ def frame(seq, ack, kind, data):
     return MAGIC + len(payload).to_bytes(2, "big") + payload + checksum(payload).to_bytes(2, "big")
 
 
+def command(seq, ack, text):
+    """A remote command, as the app wraps one."""
+    return frame(seq, ack, T_TEXT, b"\x81" + text.encode("ascii") + b"\r")
+
+
 def gst(seq, ack=0xFFFF):
     """Get Status, as the app asks for it."""
-    return frame(seq, ack, T_TEXT, b"\x81GST\r")
+    return command(seq, ack, "GST")
+
+
+WATERFALL_SECONDS = 0.3     # as often as the app asks for the waterfall
+MAX_WATERFALL_SECONDS = 60  # a page that asked and went away stops it
+MAX_HOLD_MS = 3000
+# Key codes: those the app was seen sending, and the rest as Uniden's other scanners take them (untried here)
+KEYS = frozenset("0123456789.EMFZ<>" "LVQYABCT^")
+WF_MODES = {"0": "normal", "1": "waterfall", "2": "menu"}
+
+
+def _hz(v):
+    """GST's frequencies: 8 digits in 100 Hz ("00979000" is 97.9 MHz)."""
+    return int(v) * 100 if v and v.isdigit() else None
+
+
+def parse_gst(text):
+    """A GST reply: the screen, line by line, and what's around it (remote command spec, GST)."""
+    f = text.decode("latin-1").rstrip("\r").split(",")
+    if len(f) < 2 or f[0] != "GST" or not f[1].isdigit():
+        return None
+    form = f[1]
+    lines = []
+    for i, large in enumerate(form):
+        at = 2 + 2 * i
+        lines.append({"text": f[at] if at < len(f) else "", "mode": f[at + 1] if at + 1 < len(f) else "",
+                      "large": large == "1"})
+    tail = dict(zip(("mute", "led1", "led2", "wf_mode", "freq", "mod", "mf_pos", "cf", "lower", "upper",
+                     "color_mode", "fft_size"), f[2 + 2 * len(form):]))
+    num = lambda k: int(tail[k]) if tail.get(k, "").isdigit() else None  # noqa: E731
+    screen = {"lines": lines, "muted": tail.get("mute") == "1", "led": num("led1"), "charge_led": num("led2"),
+              "mode": WF_MODES.get(tail.get("wf_mode"), "normal")}
+    if screen["mode"] == "waterfall":
+        screen["waterfall"] = {"hz": _hz(tail.get("freq")), "mod": tail.get("mod") or None,
+                               "marker": num("mf_pos"), "center_hz": _hz(tail.get("cf")),
+                               "lower_hz": _hz(tail.get("lower")), "upper_hz": _hz(tail.get("upper"))}
+    return screen
 
 
 class FrameReader:
@@ -215,6 +258,11 @@ class ScannerLink:
         self.start_at = None
         self.current = None
         self.thread = None
+        self.reply = None        # a C0 reply's pieces so far
+        self.screen = None       # the last GST, to send only a change
+        self.pending = []        # screen and waterfall events, sent from the link's thread
+        self.waterfall_until = 0
+        self.waterfall_at = 0
 
     def open(self, detail=None):
         self.heard = self.clock()
@@ -240,6 +288,69 @@ class ScannerLink:
                         self.current.start_info = dict(self.start_info)
                 elif kind == T_END and self.current is not None:
                     self.current.end_info = parse_end(body)
+                elif kind == T_TEXT and body:
+                    self._on_text(body[0], bytes(body[1:]))
+
+    def _on_text(self, flag, part):
+        """A piece of a reply; the whole of one is read. Called holding the lock."""
+        if flag & 0x01:
+            self.reply = [part]
+        elif self.reply is not None:
+            self.reply.append(part)
+        else:
+            return      # the rest of one whose start was missed
+        if not flag & 0x80:
+            return
+        text, self.reply = b"".join(self.reply), None
+        if text.startswith(b"GST,"):
+            if text != self.screen:
+                self.screen = text
+                screen = parse_gst(text)
+                if screen:
+                    self.pending.append({"event": "scanner-screen", "mac": self.mac, **screen})
+        elif text.startswith(b"GW2,"):
+            levels = text[4:].rstrip(b"\r")
+            if len(levels) >= 240:
+                self.pending.append({"event": "scanner-waterfall", "mac": self.mac,
+                                     "levels": base64.b64encode(levels[:240]).decode()})
+
+    def _next(self, text):
+        """The next frame of ours. Called holding the lock."""
+        msg = command(self.seq, self.ack, text)
+        self.seq = (self.seq + 1) & 0xFFFF
+        return msg
+
+    def press(self, key, hold_ms=100):
+        """Press a key as the app does: down, then up after hold_ms. The knob (< >) only turns."""
+        key = str(key)
+        if key not in KEYS:
+            raise ValueError(f"{key!r} isn't a key code the scanner takes")
+        hold = max(50, min(int(hold_ms), MAX_HOLD_MS)) / 1000
+        if key not in "<>":
+            with self.lock:
+                down = self._next(f"KEY,{key},H")
+            self.send(down)
+
+        def release():
+            if self.stop.is_set():
+                return
+            with self.lock:
+                up = self._next(f"KEY,{key},R")
+            try:
+                self.send(up)
+            except Exception as e:
+                self.emit({"event": "sidecar-error", "mac": self.mac, "error": f"couldn't release {key}: {e}"})
+
+        if key in "<>":
+            release()
+        else:
+            timer = threading.Timer(hold, release)
+            timer.daemon = True
+            timer.start()
+
+    def waterfall(self, seconds):
+        """Ask for the waterfall for the next `seconds` (0 stops it); a page that's showing it asks again."""
+        self.waterfall_until = self.clock() + max(0, min(float(seconds), MAX_WATERFALL_SECONDS))
 
     def tick(self):
         """One poll. :returns: False once the scanner has gone, or can't be written to."""
@@ -253,8 +364,13 @@ class ScannerLink:
             if done:
                 self.current = None
             gone = now - self.heard > SILENT_SECONDS
-            msg = gst(self.seq, self.ack)
-            self.seq = (self.seq + 1) & 0xFFFF
+            msgs = [self._next("GST")]
+            if now < self.waterfall_until and now - self.waterfall_at >= WATERFALL_SECONDS - 0.05:
+                self.waterfall_at = now
+                msgs.append(self._next("GW2,1,ON"))
+            events, self.pending = self.pending, []
+        for e in events:
+            self.emit(e)
         if announce:
             self._announce(run)
         if done:
@@ -264,7 +380,8 @@ class ScannerLink:
                        "error": f"the scanner hasn't answered for {SILENT_SECONDS} s; reconnecting"})
             return False
         try:
-            self.send(msg)
+            for msg in msgs:
+                self.send(msg)
         except Exception as e:
             self.emit({"event": "sidecar-error", "mac": self.mac, "error": f"couldn't write to the scanner: {e}"})
             return False

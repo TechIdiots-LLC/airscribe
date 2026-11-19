@@ -269,6 +269,48 @@ class SimBackend:
          "talkgroup": "1201"},
     ]
 
+    def _sim_screen(self, mac, key=None):
+        """The pretend scanner's screen, as sds.parse_gst gives one: what it's on, and the last key pressed."""
+        if not hasattr(self, "keys"):
+            self.keys, self.wf_until = {}, {}
+        if key is not None:
+            self.keys[mac] = key
+        ch = self.SIM_SCANNER[self.sent % len(self.SIM_SCANNER)]
+        waterfall = time.monotonic() < self.wf_until.get(mac, 0)
+        text = [time.strftime("        %b%d %H:%M"), ch["system"], ch["department"], ch["channel"],
+                ch["frequency"], f"Last key: {self.keys.get(mac, '-')}", " SYSTEM      DEPT     CHANNEL "]
+        modes = [""] * 6 + ["********* ********** *********"]
+        screen = {"event": "scanner-screen", "mac": mac, "muted": True, "led": 0, "charge_led": 0,
+                  "mode": "waterfall" if waterfall else "normal",
+                  "lines": [{"text": t, "mode": m, "large": i == 3} for i, (t, m) in enumerate(zip(text, modes))]}
+        if waterfall:
+            screen["waterfall"] = {"hz": 460462500, "mod": "NFM", "marker": 120, "center_hz": 460462500,
+                                   "lower_hz": 459742500, "upper_hz": 461182500}
+        return screen
+
+    def scanner_key(self, mac, key, hold_ms=100):
+        import sds
+        if mac not in self.active:
+            raise RuntimeError(f"{mac} isn't connected")
+        if str(key) not in sds.KEYS:
+            raise ValueError(f"{key!r} isn't a key code the scanner takes")
+        emit(self._sim_screen(mac, key))
+
+    def scanner_waterfall(self, mac, seconds):
+        if mac not in self.active:
+            raise RuntimeError(f"{mac} isn't connected")
+        self._sim_screen(mac)
+        self.wf_until[mac] = time.monotonic() + max(0, min(float(seconds), 60))
+
+    def _sim_scanner_tick(self, mac, i):
+        """Every 100 ms of the pretend scanner: its screen each second, its waterfall while asked for."""
+        if i % 10 == 0:
+            emit(self._sim_screen(mac))
+        if i % 3 == 0 and time.monotonic() < getattr(self, "wf_until", {}).get(mac, 0):
+            levels = bytes(min(255, int(random.uniform(10, 40) + 120 * math.exp(-((c - 120) / 6) ** 2)))
+                           for c in range(240))
+            emit({"event": "scanner-waterfall", "mac": mac, "levels": base64.b64encode(levels).decode()})
+
     def _run(self, mac, stop, scanner=False):
         emit({"event": "status", "mac": mac, "state": "connected", **({} if scanner else {"rssi": 9})})
         n = CHUNK_MS * RATE // 1000
@@ -288,6 +330,8 @@ class SimBackend:
                 for i in range(int(secs * 1000 / CHUNK_MS)):
                     if stop.is_set():
                         break
+                    if scanner:
+                        self._sim_scanner_tick(mac, i)
                     samples = []
                     for k in range(n):
                         if talking:
@@ -350,6 +394,12 @@ class Unavailable:
     def write_bss(self, _mac, _changes):
         raise RuntimeError(self.reason)
 
+    def scanner_key(self, _mac, _key, _hold_ms=100):
+        raise RuntimeError(self.reason)
+
+    def scanner_waterfall(self, _mac, _seconds):
+        raise RuntimeError(self.reason)
+
     def shutdown(self):
         pass
 
@@ -408,6 +458,11 @@ class BluezBackend(LinkControls):
         if link:
             link.close()
             emit({"event": "status", "mac": mac, "state": "disconnected"})
+
+    def scanner_key(self, _mac, _key, _hold_ms=100):
+        raise RuntimeError("an SDS150 over Bluetooth needs the bumble backend (Low Energy); see docs/scanners.md")
+
+    scanner_waterfall = scanner_key
 
     def shutdown(self):
         """Release every radio before exiting.
@@ -519,6 +574,11 @@ def main():
                 result = backend.read_bss(req["mac"])
             elif cmd == "write_bss":
                 result = backend.write_bss(req["mac"], req["changes"])
+            # An SDS150 over LE: a key pressed as on the scanner, and its waterfall asked for a while (sds.py)
+            elif cmd == "scanner_key":
+                result = backend.scanner_key(req["mac"], req["key"], req.get("hold_ms", 100))
+            elif cmd == "scanner_waterfall":
+                result = backend.scanner_waterfall(req["mac"], req.get("seconds", 15))
             elif cmd == "ping":
                 result = "pong"
             else:
