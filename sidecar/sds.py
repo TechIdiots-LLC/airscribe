@@ -30,6 +30,7 @@ import time
 
 MAGIC = b"\x09\x50\x54"
 POLL_SECONDS = 0.2          # as often as the app asks
+AUDIO_SCREEN_SECONDS = 1.0  # how often GST is asked for while a transmission comes in
 GAP_SECONDS = 0.6           # audio stops this long: the transmission is over (A2 comes ~0.2 s after)
 SILENT_SECONDS = 6          # nothing at all from the scanner this long: it has gone
 MAX_RUN_PACKETS = 5 * 60 * 50  # five minutes: a squelch stuck open mustn't grow forever
@@ -269,6 +270,7 @@ class ScannerLink:
         self.pending = []        # screen and waterfall events, sent from the link's thread
         self.waterfall_until = 0
         self.waterfall_at = 0
+        self.screen_at = 0
 
     def open(self, detail=None):
         self.heard = self.clock()
@@ -377,7 +379,13 @@ class ScannerLink:
             if done:
                 self.current = None
             gone = now - self.heard > SILENT_SECONDS
-            msgs = [self._next("GST")]
+            # During a transmission the screen is asked for less often, and KAL (no reply) keeps acking in between:
+            # each GST reply is the whole screen, ~1/5 of what a Bluetooth 4.0 link carries, and audio was lost
+            if self.current is None or now - self.screen_at >= AUDIO_SCREEN_SECONDS - 0.05:
+                self.screen_at = now
+                msgs = [self._next("GST")]
+            else:
+                msgs = [self._next("KAL")]
             if now < self.waterfall_until and now - self.waterfall_at >= WATERFALL_SECONDS - 0.05:
                 self.waterfall_at = now
                 msgs.append(self._next("GW2,1,ON"))
