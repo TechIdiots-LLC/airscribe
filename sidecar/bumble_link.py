@@ -33,9 +33,11 @@ GATT_SECONDS = 15       # each step of finding its characteristic
 # The link's supervision timeout. Bumble's default, 720 ms, lost the SDS150 about a second after encryption started
 # (reason 0x08), as it goes quiet then, saving the pairing; it asks a phone for 4 s itself
 LE_SUPERVISION_MS = 4000
-# As often as LE allows: its audio and screen need ~250 packets a second, and a Bluetooth 4.0 dongle carries
-# 27 bytes in each and only a few each interval. At 30 ms (Bumble's default top) audio came in scraps
-LE_INTERVAL_MS = (7.5, 15)
+# 15 ms, as the scanner asks a phone for itself. Its audio and screen need ~250 packets a second, which a Bluetooth
+# 4.0 dongle (27 bytes a packet) barely carries; 7.5 ms didn't help, and the link dropped more
+LE_INTERVAL_MS = (15, 15)
+# Why a link ended, when it's the scanner's doing: it hung up (0x13), or it hasn't the key (0x06) or refused it (0x05)
+SCANNER_REFUSED = (0x05, 0x06, 0x13)
 SCAN_SECONDS = 8
 # The radios' advertised names, so a scan lists them first. Which model a name
 # is stays src/models.js's job; these only sort.
@@ -54,6 +56,15 @@ def dongle_hint(error):
         return ("Something else holds it: the host's btusb driver, or another program "
                 "such as tools/probe-bumble.py or AirScribe itself.")
     return "Is it passed in, and has the host's btusb let go of it? See docs/proxmox.md."
+
+
+def reason_name(code):
+    """An HCI reason, as Bumble names it, with its number: 0x08 CONNECTION_TIMEOUT_ERROR."""
+    try:
+        from bumble.hci import HCI_Constant
+        return f"0x{code:02X} {HCI_Constant.error_name(code)}"
+    except Exception:
+        return f"0x{code:02X}"
 
 
 def _mac(address):
@@ -410,6 +421,9 @@ class BumbleStack:
                 break
             except Exception as e:
                 errors.append(f"{address}: {type(e).__name__} {e}".strip())
+        if conn is not None:
+            conn.airscribe_reasons = []
+            conn.on("disconnection", conn.airscribe_reasons.append)
         if conn is None:
             raise RuntimeError(f"couldn't reach {mac} over LE ({'; '.join(errors)}). Is its Bluetooth on, "
                                "and nothing else (U/AWARE) connected to it?")
@@ -438,6 +452,8 @@ class BumbleStack:
                 await conn.disconnect()
             except Exception:
                 pass
+            if isinstance(e, RuntimeError):
+                raise       # already says what happened
             # Bumble cancels what's waiting when the link drops: the scanner hung up at this step
             if isinstance(e, asyncio.CancelledError) or conn.handle not in self.device.connections:
                 raise RuntimeError(f"{mac} hung up while AirScribe was {step}. {SCANNER_HINT}") from e
@@ -446,7 +462,7 @@ class BumbleStack:
             raise
         session = LeSession(conn, peer, char, warning)
         session.on_disconnect = None
-        conn.on("disconnection", lambda _reason: self._on_le_disconnection(mac, session))
+        conn.on("disconnection", lambda reason: self._on_le_disconnection(mac, session, reason))
         return session
 
     async def _secure_le(self, conn, mac):
@@ -462,16 +478,25 @@ class BumbleStack:
                 await asyncio.wait_for(conn.encrypt(), ENCRYPT_SECONDS)
                 return None
             except (Exception, asyncio.CancelledError) as e:
-                # It has forgotten us (Reset Pairings). It asks to pair, then hangs up ~0.3 s later, so
-                # this link is usually gone: drop the key, or every retry tries it again. Seen with a
-                # phone that kept its old key: 57 connections in a row, none lasting half a second.
-                try:
-                    await self.device.keystore.delete(str(conn.peer_address))
-                except Exception:
-                    pass
-                if not conn.is_encrypted and conn.handle not in self.device.connections:
-                    raise RuntimeError(f"{mac} refused the pairing AirScribe had kept ({type(e).__name__} {e}); "
-                                       f"it's forgotten, and the next try pairs afresh. {SCANNER_HINT}") from e
+                await asyncio.sleep(0.3)    # the link's end, if it's ending, to say why
+                reasons = getattr(conn, "airscribe_reasons", [])
+                code = getattr(e, "error_code", None)
+                if (reasons and reasons[-1] in SCANNER_REFUSED) or code in SCANNER_REFUSED:
+                    # It has forgotten us (Reset Pairings): it hangs up ~0.3 s after asking to pair. Drop the
+                    # key, or every retry tries it again, as a phone that kept its old key did 57 times
+                    try:
+                        await self.device.keystore.delete(str(conn.peer_address))
+                    except Exception:
+                        pass
+                    if conn.handle not in self.device.connections:
+                        raise RuntimeError(f"{mac} refused the pairing AirScribe had kept; it's forgotten, and the "
+                                           f"next try pairs afresh. {SCANNER_HINT}") from e
+                    # Still linked: pair afresh on this link, below
+                elif conn.handle not in self.device.connections:
+                    # The link was lost, not refused: the pairing is still good on both sides, so it's kept
+                    why = reason_name(reasons[-1]) if reasons else type(e).__name__
+                    raise RuntimeError(f"the link to {mac} dropped while encrypting ({why}); "
+                                       "its pairing is kept, and the next try uses it") from e
         try:
             await asyncio.wait_for(conn.pair(), LE_PAIR_SECONDS)
             return None
@@ -480,12 +505,12 @@ class BumbleStack:
                 raise RuntimeError(f"{mac} hung up while pairing ({type(e).__name__}). {SCANNER_HINT}") from e
             return f"the link to {mac} isn't encrypted ({type(e).__name__} {e}). {SCANNER_HINT}"
 
-    def _on_le_disconnection(self, mac, session):
+    def _on_le_disconnection(self, mac, session, reason):
         # On the loop thread, which the link's close() must not hold up
         if self.le_sessions.get(mac) is session:
             del self.le_sessions[mac]
         if session.on_disconnect:
-            threading.Thread(target=session.on_disconnect, daemon=True).start()
+            threading.Thread(target=session.on_disconnect, args=(reason,), daemon=True).start()
 
     def write_le(self, mac, data):
         session = self.le_sessions.get(mac)
@@ -608,7 +633,7 @@ class BumbleBackend(LinkControls):
         scanner = sds.ScannerLink(mac, self.emit, lambda data: self.stack.write_le(mac, data),
                                   decoder=self.opus or None)
         scanner.on_gone = lambda: self._scanner_gone(mac, scanner)
-        session.on_disconnect = scanner.on_gone
+        session.on_disconnect = lambda reason: self._scanner_gone(mac, scanner, reason)
         holder["link"] = scanner
         self.scanners[mac] = scanner
         scanner.open(detail="Bluetooth LE")
@@ -625,8 +650,11 @@ class BumbleBackend(LinkControls):
     def scanner_waterfall(self, mac, seconds):
         self._scanner(mac).waterfall(seconds)
 
-    def _scanner_gone(self, mac, scanner):
-        """It disconnected, or stopped answering: say so; the server retries."""
+    def _scanner_gone(self, mac, scanner, reason=None):
+        """It disconnected, or stopped answering: say so, and why; the server retries."""
+        if reason is not None and not scanner.stop.is_set():
+            self.emit({"event": "sidecar-error", "mac": mac,
+                       "error": f"the scanner's link dropped: {reason_name(reason)}"})
         if self.scanners.get(mac) is scanner:
             del self.scanners[mac]
         scanner.close()

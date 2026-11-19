@@ -105,7 +105,7 @@ class ScannerOverBumbleTests(unittest.TestCase):
         # A real SDS150 goes quiet for over 720 ms (Bumble's default) as encryption starts
         params = self.stack.le_sessions[SCANNER].connection.parameters
         self.assertEqual(params.supervision_timeout, bumble_link.LE_SUPERVISION_MS, params)
-        # And as often as LE allows: a Bluetooth 4.0 dongle at 30 ms carried its audio in scraps
+        # And at the 15 ms the scanner asks for itself
         self.assertLessEqual(params.connection_interval, bumble_link.LE_INTERVAL_MS[1], params)
 
     def test_a_transmission_comes_through_labelled(self):
