@@ -4,7 +4,7 @@ import { join, resolve, sep } from 'node:path';
 import { Segmenter } from './segmenter.js';
 import { decodeWav, encodeWav, halveRate, resample } from './wav.js';
 import { readSidecar } from './radiocli.js';
-import { sendsRecordings } from './models.js';
+import { linkOf, sendsRecordings } from './models.js';
 import { quieting } from './quality.js';
 import { decodePacket } from './aprs.js';
 import { AfskDecoder } from './afsk.js';
@@ -53,6 +53,7 @@ export class Manager extends EventEmitter {
     this.signal = new Map();   // mac -> the strongest signal reading during the run on the air
     this.waiting = new Map();  // mac -> packets heard before the transmission they came in had ended
     this.modems = new Map();   // mac -> the packet decoder reading its audio (src/afsk.js)
+    this.scannerOn = new Map(); // mac -> what an SDS150 over Bluetooth said its last transmission was
     sidecar.on('event', (e) => this.onEvent(e));
     sidecar.on('restart', () => this.reconnectAll());
   }
@@ -102,6 +103,13 @@ export class Manager extends EventEmitter {
         });
         break;
       // Where the radio's own GPS puts it, while it has a fix
+      // An SDS150 over Bluetooth: the system, department, channel, frequency and talkgroup it's on, as a
+      // transmission starts and again as it ends (sidecar/sds.py)
+      case 'scanner-channel': {
+        this.scannerOn.set(e.mac, e);
+        this.setActivity(e.mac, { label: readSidecar(e, 0).channelName });
+        break;
+      }
       case 'radio-position':
         this.setActivity(e.mac, {
           position: { lat: e.lat, lon: e.lon, alt_m: e.alt_m, speed: e.speed, heading: e.heading, at: Date.now() },
@@ -138,7 +146,7 @@ export class Manager extends EventEmitter {
       // shows up here as PCM falling short of what the SBC should yield.
       case 'run-stats':
         console.log(
-          `[audio] ${e.mac} ${e.frames} SBC frames -> ${e.seconds}s` +
+          `[audio] ${e.mac} ${e.frames} ${e.codec === 'opus' ? 'Opus' : 'SBC'} frames -> ${e.seconds}s` +
             (e.pcm_bytes === e.expected_pcm_bytes
               ? ''
               : ` (expected ${e.expected_pcm_bytes} bytes of PCM, got ${e.pcm_bytes})`),
@@ -179,7 +187,7 @@ export class Manager extends EventEmitter {
     // message per second on the event stream. RSSI counts as a change: it is
     // how anyone watching can tell the radio is being polled at all, and
     // whether it is hearing anything.
-    if (prev.rx === next.rx && prev.tx === next.tx && prev.rssi === next.rssi
+    if (prev.rx === next.rx && prev.tx === next.tx && prev.rssi === next.rssi && prev.label === next.label
         && prev.battery === next.battery && prev.channel === next.channel
         && prev.region === next.region && prev.scanning === next.scanning
         && prev.position?.lat === next.position?.lat && prev.position?.lon === next.position?.lon) return;
@@ -197,7 +205,7 @@ export class Manager extends EventEmitter {
     this.emit('update', {
       type: 'activity', mac, rx: next.rx, tx: next.tx,
       rssi: next.rssi, battery: next.battery, channel: next.channel,
-      channelName: this.channels.get(mac)?.get(next.channel)?.name ?? null,
+      channelName: next.label ?? this.channels.get(mac)?.get(next.channel)?.name ?? null,
       region: next.region, scanning: next.scanning, position: next.position,
     });
   }
@@ -355,6 +363,8 @@ export class Manager extends EventEmitter {
 
     const channel = this.onAir.get(mac) ?? this.state.get(mac)?.channel ?? null;
     const info = this.channels.get(mac)?.get(channel);
+    // A scanner names what it's on itself; filed as a radiocli recording is (src/radiocli.js)
+    const said = this.scannerOn.has(mac) ? readSidecar(this.scannerOn.get(mac), clip.durationMs) : null;
     // How it came through, for telling a station out of range (src/quality.js).
     // A radio's own transmission has neither.
     const rssi = clip.transmit ? null
@@ -365,9 +375,10 @@ export class Manager extends EventEmitter {
       durationMs: clip.durationMs,
       audioFile,
       transmit: clip.transmit,
-      channel: channel ?? null,
-      channelName: info?.name ?? null,
-      channelHz: info?.rx_hz ?? null,
+      channel: said ? null : channel ?? null,
+      channelName: said ? said.channelName : info?.name ?? null,
+      channelHz: said ? said.channelHz : info?.rx_hz ?? null,
+      ...(said ? { details: { ...said.details, source: 'bluetooth' } } : {}),
       rssi: Number.isInteger(rssi) ? rssi : null,
       snrDb: clip.transmit ? null : quieting(clip.pcm, this.audio.sampleRate),
     });
@@ -633,13 +644,23 @@ export class Manager extends EventEmitter {
   }
 
   /**
+   * What the sidecar's connect is given: the radio, and how to reach it when its model says (an SDS150 over LE).
+   * @param {string} mac - The radio.
+   * @returns {{mac: string, link?: string}} The request.
+   */
+  connectArgs(mac) {
+    const link = linkOf(this.store.radio?.(mac)?.model);
+    return link === 'sds-ble' ? { mac, link } : { mac };
+  }
+
+  /**
    * @param {string} mac - Radio to connect.
    * @returns {Promise<void>}
    */
   async connect(mac) {
     this.wanted.add(mac);
     this.clearRetry(mac);
-    await this.sidecar.call('connect', { mac });
+    await this.sidecar.call('connect', this.connectArgs(mac));
   }
 
   /**
@@ -678,7 +699,7 @@ export class Manager extends EventEmitter {
       this.retries.set(mac, { delay });
       if (!this.wanted.has(mac)) return;
       this.emit('update', { type: 'status', mac, state: 'connecting', detail: 'retrying' });
-      this.sidecar.call('connect', { mac }).catch((err) => {
+      this.sidecar.call('connect', this.connectArgs(mac)).catch((err) => {
         // Still unreachable. Say so once, and wait longer next time.
         this.emit('update', { type: 'status', mac, state: 'disconnected', detail: err.message });
         if (this.wanted.has(mac)) this.scheduleRetry(mac);
@@ -701,7 +722,7 @@ export class Manager extends EventEmitter {
 
   /** @returns {void} */
   reconnectAll() {
-    for (const mac of this.wanted) this.sidecar.call('connect', { mac }).catch(() => {});
+    for (const mac of this.wanted) this.sidecar.call('connect', this.connectArgs(mac)).catch(() => {});
   }
 
   /** @returns {object[]} Radios with their live state merged in. */
@@ -709,6 +730,8 @@ export class Manager extends EventEmitter {
     return this.store.radios().map((r) => (sendsRecordings(r.model)
       // A scanner isn't connected to: it's as current as the last recording it sent
       ? { ...r, state: 'recordings', last_recording: this.store.lastTransmission(r.mac)?.started_at ?? null }
-      : { ...r, ...(this.state.get(r.mac) ?? { state: 'disconnected' }) }));
+      : { ...r, ...(this.state.get(r.mac) ?? { state: 'disconnected' }),
+        // What a scanner last said it was on, as the live updates carry it
+        ...(this.state.get(r.mac)?.label ? { channelName: this.state.get(r.mac).label } : {}) }));
   }
 }

@@ -127,6 +127,8 @@ function renderRadios() {
       if (r.state === 'recordings') return scannerCard(r);
       const connected = r.state === 'connected';
       const retrying = r.state === 'connecting';
+      // An SDS150 over Bluetooth hasn't a radio's controls or channel table: it's set up on the scanner
+      const radioControls = connected && role === 'admin' && models.get(r.model)?.link !== 'sds-ble';
       const dot = r.tx ? 'tx' : r.rx ? 'rx' : connected ? 'connected' : retrying ? 'retry' : '';
       const activity = r.tx ? 'transmitting' : r.rx ? 'receiving'
         : retrying ? 'reconnecting…' : (r.state ?? 'disconnected');
@@ -157,17 +159,19 @@ function renderRadios() {
                 : '',
               r.channelName || r.channel !== undefined
                 ? el('span', { className: 'chan' },
-                    ` · ${r.channelName || `ch ${r.channel}`}`)
+                    // A scanner has no signal or battery reading before it
+                    `${r.rssi !== undefined || (r.battery !== undefined && r.battery !== null) ? ' · ' : ''}` +
+                    `${r.channelName || `ch ${r.channel}`}`)
                 : '')
           : '',
         el('div', { className: 'actions' },
           el('button', { onclick: () => act(r.mac, connected ? 'disconnect' : 'connect') }, connected ? 'Disconnect' : 'Connect'),
           el('button', { onclick: () => rename(r) }, 'Rename'),
           el('button', { onclick: () => remove(r) }, 'Remove'),
-          connected && role === 'admin' ? el('button', { onclick: () => openControls(r) }, 'Controls') : '',
+          radioControls ? el('button', { onclick: () => openControls(r) }, 'Controls') : '',
           // Its channels, backups of them, and stations to write (channels.js).
           // Not airscribe:channels, which is the server's update of a radio's channel table
-          connected && role === 'admin'
+          radioControls
             ? el('button', { onclick: () => document.dispatchEvent(new CustomEvent('airscribe:open-channels', { detail: r })) }, 'Channels')
             : ''),
       );

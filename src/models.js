@@ -2,7 +2,9 @@
  * Radios HTCommander supports, and the only place a model is described.
  * Adding a radio is a new row here; nothing else branches on model, except on
  * `link`: a model with `link: 'radiocli'` isn't reached over Bluetooth but
- * sends its recordings in, a transmission at a time (docs/scanners.md).
+ * sends its recordings in, a transmission at a time, and one with
+ * `link: 'sds-ble'` is a Uniden scanner reached over Bluetooth Low Energy,
+ * which has none of a radio's controls (docs/scanners.md).
  *
  * `match` is a case-insensitive fragment of the Bluetooth name the radio
  * advertises. These fragments are guesses from the model names, not captured
@@ -26,13 +28,22 @@ export const MODELS = [
   { id: 'sds150', vendor: 'Uniden', name: 'SDS150', match: [], tested: false, link: 'radiocli' },
   { id: 'sds100', vendor: 'Uniden', name: 'SDS100', match: [], tested: false, link: 'radiocli' },
   { id: 'sds200', vendor: 'Uniden', name: 'SDS200', match: [], tested: false, link: 'radiocli' },
+  // The SDS150 itself over Bluetooth LE, as Uniden's U/AWARE app reaches it: audio and what it's on, no sound
+  // card. It advertises as "SDS150:" and its serial number
+  { id: 'sds150-ble', vendor: 'Uniden', name: 'SDS150 (Bluetooth)', match: ['SDS150'], tested: false, link: 'sds-ble' },
 ];
+
+/**
+ * @param {string|null|undefined} id - A model id.
+ * @returns {string|null} How that model is reached, when it isn't as the radios are: 'radiocli' or 'sds-ble'.
+ */
+export const linkOf = (id) => MODELS.find((m) => m.id === id)?.link ?? null;
 
 /**
  * @param {string|null|undefined} id - A model id.
  * @returns {boolean} Whether that model sends recordings in rather than being connected to.
  */
-export const sendsRecordings = (id) => MODELS.some((m) => m.id === id && m.link === 'radiocli');
+export const sendsRecordings = (id) => linkOf(id) === 'radiocli';
 
 /**
  * An id for a scanner, which has no Bluetooth address of its own: shaped like one, as radios are keyed by
