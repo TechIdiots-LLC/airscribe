@@ -21,15 +21,19 @@ import socket
 import threading
 
 import sbc
+import sds
 from bluez import LinkControls, RadioLink
 
 CONNECT_SECONDS = 20
 PAIR_SECONDS = 60       # the first connection pairs, which can wait on the radio
 ENCRYPT_SECONDS = 10    # the UV-Pro took well under one
+LE_PAIR_SECONDS = 30    # the SDS150: Just Works, no PIN, while it's in its Pairing menu
 SCAN_SECONDS = 8
 # The radios' advertised names, so a scan lists them first. Which model a name
 # is stays src/models.js's job; these only sort.
-RADIO_NAMES = ("UV-PRO", "UV-50PRO", "GA-5WB", "DB50-B", "RT-660", "VR-N7")
+RADIO_NAMES = ("UV-PRO", "UV-50PRO", "GA-5WB", "DB50-B", "RT-660", "VR-N7", "SDS150", "SDS100", "SDS200")
+SCANNER_HINT = ("If it has never paired with AirScribe, or its pairings were reset, put it in "
+                "Menu > Settings > Bluetooth Options > Pairing and connect again.")
 
 
 def dongle_hint(error):
@@ -130,6 +134,29 @@ class Session:
         self.sockets = []
 
 
+class LeSession:
+    """A scanner's LE link, and the one characteristic its frames go through both ways."""
+
+    def __init__(self, connection, peer, characteristic, warning=None):
+        self.connection = connection
+        self.peer = peer
+        self.characteristic = characteristic
+        self.warning = warning
+
+
+def pick_characteristic(services):
+    """The SDS150's: notifies and takes writes without response. One in a vendor (128-bit) service first.
+
+    :param services: [(service uuid bytes, [characteristic])] as discovered.
+    """
+    from bumble.gatt import Characteristic
+
+    want = Characteristic.Properties.NOTIFY | Characteristic.Properties.WRITE_WITHOUT_RESPONSE
+    found = [(len(uuid) == 16, c) for uuid, chars in services for c in chars if c.properties & want == want]
+    found.sort(key=lambda f: not f[0])
+    return found[0][1] if found else None
+
+
 def make_delegate(pin):
     from bumble import pairing
 
@@ -177,6 +204,8 @@ class BumbleStack:
         self.thread = threading.Thread(target=self.loop.run_forever, name="bumble", daemon=True)
         self.thread.start()
         self.sessions = {}
+        self.le_sessions = {}
+        self.le_addresses = {}   # mac -> the address an LE scan saw it at, with its type
         self.transport = None
         self.closed = False
         try:
@@ -232,13 +261,32 @@ class BumbleStack:
             if name or mac not in seen:
                 seen[mac] = name
 
+        def on_advertisement(adv):
+            # Low Energy: the Uniden scanners. Its address type is kept, to connect to it as it advertises
+            names = (adv.data.get_all(AdvertisingData.COMPLETE_LOCAL_NAME)
+                     or adv.data.get_all(AdvertisingData.SHORTENED_LOCAL_NAME))
+            if names:
+                mac = _mac(adv.address)
+                self.le_addresses[mac] = adv.address
+                on_result(adv.address, None, adv.data, adv.rssi)
+
         self.device.on("inquiry_result", on_result)
+        self.device.on("advertisement", on_advertisement)
+        le = False
         try:
             await self.device.start_discovery()
+            try:
+                await self.device.start_scanning(filter_duplicates=True)
+                le = True
+            except Exception:
+                pass    # a dongle without LE still finds the radios
             await asyncio.sleep(seconds)
             await self.device.stop_discovery()
+            if le:
+                await self.device.stop_scanning()
         finally:
             self.device.remove_listener("inquiry_result", on_result)
+            self.device.remove_listener("advertisement", on_advertisement)
         found = [{"mac": mac, "name": name or mac,
                   "radio": any(r in name.upper() for r in RADIO_NAMES)}
                  for mac, name in seen.items()]
@@ -323,12 +371,117 @@ class BumbleStack:
         except Exception:
             pass
 
+    # -- Low Energy: the Uniden scanners -------------------------------------------
+
+    def connect_le(self, mac, on_notify):
+        """Link to a scanner over LE, pair or reuse the pairing, and subscribe to its frames."""
+        self.drop_le(mac)
+        session = self.run(self._connect_le(mac, on_notify),
+                           2 * CONNECT_SECONDS + ENCRYPT_SECONDS + LE_PAIR_SECONDS + 30)
+        self.le_sessions[mac] = session
+        return session
+
+    async def _connect_le(self, mac, on_notify):
+        from bumble import core, hci
+        from bumble.device import Peer
+
+        # As a scan saw it; otherwise random (an SDS150's address is static random), then public
+        known = self.le_addresses.get(mac)
+        tries = [known] if known else [hci.Address(mac, hci.Address.RANDOM_DEVICE_ADDRESS), hci.Address(f"{mac}/P")]
+        conn, error = None, None
+        for address in tries:
+            try:
+                conn = await self.device.connect(address, transport=core.PhysicalTransport.LE,
+                                                 timeout=CONNECT_SECONDS)
+                break
+            except Exception as e:
+                error = e
+        if conn is None:
+            raise error
+        try:
+            warning = await self._secure_le(conn, mac)
+            peer = Peer(conn)
+            try:
+                await peer.request_mtu(517)     # its frames run to ~480 bytes; the app's link had 495
+            except Exception:
+                pass
+            await peer.discover_services()
+            found = [(s.uuid.to_bytes(), await s.discover_characteristics()) for s in peer.services]
+            char = pick_characteristic(found)
+            if char is None:
+                raise RuntimeError(f"{mac} has no characteristic that notifies and takes writes: is it an SDS150?")
+            await peer.subscribe(char, on_notify)
+        except BaseException:
+            try:
+                await conn.disconnect()
+            except Exception:
+                pass
+            raise
+        session = LeSession(conn, peer, char, warning)
+        session.on_disconnect = None
+        conn.on("disconnection", lambda _reason: self._on_le_disconnection(mac, session))
+        return session
+
+    async def _secure_le(self, conn, mac):
+        """Encrypt with the pairing we have, or pair (Just Works). :returns: a warning, or None."""
+        keys = None
+        if self.device.keystore is not None:
+            try:
+                keys = await self.device.keystore.get(str(conn.peer_address))
+            except Exception:
+                keys = None
+        if keys is not None and (keys.ltk or keys.ltk_central):
+            try:
+                await asyncio.wait_for(conn.encrypt(), ENCRYPT_SECONDS)
+                return None
+            except Exception as e:
+                # It has forgotten us (Reset Pairings). It asks to pair, then hangs up ~0.3 s later, so
+                # this link is usually gone: drop the key, or every retry tries it again. Seen with a
+                # phone that kept its old key: 57 connections in a row, none lasting half a second.
+                try:
+                    await self.device.keystore.delete(str(conn.peer_address))
+                except Exception:
+                    pass
+                if not conn.is_encrypted and conn.handle not in self.device.connections:
+                    raise RuntimeError(f"{mac} refused the pairing AirScribe had kept ({type(e).__name__} {e}); "
+                                       f"it's forgotten, and the next try pairs afresh. {SCANNER_HINT}") from e
+        try:
+            await asyncio.wait_for(conn.pair(), LE_PAIR_SECONDS)
+            return None
+        except Exception as e:
+            return f"the link to {mac} isn't encrypted ({type(e).__name__} {e}). {SCANNER_HINT}"
+
+    def _on_le_disconnection(self, mac, session):
+        # On the loop thread, which the link's close() must not hold up
+        if self.le_sessions.get(mac) is session:
+            del self.le_sessions[mac]
+        if session.on_disconnect:
+            threading.Thread(target=session.on_disconnect, daemon=True).start()
+
+    def write_le(self, mac, data):
+        session = self.le_sessions.get(mac)
+        if not session:
+            raise OSError(f"no link to {mac}")
+        self.run(session.peer.write_value(session.characteristic, bytes(data), with_response=False), 5)
+
+    def drop_le(self, mac):
+        session = self.le_sessions.pop(mac, None)
+        if not session:
+            return
+        session.on_disconnect = None
+        try:
+            self.run(asyncio.wait_for(session.connection.disconnect(), 5), 10)
+        except Exception:
+            pass
+
     def close(self):
         if self.closed:
             return
         self.closed = True
         for mac in list(self.sessions):
             self.drop(mac)
+        for mac in list(self.le_sessions):
+            self.drop_le(mac)
         if self.transport is not None:
             # Bumble's USB close waits for its libusb event thread before
             # freeing anything; stopping the loop before it has finished leaves
@@ -358,6 +511,8 @@ class BumbleBackend(LinkControls):
         self.control_ch = control_ch
         self.audio_ch = audio_ch
         self.links = {}
+        self.scanners = {}       # mac -> sds.ScannerLink
+        self.opus = None         # found when a scanner first connects
         self.decoder = sbc.find_decoder()
         if not self.decoder:
             emit({"event": "sidecar-error",
@@ -377,8 +532,10 @@ class BumbleBackend(LinkControls):
     def scan(self):
         return self.stack.scan()
 
-    def connect(self, mac):
+    def connect(self, mac, link=None):
         mac = mac.upper()
+        if link == "sds-ble":
+            return self._connect_scanner(mac)
         link = self.links.get(mac)
         if link and not link.stop.is_set():
             return
@@ -399,8 +556,48 @@ class BumbleBackend(LinkControls):
             raise
         self.links[mac] = link
 
+    def _connect_scanner(self, mac):
+        """A Uniden SDS150 over LE: its frames through sds.ScannerLink."""
+        current = self.scanners.get(mac)
+        if current and not current.stop.is_set():
+            return
+        if self.opus is None:
+            self.opus = sds.find_decoder() or False
+            if not self.opus:
+                self.emit({"event": "sidecar-error", "mac": mac,
+                           "error": "no Opus-capable ffmpeg found; the scanner's audio cannot be decoded"})
+        holder = {}
+
+        def on_notify(value):
+            scanner = holder.get("link")
+            if scanner is not None:
+                scanner.on_notify(value)
+
+        session = self.stack.connect_le(mac, on_notify)
+        if session.warning:
+            self.emit({"event": "sidecar-error", "mac": mac, "error": session.warning})
+        scanner = sds.ScannerLink(mac, self.emit, lambda data: self.stack.write_le(mac, data),
+                                  decoder=self.opus or None)
+        scanner.on_gone = lambda: self._scanner_gone(mac, scanner)
+        session.on_disconnect = scanner.on_gone
+        holder["link"] = scanner
+        self.scanners[mac] = scanner
+        scanner.open(detail="Bluetooth LE")
+
+    def _scanner_gone(self, mac, scanner):
+        """It disconnected, or stopped answering: say so; the server retries."""
+        if self.scanners.get(mac) is scanner:
+            del self.scanners[mac]
+        scanner.close()
+        self.stack.drop_le(mac)
+
     def disconnect(self, mac):
         mac = mac.upper()
+        scanner = self.scanners.pop(mac, None)
+        if scanner:
+            scanner.close()
+            self.stack.drop_le(mac)
+            return
         link = self.links.pop(mac, None)
         if link:
             link.close()
@@ -410,6 +607,6 @@ class BumbleBackend(LinkControls):
 
     def shutdown(self):
         """Release every radio, then the dongle. See BluezBackend.shutdown for why."""
-        for mac in list(self.links):
+        for mac in list(self.links) + list(self.scanners):
             self.disconnect(mac)
         self.stack.close()

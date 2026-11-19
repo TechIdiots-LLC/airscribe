@@ -116,12 +116,12 @@ class SimBackend:
             {"mac": "00:11:22:33:44:66", "name": "VR-N7600 (simulated)", "radio": True},
         ]
 
-    def connect(self, mac):
+    def connect(self, mac, link=None):
         if mac in self.active:
             return
         stop = threading.Event()
         self.active[mac] = stop
-        threading.Thread(target=self._run, args=(mac, stop), daemon=True).start()
+        threading.Thread(target=self._run, args=(mac, stop, link == "sds-ble"), daemon=True).start()
 
     def disconnect(self, mac):
         stop = self.active.pop(mac, None)
@@ -261,8 +261,16 @@ class SimBackend:
             raise ValueError(f"unknown control {action}")
         return self.radio_info(mac)
 
-    def _run(self, mac, stop):
-        emit({"event": "status", "mac": mac, "state": "connected", "rssi": 9})
+    # What a pretend SDS150 says each transmission was, in turn
+    SIM_SCANNER = [
+        {"system": "Worcester County", "department": "Holden", "channel": "Fire Operations",
+         "frequency": "460.462500MHz"},
+        {"system": "MA State Police", "department": "Troop C", "channel": "Dispatch", "frequency": "854.212500MHz",
+         "talkgroup": "1201"},
+    ]
+
+    def _run(self, mac, stop, scanner=False):
+        emit({"event": "status", "mac": mac, "state": "connected", **({} if scanner else {"rssi": 9})})
         n = CHUNK_MS * RATE // 1000
         phase = 0.0
         while not stop.is_set():
@@ -273,6 +281,10 @@ class SimBackend:
             for talking, secs in ((False, random.uniform(2, 4)), (True, random.uniform(2, 4))):
                 if talking:
                     emit({"event": "audio-start", "mac": mac, "transmit": False})
+                    if scanner:
+                        # As the scanner's A0 and A2 label a transmission (sds.py)
+                        emit({"event": "scanner-channel", "mac": mac,
+                              **self.SIM_SCANNER[self.sent % len(self.SIM_SCANNER)]})
                 for i in range(int(secs * 1000 / CHUNK_MS)):
                     if stop.is_set():
                         break
@@ -298,7 +310,7 @@ class SimBackend:
                     emit({"event": "audio-end", "mac": mac})
                     # Every other burst, from the second, was a packet, which its
                     # modem decoded as it ended, as a real radio's does
-                    if self.sent % 2 == 1 and not stop.is_set():
+                    if self.sent % 2 == 1 and not stop.is_set() and not scanner:
                         frame = self.SIM_PACKETS[(self.sent // 2) % len(self.SIM_PACKETS)]
                         emit({"event": "packet", "mac": mac, "channel": 0, "region": 0, "data": frame.hex()})
                     self.sent += 1
@@ -314,7 +326,7 @@ class Unavailable:
     def scan(self):
         raise RuntimeError(self.reason)
 
-    def connect(self, _mac):
+    def connect(self, _mac, _link=None):
         raise RuntimeError(self.reason)
 
     def disconnect(self, _mac):
@@ -366,7 +378,9 @@ class BluezBackend(LinkControls):
             raise RuntimeError(f"bluetoothctl unavailable: {e}")
         return sorted(devices, key=lambda d: not d["radio"])
 
-    def connect(self, mac):
+    def connect(self, mac, link_kind=None):
+        if link_kind == "sds-ble":
+            raise RuntimeError("an SDS150 over Bluetooth needs the bumble backend (Low Energy); see docs/scanners.md")
         link = self.links.get(mac)
         if link and not link.stop.is_set():
             return
@@ -485,7 +499,8 @@ def main():
             if cmd == "scan":
                 result = backend.scan()
             elif cmd == "connect":
-                result = backend.connect(req["mac"])
+                # link: how the radio is reached, from its model (src/models.js); "sds-ble" for an SDS150
+                result = backend.connect(req["mac"], req.get("link"))
             elif cmd == "disconnect":
                 result = backend.disconnect(req["mac"])
             # The radio's controls: what they read now, and changing one
