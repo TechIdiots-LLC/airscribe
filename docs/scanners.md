@@ -45,6 +45,11 @@ Keys with dashed borders (Avoid, Push, Vol, Sql, Replay, Service and the soft
 keys) use Uniden's codes from its other scanners and haven't been tried on an
 SDS150 yet. If one does the wrong thing, say which.
 
+**If it hangs up while pairing, every time:** a pairing that got halfway (the
+scanner kept it, AirScribe didn't) makes it turn away each new one. On the
+scanner, **Bluetooth Options → Reset Pairings**, then **Pairing**, and connect
+again. That clears its other pairings too, so a phone pairs again afterwards.
+
 **If it won't stay connected:** after **Reset Pairings** on the scanner, the
 pairing AirScribe kept is refused, and the scanner hangs up about 0.3 s later.
 AirScribe forgets that pairing when it happens, so put the scanner back in
