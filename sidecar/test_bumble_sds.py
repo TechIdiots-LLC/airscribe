@@ -13,7 +13,7 @@ import sds
 from test_sds import TONE, scanner_frame
 
 try:
-    from bumble import pairing
+    from bumble import core, pairing
     from bumble.controller import Controller
     from bumble.device import Device
     from bumble.gatt import Characteristic, CharacteristicValue, Service
@@ -29,6 +29,20 @@ SCANNER = "DE:B8:5F:00:00:01"     # static random, as an SDS150's is
 VENDOR_SERVICE = "0F1E2D3C-4B5A-6978-8796-A5B4C3D2E1F0"
 VENDOR_CHAR = "0F1E2D3C-4B5A-6978-8796-A5B4C3D2E1F1"
 DONGLE = "00:1A:7D:00:00:01"
+
+
+class PublicLink(LocalLink if bumble_link else object):
+    """Bumble's virtual link, but LE data comes from the address a link was made from: as is, it's always the
+    sender's random one, and a link AirScribe makes from its public address carried nothing."""
+
+    def send_acl_data(self, sender, destination, transport, data):
+        if transport != core.PhysicalTransport.LE:
+            return super().send_acl_data(sender, destination, transport, data)
+        receiver = self.find_le_controller(destination)
+        source = next((c.self_address for c in sender.le_connections.values() if c.peer_address == destination),
+                      sender.random_address)
+        if receiver is not None:
+            asyncio.get_running_loop().call_soon(lambda: receiver.on_link_acl_data(source, transport, data))
 
 
 class Accept(pairing.PairingDelegate if bumble_link else object):
@@ -69,7 +83,7 @@ class ScannerOverBumbleTests(unittest.TestCase):
             setattr(bumble_link, name, seconds)
 
         async def open_device():
-            link = LocalLink()
+            link = PublicLink()
             # A dongle's public address, unlike the random one AirScribe connects from
             c_us = Controller("us", link=link, public_address=DONGLE)
             c_sc = Controller("scanner", link=link, public_address="00:00:00:00:00:00")
@@ -117,7 +131,7 @@ class ScannerOverBumbleTests(unittest.TestCase):
         theirs = next(iter(self.scanner.device.connections.values()))
         bonded = [name for name, _keys in self.stack.run(self.scanner.device.keystore.get_all(), 10)]
         self.assertEqual(bonded, [str(theirs.peer_address)], "the identity it keeps is the address it sees")
-        self.assertNotIn(DONGLE, " ".join(bonded))
+        self.assertEqual(bonded, [f"{DONGLE}/P"], "the dongle's public one")
 
     def test_its_parameter_update_keeps_our_supervision_timeout(self):
         self.backend.connect(SCANNER, "sds-ble")

@@ -270,11 +270,8 @@ class BumbleStack:
         if keys:
             dev.keystore = bumble_keys.JsonKeyStore(None, keys)
         delegate = make_delegate(pin)
-        # The identity given in LE pairing is the random address it connects from, not the dongle's public one: an
-        # SDS150 given the public one found its pairing on only some connections, and timed out on the rest
         dev.pairing_config_factory = lambda _c: pairing.PairingConfig(
-            sc=True, mitm=True, bonding=True, delegate=delegate,
-            identity_address_type=pairing.PairingConfig.AddressType.RANDOM)
+            sc=True, mitm=True, bonding=True, delegate=delegate)
         keep_supervision_timeout(dev.l2cap_channel_manager)
         await dev.power_on()
         return dev
@@ -429,11 +426,15 @@ class BumbleStack:
         # As a scan saw it; otherwise random (an SDS150's address is static random), then public
         known = self.le_addresses.get(mac)
         tries = [known] if known else [hci.Address(mac, hci.Address.RANDOM_DEVICE_ADDRESS), hci.Address(f"{mac}/P")]
+        # From the dongle's public address, the identity LE pairing gives (as BlueZ does). Connecting from the
+        # random one, an SDS150 found its pairing on only some connections and timed out on the rest
+        own = (hci.OwnAddressType.PUBLIC if self.device.public_address != hci.Address.ANY
+               else hci.OwnAddressType.RANDOM)
         conn, errors = None, []
         for address in tries:
             try:
                 conn = await self.device.connect(
-                    address, transport=core.PhysicalTransport.LE, timeout=CONNECT_SECONDS,
+                    address, transport=core.PhysicalTransport.LE, timeout=CONNECT_SECONDS, own_address_type=own,
                     connection_parameters_preferences={hci.HCI_LE_1M_PHY: ConnectionParametersPreferences(
                         connection_interval_min=LE_INTERVAL_MS[0], connection_interval_max=LE_INTERVAL_MS[1],
                         supervision_timeout=LE_SUPERVISION_MS)})
