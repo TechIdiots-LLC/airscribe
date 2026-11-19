@@ -22,8 +22,28 @@ Bluetooth Low Energy.
 The scanner talks to one device at a time: close U/AWARE on the phone first.
 Its card shows what it's on. Each transmission is filed under the channel (or
 talkgroup) and frequency it names, with its system and department as details,
-then transcribed. There are no Controls or Channels: set the scanner up on the
-scanner.
+then transcribed. It has no Controls or Channels, as a radio does; it has
+**Screen** instead.
+
+### Its screen, keys and waterfall
+
+**Screen** on a connected scanner's card (admins) opens it as U/AWARE shows it:
+- **The screen:** its text, line by line, with highlighting as the scanner
+  draws it (reversed or underlined). The scanner draws its icons and large
+  digits in its own font, so those show as marks; the waterfall's frequency is
+  spelled out under the screen instead.
+- **Soft keys:** the three under the screen, named from its bottom line.
+- **The keypad:** Menu, Func, the digits, **.** (no) and **E** (yes), and the
+  knob as ◀ ▶. Scrolling on the screen turns the knob too. A key is held as long
+  as it's held on the page (up to 3 s), as the scanner tells a press from a long
+  one.
+- **Waterfall:** the scanner's 240-column spectrum, newest at the top, with
+  its span and marker. Put the scanner in its waterfall mode to see one.
+  AirScribe only asks for it while it's showing, 15 s at a time.
+
+Keys with dashed borders (Avoid, Push, Vol, Sql, Replay, Service and the soft
+keys) use Uniden's codes from its other scanners and haven't been tried on an
+SDS150 yet. If one does the wrong thing, say which.
 
 **If it won't stay connected:** after **Reset Pairings** on the scanner, the
 pairing AirScribe kept is refused, and the scanner hangs up about 0.3 s later.
@@ -42,8 +62,18 @@ the app wasn't taken apart. `sidecar/sds.py` has the details:
   everything goes through it.
 - **Frames, both ways:** `09 50 54`, a 2-byte length, the payload, and a
   2-byte sum of the payload's bytes.
-- **Polling:** the app sends one thing, `GST` (the remote command spec's Get
-  Status, as over USB), every 200 ms. That alone keeps the audio coming.
+- **Commands:** the remote command spec's, as over USB, each in a frame. The
+  app sends:
+  - `GST` (Get Status) every 200 ms. That alone keeps the audio coming, and
+    its reply is the screen: each line's text and highlighting, which lines are
+    large, the LEDs, mute, and in waterfall mode the span and marker
+    (frequencies in 100 Hz steps).
+  - `KEY,<code>,H` then `KEY,<code>,R` for a button: pressed, then let go. The
+    knob, `<` or `>`, is `R` alone.
+  - `GW2,1,ON` every 300 ms while its waterfall is shown. The reply is 240
+    bytes of levels.
+- **Replies come in pieces:** a flag byte before each, `0x01` on the first and
+  `0x80` set on the last, so `0x81` is a whole one. A screen is usually two.
 - **What the scanner sends:**
   - its system and channel as a transmission starts;
   - the audio, as Opus packets (wideband CELT, 20 ms, about 24 kbit/s);
@@ -57,8 +87,11 @@ the app wasn't taken apart. `sidecar/sds.py` has the details:
 - the framing against bytes from the capture;
 - decoding of real captured audio (it sounded right);
 - a fake scanner on Bumble's virtual controller: connecting, polling,
-  transmissions, drops, reconnecting;
-- the page, with the simulator's pretend SDS150.
+  transmissions, keys, the waterfall, drops, reconnecting;
+- reading the screen, and putting replies back together, against replies like
+  the capture's;
+- the page, with the simulator's pretend SDS150: its screen, a key pressed,
+  scrolling as the knob, the waterfall, a phone's width.
 
 Not yet with AirScribe connected to a real SDS150. The vendor service's UUID
 isn't known, since the phone used its cached copy, so AirScribe picks the
