@@ -58,6 +58,21 @@ def dongle_hint(error):
     return "Is it passed in, and has the host's btusb let go of it? See docs/proxmox.md."
 
 
+def keep_supervision_timeout(manager):
+    """A peripheral's parameter update gets the interval it asks for, but a supervision timeout no shorter than ours.
+
+    An SDS150 asks for 30-50 ms and 420 ms a few seconds in; Bumble granted it, and every link then timed out (0x08)
+    within 1.5 s. A phone it asks for 15 ms and 4 s.
+    """
+    granted = manager.on_l2cap_connection_parameter_update_request
+
+    def on_request(connection, cid, request):
+        request.timeout = max(request.timeout, LE_SUPERVISION_MS // 10)     # in 10 ms units
+        granted(connection, cid, request)
+
+    manager.on_l2cap_connection_parameter_update_request = on_request
+
+
 def reason_name(code):
     """An HCI reason, as Bumble names it, with its number: 0x08 CONNECTION_TIMEOUT_ERROR."""
     try:
@@ -257,6 +272,7 @@ class BumbleStack:
         delegate = make_delegate(pin)
         dev.pairing_config_factory = lambda _c: pairing.PairingConfig(
             sc=True, mitm=True, bonding=True, delegate=delegate)
+        keep_supervision_timeout(dev.l2cap_channel_manager)
         await dev.power_on()
         return dev
 
