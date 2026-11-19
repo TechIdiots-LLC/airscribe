@@ -40,6 +40,12 @@ export const MODELS = [
 export const linkOf = (id) => MODELS.find((m) => m.id === id)?.link ?? null;
 
 /**
+ * An SDS150's key codes over Bluetooth (sidecar/sds.py KEYS): those its app was seen sending (digits, . E M F Z, and
+ * the knob's < >), and the rest as Uniden's other scanners take them, untried on this one.
+ */
+export const SCANNER_KEYS = new Set([...'0123456789.EMFZ<>', ...'LVQYABCT^']);
+
+/**
  * @param {string|null|undefined} id - A model id.
  * @returns {boolean} Whether that model sends recordings in rather than being connected to.
  */

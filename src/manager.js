@@ -54,6 +54,7 @@ export class Manager extends EventEmitter {
     this.waiting = new Map();  // mac -> packets heard before the transmission they came in had ended
     this.modems = new Map();   // mac -> the packet decoder reading its audio (src/afsk.js)
     this.scannerOn = new Map(); // mac -> what an SDS150 over Bluetooth said its last transmission was
+    this.screens = new Map();   // mac -> an SDS150's screen, as it last changed
     sidecar.on('event', (e) => this.onEvent(e));
     sidecar.on('restart', () => this.reconnectAll());
   }
@@ -110,6 +111,16 @@ export class Manager extends EventEmitter {
         this.setActivity(e.mac, { label: readSidecar(e, 0).channelName });
         break;
       }
+      // Its screen when it changes, and its waterfall while someone has asked for it (sidecar/sds.py)
+      case 'scanner-screen': {
+        const { event: _e, mac, ...screen } = e;
+        this.screens.set(mac, screen);
+        this.emit('update', { type: 'scanner-screen', mac, screen });
+        break;
+      }
+      case 'scanner-waterfall':
+        this.emit('update', { type: 'scanner-waterfall', mac: e.mac, levels: e.levels });
+        break;
       case 'radio-position':
         this.setActivity(e.mac, {
           position: { lat: e.lat, lon: e.lon, alt_m: e.alt_m, speed: e.speed, heading: e.heading, at: Date.now() },
@@ -641,6 +652,35 @@ export class Manager extends EventEmitter {
     const wav = join(this.dataDir, 'clips', row.audio_file).replace('.wav', '.16k.wav');
     // eslint-disable-next-line security/detect-non-literal-fs-filename -- path built from our own row
     return existsSync(wav) ? wav : null;
+  }
+
+  /**
+   * @param {string} mac - An SDS150 over Bluetooth.
+   * @returns {object|null} Its screen as it last changed, or null before it has said.
+   */
+  scannerScreen(mac) {
+    return this.screens.get(mac) ?? null;
+  }
+
+  /**
+   * Press one of an SDS150's keys, as its own app does.
+   * @param {string} mac - The scanner.
+   * @param {string} key - A key code (src/models.js SCANNER_KEYS).
+   * @param {number} holdMs - How long it's held down.
+   * @returns {Promise<void>}
+   */
+  scannerKey(mac, key, holdMs) {
+    return this.sidecar.call('scanner_key', { mac, key, hold_ms: holdMs });
+  }
+
+  /**
+   * Have an SDS150 send its waterfall for a while; a page showing it asks again before that's up.
+   * @param {string} mac - The scanner.
+   * @param {number} seconds - For how long; 0 stops it.
+   * @returns {Promise<void>}
+   */
+  scannerWaterfall(mac, seconds) {
+    return this.sidecar.call('scanner_waterfall', { mac, seconds });
   }
 
   /**

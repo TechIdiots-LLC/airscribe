@@ -2,7 +2,7 @@ import express from 'express';
 import { existsSync } from 'node:fs';
 import { join, resolve, sep } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { MODELS, guessModel, newScannerId, normalizeMac, sendsRecordings } from './models.js';
+import { MODELS, SCANNER_KEYS, guessModel, linkOf, newScannerId, normalizeMac, sendsRecordings } from './models.js';
 import { createAuth, readCookie } from './auth.js';
 import { PROVIDERS } from './logins.js';
 import { PUBLISH_DEFAULTS, publicCutoff, publishable, publicView } from './publish.js';
@@ -523,6 +523,43 @@ export function createApp({ manager, store, sidecar, config, dataDir, updates, c
     }
     if (!CONTROLS[action](value)) return res.status(400).json({ error: `that isn't a ${action} the radio takes` });
     res.json(await manager.control(mac, action, value));
+  }));
+
+  // ---- An SDS150 over Bluetooth: its screen, its keys, its waterfall ------------
+  // Admins only, as the radios' controls are. The screen also comes on the event stream as it changes.
+  const scannerFor = (req, res) => {
+    const mac = radioFor(req, res);
+    if (mac && linkOf(store.radio(mac).model) !== 'sds-ble') {
+      res.status(400).json({ error: 'only an SDS150 over Bluetooth has a screen and keys here' });
+      return null;
+    }
+    return mac;
+  };
+  api.get('/radios/:mac/screen', auth.requireRole('admin'), (req, res) => {
+    const mac = scannerFor(req, res);
+    if (mac) res.json({ screen: manager.scannerScreen(mac) });
+  });
+  api.post('/radios/:mac/key', auth.requireRole('admin'), wrap(async (req, res) => {
+    const mac = scannerFor(req, res);
+    if (!mac) return;
+    const key = String(req.body?.key ?? '');
+    if (!SCANNER_KEYS.has(key)) {
+      return res.status(400).json({ error: `key is one of ${[...SCANNER_KEYS].join(' ')}` });
+    }
+    const holdMs = Math.round(Number(req.body?.hold_ms ?? 100));
+    if (!Number.isFinite(holdMs) || holdMs < 50 || holdMs > 3000) {
+      return res.status(400).json({ error: 'hold_ms is 50 to 3000' });
+    }
+    await manager.scannerKey(mac, key, holdMs);
+    res.status(202).json({ ok: true });
+  }));
+  api.post('/radios/:mac/waterfall', auth.requireRole('admin'), wrap(async (req, res) => {
+    const mac = scannerFor(req, res);
+    if (!mac) return;
+    const seconds = Number(req.body?.seconds ?? 15);
+    if (!Number.isFinite(seconds) || seconds < 0 || seconds > 60) return res.status(400).json({ error: 'seconds is 0 to 60' });
+    await manager.scannerWaterfall(mac, seconds);
+    res.status(202).json({ ok: true });
   }));
 
   // ---- A radio's channels: read, written, backed up and put back ----------

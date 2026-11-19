@@ -36,6 +36,50 @@ async function setup() {
   return { store, manager, calls, sidecar };
 }
 
+test('its screen, keys and waterfall: admins only, checked, passed to the sidecar', { skip: !sqlite }, async () => {
+  const { DatabaseSync } = await import('node:sqlite');
+  const { Accounts } = await import('../src/accounts.js');
+  const { createApp } = await import('../src/api.js');
+  const { store, manager, calls, sidecar } = await setup();
+  const accounts = new Accounts(new DatabaseSync(':memory:'));
+  accounts.create({ username: 'alice', password: 'correct horse', role: 'admin' });
+  const config = { host: '127.0.0.1', auth: { tokens: [{ token: 'script' }] } };
+  const app = createApp({ manager, store, sidecar, config, dataDir: mkdtempSync(join(tmpdir(), 'sdsapi-')), accounts })
+    .listen(0, '127.0.0.1');
+  await new Promise((r) => app.once('listening', r));
+  const base = `http://127.0.0.1:${app.address().port}/api`;
+  const call = async (method, path, body, token = 'script') => {
+    const res = await fetch(`${base}${path}`, { method, body: body && JSON.stringify(body),
+      headers: { 'content-type': 'application/json', ...(token ? { authorization: `Bearer ${token}` } : {}) } });
+    return { status: res.status, body: await res.json().catch(() => null) };
+  };
+  try {
+    const updates = [];
+    manager.on('update', (u) => updates.push(u));
+    assert.deepEqual((await call('GET', `/radios/${SCANNER}/screen`)).body, { screen: null }, 'nothing before it says');
+    const lines = [{ text: 'Quick Key Navigation', mode: '____', large: true }];
+    sidecar.emit('event', { event: 'scanner-screen', mac: SCANNER, lines, muted: true, mode: 'normal' });
+    assert.deepEqual((await call('GET', `/radios/${SCANNER}/screen`)).body.screen.lines, lines);
+    assert.ok(updates.some((u) => u.type === 'scanner-screen' && u.screen.lines[0].text === 'Quick Key Navigation'),
+      'and pages are told as it changes');
+    sidecar.emit('event', { event: 'scanner-waterfall', mac: SCANNER, levels: 'AAEC' });
+    assert.ok(updates.some((u) => u.type === 'scanner-waterfall' && u.levels === 'AAEC'));
+
+    assert.equal((await call('POST', `/radios/${SCANNER}/key`, { key: 'M', hold_ms: 1500 })).status, 202);
+    assert.equal((await call('POST', `/radios/${SCANNER}/waterfall`, { seconds: 15 })).status, 202);
+    assert.deepEqual(calls.slice(-2), [['scanner_key', { mac: SCANNER, key: 'M', hold_ms: 1500 }],
+      ['scanner_waterfall', { mac: SCANNER, seconds: 15 }]]);
+    assert.equal((await call('POST', `/radios/${SCANNER}/key`, { key: 'KEY,M,H' })).status, 400, 'one key code only');
+    assert.equal((await call('POST', `/radios/${SCANNER}/key`, { key: 'M', hold_ms: 60000 })).status, 400);
+    assert.equal((await call('POST', `/radios/${SCANNER}/waterfall`, { seconds: 3600 })).status, 400);
+    assert.equal((await call('POST', `/radios/${RADIO}/key`, { key: 'M' })).status, 400, 'a radio has no such keys');
+    assert.equal((await call('POST', `/radios/${SCANNER}/key`, { key: 'M' }, null)).status, 401);
+  } finally {
+    app.close();
+    manager.stopRetrying();
+  }
+});
+
 test('connecting tells the sidecar to reach the scanner over LE, and a radio as before', { skip: !sqlite }, async () => {
   const { manager, calls } = await setup();
   await manager.connect(SCANNER);

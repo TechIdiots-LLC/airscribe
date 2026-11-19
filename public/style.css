@@ -364,3 +364,27 @@ button:disabled { opacity: .5; cursor: default; }
 .scanner-how pre { font: 12px ui-monospace, monospace; white-space: pre-wrap; word-break: break-all; margin: 6px 0;
   padding: 6px 8px; border: 1px solid var(--line); border-radius: 6px; user-select: all; }
 .tx-details { cursor: help; }
+/* An SDS150 over Bluetooth: its screen, keys and waterfall (scanner.js). The screen is the scanner's own, so it
+   stays dark whatever the page's theme */
+dialog.scanner-dlg { border: 1px solid var(--line); border-radius: 10px; background: var(--bg); color: var(--fg);
+  padding: 12px 16px; width: min(420px, calc(100vw - 32px)); }
+dialog.scanner-dlg::backdrop { background: rgba(0, 0, 0, .5); }
+dialog.scanner-dlg h3 { margin: 0; font-size: 15px; }
+.sds-screen { background: #05080b; color: #e8ecef; border-radius: 6px; padding: 6px 8px; margin: 10px 0 6px;
+  font: 12px/1.35 ui-monospace, monospace; white-space: pre; overflow-x: auto; min-height: 120px; cursor: ns-resize; }
+.sds-screen.muted { color: #b9c0c6; }
+.sds-line.large { font-size: 15px; font-weight: 600; }
+.sds-line .inv { background: #e8ecef; color: #05080b; }
+.sds-line .ul { text-decoration: underline; }
+.sds-line .glyph { color: #6c7680; }
+.sds-soft { display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px; margin-bottom: 8px; }
+.sds-keys { display: grid; grid-template-columns: repeat(3, 1fr); gap: 4px; }
+.sds-soft button, .sds-keys button { padding: 6px 4px; min-width: 0; overflow: hidden; text-overflow: ellipsis;
+  white-space: nowrap; touch-action: manipulation; }
+.sds-keys button.untried, .sds-soft button.untried { border-style: dashed; }
+.sds-wf-row { margin-top: 10px; align-items: center; gap: 8px; flex-wrap: wrap; }
+.sds-wf-row button.on { border-color: var(--accent); color: var(--accent); }
+.sds-scale { margin: 0; font-size: 12px; }
+.sds-waterfall { display: block; width: 100%; height: 160px; margin-top: 6px; border-radius: 4px; background: #000;
+  image-rendering: pixelated; }
+.sds-status:empty { display: none; }

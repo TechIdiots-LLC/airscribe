@@ -169,6 +169,11 @@ function renderRadios() {
           el('button', { onclick: () => rename(r) }, 'Rename'),
           el('button', { onclick: () => remove(r) }, 'Remove'),
           radioControls ? el('button', { onclick: () => openControls(r) }, 'Controls') : '',
+          // An SDS150 over Bluetooth: its screen, keys and waterfall instead (scanner.js)
+          connected && role === 'admin' && models.get(r.model)?.link === 'sds-ble'
+            ? el('button', { onclick: () => document.dispatchEvent(new CustomEvent('airscribe:open-scanner', { detail: r })) },
+              'Screen')
+            : '',
           // Its channels, backups of them, and stations to write (channels.js).
           // Not airscribe:channels, which is the server's update of a radio's channel table
           radioControls
