@@ -124,6 +124,18 @@ class LinkTests(unittest.TestCase):
             self.assertAlmostEqual(len(pcm) / 2 / sds.RATE, len(TONE) * 0.02, delta=0.03)
             self.assertEqual(self.of("run-stats")[0]["frames"], len(TONE))
 
+    def test_packets_it_dropped_are_silence_in_their_place(self):
+        # As through a slow link: counters 0, 1, then 5 and 7, three and one dropped
+        for counter, pkt in zip((0, 1, 5, 7), TONE):
+            self.link.on_notify(scanner_frame(counter, 0xA1, bytes([counter]) + pkt))
+        self.clock.t += sds.GAP_SECONDS
+        self.link.tick()
+        stats = self.of("run-stats")[0]
+        self.assertEqual((stats["frames"], stats["missing"]), (8, 4), "the gaps filled, and counted")
+        if self.link.decoder:
+            pcm = b"".join(base64.b64decode(e["pcm"]) for e in self.of("audio"))
+            self.assertAlmostEqual(len(pcm) / 2 / sds.RATE, 8 * 0.02, delta=0.03, msg="as long as it was sent")
+
     def test_it_polls_with_what_it_heard_last(self):
         self.link.tick()
         self.link.on_notify(bytes.fromhex("09505400060032af00015c013e"))   # the scanner's 0x32nd, from the capture

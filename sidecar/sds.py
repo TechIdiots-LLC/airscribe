@@ -33,6 +33,10 @@ POLL_SECONDS = 0.2          # as often as the app asks
 GAP_SECONDS = 0.6           # audio stops this long: the transmission is over (A2 comes ~0.2 s after)
 SILENT_SECONDS = 6          # nothing at all from the scanner this long: it has gone
 MAX_RUN_PACKETS = 5 * 60 * 50  # five minutes: a squelch stuck open mustn't grow forever
+# The scanner's own empty packet (Opus, CELT silence), as it sends a few to start a transmission. One goes where
+# each packet it dropped would have been, by its counter, so what's left keeps its timing rather than running on
+SILENCE = bytes.fromhex("b8fffe")
+MAX_FILL = 50               # a jump in the counter bigger than a second's packets isn't filled
 RATE = 32000                # what the rest of AirScribe takes (airscribe_sidecar.RATE)
 
 T_START = 0xA0
@@ -230,6 +234,8 @@ class Run:
         self.end_info = {}
         self.last = now
         self.announced = False
+        self.counter = None     # the last audio packet's counter byte
+        self.missing = 0        # packets the counter says never came
 
 
 class ScannerLink:
@@ -280,8 +286,15 @@ class ScannerLink:
                         # Its A0 comes with the first audio, a moment either side
                         fresh = self.start_at is not None and now - self.start_at < 2
                         self.current = Run(self.start_info if fresh else {}, now)
-                    self.current.last = now
-                    self.current.packets.append(bytes(body[1:]))
+                    run = self.current
+                    run.last = now
+                    if run.counter is not None:
+                        gap = (body[0] - run.counter - 1) & 0xFF
+                        if gap <= MAX_FILL:
+                            run.packets.extend([SILENCE] * gap)
+                        run.missing += gap
+                    run.counter = body[0]
+                    run.packets.append(bytes(body[1:]))
                 elif kind == T_START:
                     self.start_info, self.start_at = parse_start(body), now
                     if self.current is not None and not self.current.start_info:
@@ -407,6 +420,7 @@ class ScannerLink:
                 self.emit({"event": "sidecar-error", "mac": self.mac, "error": str(e)})
                 pcm = b""
             self.emit({"event": "run-stats", "mac": self.mac, "codec": "opus", "frames": len(run.packets),
+                       "missing": run.missing,
                        "pcm_bytes": len(pcm), "expected_pcm_bytes": len(run.packets) * RATE // 50 * 2,
                        "seconds": round(len(pcm) / 2 / RATE, 2)})
             step = RATE // 10 * 2      # 100 ms, as the radios' audio comes

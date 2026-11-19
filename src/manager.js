@@ -158,6 +158,8 @@ export class Manager extends EventEmitter {
       case 'run-stats':
         console.log(
           `[audio] ${e.mac} ${e.frames} ${e.codec === 'opus' ? 'Opus' : 'SBC'} frames -> ${e.seconds}s` +
+            // A scanner over LE: how many packets it dropped, filled with silence (sidecar/sds.py)
+            (e.missing ? ` (${e.missing} missing)` : '') +
             (e.pcm_bytes === e.expected_pcm_bytes
               ? ''
               : ` (expected ${e.expected_pcm_bytes} bytes of PCM, got ${e.pcm_bytes})`),
