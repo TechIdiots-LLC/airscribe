@@ -270,8 +270,11 @@ class BumbleStack:
         if keys:
             dev.keystore = bumble_keys.JsonKeyStore(None, keys)
         delegate = make_delegate(pin)
+        # The identity given in LE pairing is the random address it connects from, not the dongle's public one: an
+        # SDS150 given the public one found its pairing on only some connections, and timed out on the rest
         dev.pairing_config_factory = lambda _c: pairing.PairingConfig(
-            sc=True, mitm=True, bonding=True, delegate=delegate)
+            sc=True, mitm=True, bonding=True, delegate=delegate,
+            identity_address_type=pairing.PairingConfig.AddressType.RANDOM)
         keep_supervision_timeout(dev.l2cap_channel_manager)
         await dev.power_on()
         return dev

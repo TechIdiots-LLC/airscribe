@@ -18,6 +18,7 @@ try:
     from bumble.device import Device
     from bumble.gatt import Characteristic, CharacteristicValue, Service
     from bumble.host import Host
+    from bumble.keys import MemoryKeyStore
     from bumble.link import LocalLink
     from bumble.transport.common import AsyncPipeSink
     import bumble_link
@@ -27,6 +28,7 @@ except ImportError:
 SCANNER = "DE:B8:5F:00:00:01"     # static random, as an SDS150's is
 VENDOR_SERVICE = "0F1E2D3C-4B5A-6978-8796-A5B4C3D2E1F0"
 VENDOR_CHAR = "0F1E2D3C-4B5A-6978-8796-A5B4C3D2E1F1"
+DONGLE = "00:1A:7D:00:00:01"
 
 
 class Accept(pairing.PairingDelegate if bumble_link else object):
@@ -68,9 +70,11 @@ class ScannerOverBumbleTests(unittest.TestCase):
 
         async def open_device():
             link = LocalLink()
-            c_us = Controller("us", link=link, public_address="F0:F1:F2:F3:F4:F5")
+            # A dongle's public address, unlike the random one AirScribe connects from
+            c_us = Controller("us", link=link, public_address=DONGLE)
             c_sc = Controller("scanner", link=link, public_address="00:00:00:00:00:00")
             scanner = Device(address=SCANNER, host=Host(c_sc, AsyncPipeSink(c_sc)))
+            scanner.keystore = MemoryKeyStore()
             scanner.pairing_config_factory = lambda _c: pairing.PairingConfig(
                 sc=True, mitm=False, bonding=True, delegate=Accept())
             holder["scanner"] = FakeScanner(scanner)
@@ -107,6 +111,13 @@ class ScannerOverBumbleTests(unittest.TestCase):
         self.assertEqual(params.supervision_timeout, bumble_link.LE_SUPERVISION_MS, params)
         # And at the 15 ms the scanner asks for itself
         self.assertLessEqual(params.connection_interval, bumble_link.LE_INTERVAL_MS[1], params)
+
+    def test_it_pairs_with_the_address_we_connect_from(self):
+        self.backend.connect(SCANNER, "sds-ble")
+        theirs = next(iter(self.scanner.device.connections.values()))
+        bonded = [name for name, _keys in self.stack.run(self.scanner.device.keystore.get_all(), 10)]
+        self.assertEqual(bonded, [str(theirs.peer_address)], "the identity it keeps is the address it sees")
+        self.assertNotIn(DONGLE, " ".join(bonded))
 
     def test_its_parameter_update_keeps_our_supervision_timeout(self):
         self.backend.connect(SCANNER, "sds-ble")
