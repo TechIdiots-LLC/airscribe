@@ -79,7 +79,7 @@ WF_MODES = {"0": "normal", "1": "waterfall", "2": "menu"}
 
 
 def _hz(v):
-    """GST's frequencies: 8 digits in 100 Hz ("00979000" is 97.9 MHz)."""
+    """GST's frequencies: 8 digits in 100 Hz ("01011000" is 101.1 MHz)."""
     return int(v) * 100 if v and v.isdigit() else None
 
 

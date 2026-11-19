@@ -59,64 +59,31 @@ isn't enough.
 
 ### How it works
 
-Worked out from a capture of U/AWARE and an SDS150 (Android's HCI snoop log);
-the app wasn't taken apart. `sidecar/sds.py` has the details:
-- **The link:** the scanner advertises from a static random address. It pairs
-  "Just Works" (LE Secure Connections). Its vendor service has one
-  characteristic that notifies and takes writes without response, and
-  everything goes through it.
-- **Link timing:** AirScribe connects at a 15 ms interval with a 4 s
-  supervision timeout, which is what the scanner asks a phone for. A few seconds
-  in, it asks AirScribe for 30-50 ms and 420 ms. Granted as asked, the link
-  dropped within 1.5 s, and at 50 ms a third of the audio was lost, so its
-  request is granted no slower and no shorter than that. The journal shows
-  both as `[bumble]` lines.
-- **Addresses:** AirScribe connects from the dongle's public address, the
-  identity it gives when pairing. From the random one, the scanner found its
-  pairing on only some connections.
-- **Frames, both ways:** `09 50 54`, a 2-byte length, the payload, and a
-  2-byte sum of the payload's bytes.
-- **Commands:** the remote command spec's, as over USB, each in a frame. The
-  app sends:
-  - `GST` (Get Status) every 200 ms. Its reply is the screen: each line's
-    text and highlighting, which lines are large, the LEDs, mute, and in
-    waterfall mode the span and marker (frequencies in 100 Hz steps).
-    AirScribe does the same between transmissions. During one it sends `GST`
-    once a second and `KAL` (Keep Alive, which has no reply) on the other
-    polls: the screen is a fifth of what a Bluetooth 4.0 dongle carries, and
-    without that, audio was lost.
-  - `KEY,<code>,H` then `KEY,<code>,R` for a button: pressed, then let go. The
-    knob, `<` or `>`, is `R` alone.
-  - `GW2,1,ON` every 300 ms while its waterfall is shown. The reply is 240
-    bytes of levels.
-- **Replies come in pieces:** a flag byte before each, `0x01` on the first and
-  `0x80` set on the last, so `0x81` is a whole one. A screen is usually two.
-- **What the scanner sends:**
-  - its system and channel as a transmission starts;
-  - the audio, as Opus packets (wideband CELT, 20 ms, about 24 kbit/s);
-  - a line with system, department, channel, frequency and talkgroup just
-    after it ends.
-- **Transmissions:** the scanner's squelch decides them, since audio comes
-  only while it's open. AirScribe ends one after 0.6 s without audio and
-  decodes it with ffmpeg.
+The protocol, fully enough to write another client, is in
+[sds150-bluetooth.md](sds150-bluetooth.md). In short:
+- **The link:** one vendor characteristic carries framed commands from Uniden's
+  remote command spec, and the scanner's replies, audio and labels.
+- **Polling:** AirScribe polls `GST` (the screen) every 200 ms, as the app
+  does. During a transmission it polls once a second, with `KAL` in between.
+- **Audio:** comes as Opus packets while the scanner's squelch is open.
+  AirScribe ends a transmission after 0.6 s without audio and decodes it with
+  ffmpeg.
+- **Link timing:** the link is held at 15 ms with a 4 s timeout, whatever the
+  scanner asks for later. The journal shows what it asked for as `[bumble]`
+  lines.
 
 **Tested:**
-- the framing against bytes from the capture;
-- decoding of real captured audio (it sounded right);
+- a real SDS150 through a CSR8510 (Bluetooth 4.0) dongle: pairing,
+  reconnecting, the screen, and transmissions whose audio matched a UV-PRO's
+  copy of the same call, with no gaps heard;
+- the framing against bytes from captures, and decoding of real captured audio;
 - a fake scanner on Bumble's virtual controller: connecting, polling,
-  transmissions, keys, the waterfall, drops, reconnecting;
-- reading the screen, and putting replies back together, against replies like
-  the capture's;
+  transmissions, keys, the waterfall, drops, reconnecting, its parameter
+  requests;
 - the page, with the simulator's pretend SDS150: its screen, a key pressed,
   scrolling as the knob, the waterfall, a phone's width.
 
-- a real SDS150 through a CSR8510 (Bluetooth 4.0) dongle: pairing,
-  reconnecting, the screen, and transmissions whose audio matched a UV-PRO's
-  copy of the same call, with no gaps heard.
-
-The keys and waterfall haven't been tried on the real scanner yet. The vendor
-service's UUID isn't known, since the phone used its cached copy, so AirScribe
-picks the characteristic by what it does.
+The keys and the waterfall haven't been tried on the real scanner yet.
 
 ## Through radiocli
 
