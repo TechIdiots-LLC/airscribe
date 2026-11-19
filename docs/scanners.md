@@ -35,9 +35,10 @@ met a scanner yet.
    radiocli daemon --device <scanner port> --audio "<sound input>"
    radiocli audio record --device <scanner port> recordings
    ```
-   The SDS100 and SDS150 headphone sockets put the audio out of phase on the
-   two sides. A stereo cable mixed down to mono cancels it; radiocli's
-   `--channel auto` (the default) finds the right side. Its file name
+   The SDS100 and SDS150 headphone sockets can put the audio out of phase on
+   the two sides, and a stereo cable mixed down to mono then cancels it. On
+   the SDS150, set **Menu → Settings → Headphone L/R output → In Phase**;
+   otherwise radiocli's `--channel auto` (the default) finds the right side. Its file name
    template, `--hang` and `--max-duration` don't matter to AirScribe.
 3. **Next to radiocli:** copy `tools/radiocli-upload.mjs` from AirScribe
    (it needs only Node 22 or later) and run it on the same folder:
