@@ -19,6 +19,7 @@ handed to RadioLink as a DlcSocket, which has the few socket methods it uses.
 import asyncio
 import concurrent.futures
 import socket
+import sys
 import threading
 
 import sbc
@@ -58,19 +59,32 @@ def dongle_hint(error):
     return "Is it passed in, and has the host's btusb let go of it? See docs/proxmox.md."
 
 
-def keep_supervision_timeout(manager):
-    """A peripheral's parameter update gets the interval it asks for, but a supervision timeout no shorter than ours.
+def keep_link_parameters(manager):
+    """A peripheral's parameter update is granted, but no slower than our interval nor shorter than our timeout.
 
-    An SDS150 asks for 30-50 ms and 420 ms a few seconds in; Bumble granted it, and every link then timed out (0x08)
-    within 1.5 s. A phone it asks for 15 ms and 4 s.
+    An SDS150 asks for 30-50 ms and 420 ms a few seconds in. Granted as asked, every link timed out (0x08) within
+    1.5 s; with only the timeout kept, 50 ms carried too little and a third of its audio was lost. A phone it asks
+    for 15 ms and 4 s.
     """
     granted = manager.on_l2cap_connection_parameter_update_request
+    fastest = round(LE_INTERVAL_MS[1] / 1.25)       # in 1.25 ms units
 
     def on_request(connection, cid, request):
+        asked = (f"{request.interval_min * 1.25:g}-{request.interval_max * 1.25:g} ms, "
+                 f"{request.timeout * 10} ms timeout")
+        request.interval_max = min(request.interval_max, fastest)
+        request.interval_min = min(request.interval_min, request.interval_max)
         request.timeout = max(request.timeout, LE_SUPERVISION_MS // 10)     # in 10 ms units
+        log(f"{_mac(connection.peer_address)} asked for {asked}; given "
+            f"{request.interval_min * 1.25:g}-{request.interval_max * 1.25:g} ms, {request.timeout * 10} ms")
         granted(connection, cid, request)
 
     manager.on_l2cap_connection_parameter_update_request = on_request
+
+
+def log(text):
+    """To the server's journal (its stderr)."""
+    print(f"[bumble] {text}", file=sys.stderr, flush=True)
 
 
 def reason_name(code):
@@ -272,7 +286,7 @@ class BumbleStack:
         delegate = make_delegate(pin)
         dev.pairing_config_factory = lambda _c: pairing.PairingConfig(
             sc=True, mitm=True, bonding=True, delegate=delegate)
-        keep_supervision_timeout(dev.l2cap_channel_manager)
+        keep_link_parameters(dev.l2cap_channel_manager)
         await dev.power_on()
         return dev
 
@@ -444,6 +458,10 @@ class BumbleStack:
         if conn is not None:
             conn.airscribe_reasons = []
             conn.on("disconnection", conn.airscribe_reasons.append)
+            show = lambda: log(f"{mac} link: {conn.parameters.connection_interval:g} ms interval, "  # noqa: E731
+                               f"{conn.parameters.supervision_timeout:g} ms timeout")
+            show()
+            conn.on("connection_parameters_update", show)
         if conn is None:
             raise RuntimeError(f"couldn't reach {mac} over LE ({'; '.join(errors)}). Is its Bluetooth on, "
                                "and nothing else (U/AWARE) connected to it?")

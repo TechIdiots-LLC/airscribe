@@ -133,17 +133,18 @@ class ScannerOverBumbleTests(unittest.TestCase):
         self.assertEqual(bonded, [str(theirs.peer_address)], "the identity it keeps is the address it sees")
         self.assertEqual(bonded, [f"{DONGLE}/P"], "the dongle's public one")
 
-    def test_its_parameter_update_keeps_our_supervision_timeout(self):
+    def test_its_parameter_update_keeps_our_interval_and_timeout(self):
         self.backend.connect(SCANNER, "sds-ble")
+        conn = self.stack.le_sessions[SCANNER].connection
+        updated = []
+        conn.on("connection_parameters_update", lambda: updated.append(conn.parameters))
         theirs = next(iter(self.scanner.device.connections.values()))
-        # What a real SDS150 asks for a few seconds in: 420 ms lost every link within 1.5 s
+        # What a real SDS150 asks for a few seconds in: 420 ms lost every link within 1.5 s, and 50 ms a third
+        # of its audio
         self.stack.run(theirs.update_parameters(30, 50, 0, 420, use_l2cap=True), 10)
-        params = self.stack.le_sessions[SCANNER].connection.parameters
-        self.assertTrue(self.wait_for(lambda: params is not self.stack.le_sessions[SCANNER].connection.parameters
-                                      or params.connection_interval == 50), params)
-        params = self.stack.le_sessions[SCANNER].connection.parameters
-        self.assertEqual(params.connection_interval, 50, "its interval")
-        self.assertEqual(params.supervision_timeout, bumble_link.LE_SUPERVISION_MS, "but not its timeout")
+        self.assertTrue(self.wait_for(lambda: updated), "the update was made")
+        self.assertEqual(updated[-1].connection_interval, bumble_link.LE_INTERVAL_MS[1], "not its interval")
+        self.assertEqual(updated[-1].supervision_timeout, bumble_link.LE_SUPERVISION_MS, "nor its timeout")
 
     def test_a_transmission_comes_through_labelled(self):
         self.backend.connect(SCANNER, "sds-ble")
