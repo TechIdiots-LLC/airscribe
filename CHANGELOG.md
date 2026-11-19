@@ -110,8 +110,9 @@
   name it advertises, and AirScribe connects to it as Uniden's U/AWARE app does: it pairs (no PIN, with the scanner
   in its Pairing menu), asks for its status five times a second, and takes each transmission as the scanner sends
   it, Opus audio with the system, department, channel, frequency and talkgroup. Each is filed under that channel and
-  frequency and transcribed. The protocol was worked out from a capture of the app (docs/scanners.md). Tested
-  against a fake scanner and a decode of real captured audio; not yet connected to a real SDS150.
+  frequency and transcribed. The protocol was worked out from a capture of the app (docs/scanners.md). Tested on a
+  real SDS150 through a Bluetooth 4.0 dongle, whose link timing and screen polling AirScribe holds to what that
+  dongle can carry.
 - **An SDS150's screen, keys and waterfall:** **Screen** on a connected SDS150 shows its screen as it changes, with
   its highlighting and its soft keys named from it; a keypad that holds a key as long as it's held (scroll on the
   screen to turn the knob); and its waterfall, asked for only while it's showing. Keys U/AWARE was seen sending are

@@ -65,14 +65,26 @@ the app wasn't taken apart. `sidecar/sds.py` has the details:
   "Just Works" (LE Secure Connections). Its vendor service has one
   characteristic that notifies and takes writes without response, and
   everything goes through it.
+- **Link timing:** AirScribe connects at a 15 ms interval with a 4 s
+  supervision timeout, which is what the scanner asks a phone for. A few seconds
+  in, it asks AirScribe for 30-50 ms and 420 ms. Granted as asked, the link
+  dropped within 1.5 s, and at 50 ms a third of the audio was lost, so its
+  request is granted no slower and no shorter than that. The journal shows
+  both as `[bumble]` lines.
+- **Addresses:** AirScribe connects from the dongle's public address, the
+  identity it gives when pairing. From the random one, the scanner found its
+  pairing on only some connections.
 - **Frames, both ways:** `09 50 54`, a 2-byte length, the payload, and a
   2-byte sum of the payload's bytes.
 - **Commands:** the remote command spec's, as over USB, each in a frame. The
   app sends:
-  - `GST` (Get Status) every 200 ms. That alone keeps the audio coming, and
-    its reply is the screen: each line's text and highlighting, which lines are
-    large, the LEDs, mute, and in waterfall mode the span and marker
-    (frequencies in 100 Hz steps).
+  - `GST` (Get Status) every 200 ms. Its reply is the screen: each line's
+    text and highlighting, which lines are large, the LEDs, mute, and in
+    waterfall mode the span and marker (frequencies in 100 Hz steps).
+    AirScribe does the same between transmissions. During one it sends `GST`
+    once a second and `KAL` (Keep Alive, which has no reply) on the other
+    polls: the screen is a fifth of what a Bluetooth 4.0 dongle carries, and
+    without that, audio was lost.
   - `KEY,<code>,H` then `KEY,<code>,R` for a button: pressed, then let go. The
     knob, `<` or `>`, is `R` alone.
   - `GW2,1,ON` every 300 ms while its waterfall is shown. The reply is 240
@@ -98,9 +110,13 @@ the app wasn't taken apart. `sidecar/sds.py` has the details:
 - the page, with the simulator's pretend SDS150: its screen, a key pressed,
   scrolling as the knob, the waterfall, a phone's width.
 
-Not yet with AirScribe connected to a real SDS150. The vendor service's UUID
-isn't known, since the phone used its cached copy, so AirScribe picks the
-characteristic by what it does.
+- a real SDS150 through a CSR8510 (Bluetooth 4.0) dongle: pairing,
+  reconnecting, the screen, and transmissions whose audio matched a UV-PRO's
+  copy of the same call, with no gaps heard.
+
+The keys and waterfall haven't been tried on the real scanner yet. The vendor
+service's UUID isn't known, since the phone used its cached copy, so AirScribe
+picks the characteristic by what it does.
 
 ## Through radiocli
 
