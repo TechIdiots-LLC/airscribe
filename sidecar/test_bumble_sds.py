@@ -102,6 +102,9 @@ class ScannerOverBumbleTests(unittest.TestCase):
         self.assertTrue(self.wait_for(lambda: len(self.scanner.writes) >= 3), "it polls")
         self.assertEqual(sds.gst(0), self.scanner.writes[0], "on the vendor characteristic, not the decoy")
         self.assertEqual(self.scanner.writes[1], sds.gst(1), "numbered in turn")
+        # A real SDS150 goes quiet for over 720 ms (Bumble's default) as encryption starts
+        params = self.stack.le_sessions[SCANNER].connection.parameters
+        self.assertEqual(params.supervision_timeout, bumble_link.LE_SUPERVISION_MS, params)
 
     def test_a_transmission_comes_through_labelled(self):
         self.backend.connect(SCANNER, "sds-ble")

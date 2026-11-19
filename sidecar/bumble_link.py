@@ -30,6 +30,9 @@ PAIR_SECONDS = 60       # the first connection pairs, which can wait on the radi
 ENCRYPT_SECONDS = 10    # the UV-Pro took well under one
 LE_PAIR_SECONDS = 30    # the SDS150: Just Works, no PIN, while it's in its Pairing menu
 GATT_SECONDS = 15       # each step of finding its characteristic
+# The link's supervision timeout. Bumble's default, 720 ms, lost the SDS150 about a second after encryption started
+# (reason 0x08), as it goes quiet then, saving the pairing; it asks a phone for 4 s itself
+LE_SUPERVISION_MS = 4000
 SCAN_SECONDS = 8
 # The radios' advertised names, so a scan lists them first. Which model a name
 # is stays src/models.js's job; these only sort.
@@ -388,7 +391,7 @@ class BumbleStack:
 
     async def _connect_le(self, mac, on_notify):
         from bumble import core, hci
-        from bumble.device import Peer
+        from bumble.device import ConnectionParametersPreferences, Peer
 
         # As a scan saw it; otherwise random (an SDS150's address is static random), then public
         known = self.le_addresses.get(mac)
@@ -396,8 +399,11 @@ class BumbleStack:
         conn, errors = None, []
         for address in tries:
             try:
-                conn = await self.device.connect(address, transport=core.PhysicalTransport.LE,
-                                                 timeout=CONNECT_SECONDS)
+                conn = await self.device.connect(
+                    address, transport=core.PhysicalTransport.LE, timeout=CONNECT_SECONDS,
+                    connection_parameters_preferences={hci.HCI_LE_1M_PHY: ConnectionParametersPreferences(
+                        connection_interval_min=15, connection_interval_max=30,
+                        supervision_timeout=LE_SUPERVISION_MS)})
                 break
             except Exception as e:
                 errors.append(f"{address}: {type(e).__name__} {e}".strip())
