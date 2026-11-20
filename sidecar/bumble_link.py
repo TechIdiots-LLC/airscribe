@@ -102,6 +102,13 @@ async def ask_for_a_faster_link(device, conn, mac):
             log(f"{mac} kept the 1M PHY: {type(e).__name__} {e}".strip())
 
 
+def audio_screen_seconds(conn):
+    """How often an SDS150's screen is asked for during a transmission: every poll where packets are long (a
+    251-byte link carried both with nothing lost), or once a second at 27 bytes, where the screen cost audio."""
+    long_packets = getattr(conn.data_length, "max_rx_octets", 27) >= 100
+    return sds.POLL_SECONDS if long_packets else sds.AUDIO_SCREEN_SECONDS
+
+
 def log(text):
     """To the server's journal (its stderr)."""
     print(f"[bumble] {text}", file=sys.stderr, flush=True)
@@ -701,6 +708,10 @@ class BumbleBackend(LinkControls):
         scanner = sds.ScannerLink(mac, self.emit, lambda data: self.stack.write_le(mac, data),
                                   decoder=self.opus or None)
         scanner.on_gone = lambda: self._scanner_gone(mac, scanner)
+        conn = session.connection
+        scanner.audio_screen_seconds = audio_screen_seconds(conn)
+        conn.on("connection_data_length_change",
+                lambda: setattr(scanner, "audio_screen_seconds", audio_screen_seconds(conn)))
         session.on_disconnect = lambda reason: self._scanner_gone(mac, scanner, reason)
         holder["link"] = scanner
         self.scanners[mac] = scanner

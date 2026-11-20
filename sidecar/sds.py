@@ -33,7 +33,7 @@ MAGIC = b"\x09\x50\x54"
 SERVICE = "3a5b9d10-f2ec-4f5c-bb2e-2f1a8d98a0a6"
 CHARACTERISTIC = "ab8c17d4-c1c5-4c91-8c56-7d01954c471e"
 POLL_SECONDS = 0.2          # as often as the app asks
-AUDIO_SCREEN_SECONDS = 1.0  # how often GST is asked for while a transmission comes in
+AUDIO_SCREEN_SECONDS = 1.0  # how often GST is asked for while a transmission comes in, on a 27-byte-packet link
 GAP_SECONDS = 0.6           # audio stops this long: the transmission is over (A2 comes ~0.2 s after)
 SILENT_SECONDS = 6          # nothing at all from the scanner this long: it has gone
 MAX_RUN_PACKETS = 5 * 60 * 50  # five minutes: a squelch stuck open mustn't grow forever
@@ -274,6 +274,7 @@ class ScannerLink:
         self.waterfall_until = 0
         self.waterfall_at = 0
         self.screen_at = 0
+        self.audio_screen_seconds = AUDIO_SCREEN_SECONDS    # the transport sets POLL_SECONDS for a faster link
 
     def open(self, detail=None):
         self.heard = self.clock()
@@ -384,7 +385,7 @@ class ScannerLink:
             gone = now - self.heard > SILENT_SECONDS
             # During a transmission the screen is asked for less often, and KAL (no reply) keeps acking in between:
             # each GST reply is the whole screen, ~1/5 of what a Bluetooth 4.0 link carries, and audio was lost
-            if self.current is None or now - self.screen_at >= AUDIO_SCREEN_SECONDS - 0.05:
+            if self.current is None or now - self.screen_at >= self.audio_screen_seconds - 0.05:
                 self.screen_at = now
                 msgs = [self._next("GST")]
             else:

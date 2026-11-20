@@ -213,8 +213,9 @@ A command is a `C0` frame whose data is `0x81`, then the command text, then
 ### What AirScribe adds
 
 **`KAL`** (Keep Alive). The spec says it has no reply, and the scanner sent
-none. During a transmission, AirScribe sends `GST` once a second and `KAL` on
-the other four polls.
+none. During a transmission on a link of 27-byte packets, AirScribe sends
+`GST` once a second and `KAL` on the other four polls. With 251-byte packets
+it keeps sending `GST` every 200 ms.
 - **The ack still goes out every 200 ms**, as the app's does.
 - **Without the screen replies, there's room for the audio.** See
   [Throughput](#throughput).

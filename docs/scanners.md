@@ -64,7 +64,9 @@ The protocol, fully enough to write another client, is in
 - **The link:** one vendor characteristic carries framed commands from Uniden's
   remote command spec, and the scanner's replies, audio and labels.
 - **Polling:** AirScribe polls `GST` (the screen) every 200 ms, as the app
-  does. During a transmission it polls once a second, with `KAL` in between.
+  does. During a transmission on a link of 27-byte packets (a Bluetooth 4.0
+  dongle) it polls once a second, with `KAL` in between; on a Bluetooth 5 one,
+  every 200 ms throughout.
 - **Audio:** comes as Opus packets while the scanner's squelch is open.
   AirScribe ends a transmission after 0.6 s without audio and decodes it with
   ffmpeg.

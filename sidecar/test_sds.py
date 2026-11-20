@@ -161,6 +161,16 @@ class LinkTests(unittest.TestCase):
         self.link.tick()
         self.assertEqual([text(m) for m in self.sent[-2:]], [b"GST\r"] * 2, "and every tick again after")
 
+    def test_on_a_faster_link_the_screen_is_asked_for_every_tick_of_a_transmission(self):
+        self.link.audio_screen_seconds = sds.POLL_SECONDS
+        self.link.tick()
+        self.link.on_notify(scanner_frame(1, 0xA1, b"\x00" + TONE[0]))
+        for i in range(10):
+            self.clock.t += sds.POLL_SECONDS
+            self.link.on_notify(scanner_frame(2 + i, 0xA1, bytes([i + 1]) + TONE[1]))
+            self.link.tick()
+        self.assertEqual([m[13:-2] for m in self.sent[1:]], [b"GST\r"] * 10)
+
     def test_an_a0_from_long_before_isnt_the_next_ones(self):
         self.link.on_notify(scanner_frame(1, 0xA0, b"Old,Channel"))
         self.clock.t += 30

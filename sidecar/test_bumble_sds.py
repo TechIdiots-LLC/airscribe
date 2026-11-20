@@ -15,7 +15,7 @@ from test_sds import TONE, scanner_frame
 try:
     from bumble import core, pairing
     from bumble.controller import Controller
-    from bumble.device import Device
+    from bumble.device import Connection, Device
     from bumble.gatt import Characteristic, CharacteristicValue, Service
     from bumble.host import Host
     from bumble.keys import MemoryKeyStore
@@ -165,6 +165,17 @@ class ScannerOverBumbleTests(unittest.TestCase):
         self.assertEqual(four.asked, [], "a Bluetooth 4.0 dongle isn't asked what it can't do")
         asyncio.run(bumble_link.ask_for_a_faster_link(Dongle(both), refusing, SCANNER))
         self.assertEqual(refusing.asked[-1][0], "phy", "a refusal doesn't stop the rest, nor the connection")
+
+    def test_the_screen_is_polled_during_audio_as_the_link_allows(self):
+        class Link:
+            def __init__(self, octets):
+                self.data_length = Connection.LeDataLength(27, 328, octets, octets * 8 + 112)
+
+        self.assertEqual(bumble_link.audio_screen_seconds(Link(27)), sds.AUDIO_SCREEN_SECONDS, "a 4.0 dongle's")
+        self.assertEqual(bumble_link.audio_screen_seconds(Link(251)), sds.POLL_SECONDS, "a 5.0 one's")
+        # Bumble's virtual controller keeps 27-byte packets
+        self.backend.connect(SCANNER, "sds-ble")
+        self.assertEqual(self.backend.scanners[SCANNER].audio_screen_seconds, sds.AUDIO_SCREEN_SECONDS)
 
     def test_it_pairs_with_the_address_we_connect_from(self):
         self.backend.connect(SCANNER, "sds-ble")
