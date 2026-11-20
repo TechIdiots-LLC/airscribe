@@ -372,7 +372,10 @@ packets an event.
 | 15 ms, `KAL` in place of most `GST` during audio | no gaps heard |
 
 **A Bluetooth 5 dongle** (2M PHY, 251-byte packets) carries several times
-more, as the phone's link does.
+more, as the phone's link does: an audio frame fits in one packet. AirScribe
+asks for both after pairing, when the dongle has them
+([proxmox.md](proxmox.md#which-dongle) has one that works with Bumble). Not
+yet measured on a real SDS150.
 
 ## A session, start to finish
 

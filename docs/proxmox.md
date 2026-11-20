@@ -172,6 +172,35 @@ $P --scan
 $P <radio MAC>            # pairs (radio in pairing mode the first time), finds the channels, captures 45 s
 ```
 
+### Which dongle
+
+A Bluetooth 4.0 dongle such as a CSR8510 (`0a12:0001`) is enough for UV-Pros. An SDS150 sends its audio over Bluetooth
+LE, which a 4.0 dongle carries in 27-byte packets: enough at 15 ms with the screen polled less during audio, but
+with little to spare ([sds150-bluetooth.md](sds150-bluetooth.md#throughput)). A Bluetooth 5 dongle takes 251-byte
+packets and the faster 2M PHY, as a phone does, and AirScribe asks for both when the dongle has them. The journal
+shows what the link got: `packets: 251 bytes out, 251 in` and `PHY: ...LE_2M...`.
+
+Bumble can drive Bluetooth 5 dongles built on Realtek's RTL8761B, such as the **TP-Link UB500** (`2357:0604`). They
+need firmware loaded at every power-up, which Bumble does itself when it finds the files (not yet tried with AirScribe
+on a real one). Put them in the container (the template has `curl`):
+
+```sh
+mkdir -p /lib/firmware/rtl_bt && cd /lib/firmware/rtl_bt
+for f in rtl8761bu_fw.bin rtl8761bu_config.bin; do
+  curl -fsSLO "https://git.kernel.org/pub/scm/linux/kernel/git/firmware/linux-firmware.git/plain/rtl_bt/$f"
+done
+```
+
+(`bumble-rtk-fw-download`, Bumble's tool for this, fails to start in 0.0.236.) Then pass the dongle in and use its ID
+everywhere the steps above have `0a12:0001`: the udev rule, `--transport usb:2357:0604` and `"transport":
+"usb:2357:0604"`. `probe-bumble.py --info` lists `long LE packets : yes` and `LE 2M PHY : yes` for it, and
+`firmware : NOT LOADED` if it didn't find the files.
+
+**A new dongle has a new address, so pair everything again.** A radio or scanner keeps its pairing under the address
+it paired with, so the old keys don't work on the new dongle. Move `/var/lib/airscribe/bumble-keys.json` aside (keep it
+to go back to the old dongle), then connect each one with it ready to pair: a UV-Pro in pairing mode, an SDS150 in
+**Menu > Settings > Bluetooth Options > Pairing**.
+
 ## Updating
 
 **Admin → Updates** installs a newer release in place ([updating.md](updating.md)). By hand, download the release's
