@@ -181,8 +181,7 @@ packets and the faster 2M PHY, as a phone does, and AirScribe asks for both when
 shows what the link got: `packets: 251 bytes out, 251 in` and `PHY: ...LE_2M...`.
 
 Bumble can drive Bluetooth 5 dongles built on Realtek's RTL8761B, such as the **TP-Link UB500** (`2357:0604`). They
-need firmware loaded at every power-up, which Bumble does itself when it finds the files (not yet tried with AirScribe
-on a real one). Put them in the container (the template has `curl`):
+need firmware loaded at every power-up, which Bumble does itself when it finds the files. Put them in the container (the template has `curl`):
 
 ```sh
 mkdir -p /lib/firmware/rtl_bt && cd /lib/firmware/rtl_bt

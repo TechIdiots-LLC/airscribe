@@ -374,8 +374,12 @@ packets an event.
 **A Bluetooth 5 dongle** (2M PHY, 251-byte packets) carries several times
 more, as the phone's link does: an audio frame fits in one packet. AirScribe
 asks for both after pairing, when the dongle has them
-([proxmox.md](proxmox.md#which-dongle) has one that works with Bumble). Not
-yet measured on a real SDS150.
+([proxmox.md](proxmox.md#which-dongle) has one that works with Bumble).
+
+**What was measured on a TP-Link UB500** (RTL8761B, Bluetooth 5.0): the link
+came up with 251-byte packets both ways and 2M before pairing, without
+AirScribe asking. With `GST` once a second during audio, three transmissions
+of 4-7 s arrived with no frame missing.
 
 ## A session, start to finish
 
