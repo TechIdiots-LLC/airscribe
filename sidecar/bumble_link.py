@@ -82,6 +82,40 @@ def keep_link_parameters(manager):
     manager.on_l2cap_connection_parameter_update_request = on_request
 
 
+def note_pairing_keys(device):
+    """Note an LE Secure Connections pairing's key on its connection as encryption starts, before Bumble keeps it.
+
+    Both sides have the key by then. Bumble keeps it only once encryption is on and the keys are exchanged, but an
+    SDS150 keeps its side as encryption starts and sometimes goes silent until the link times out. It then has a
+    pairing AirScribe hasn't, and turns away every new one until Reset Pairings. keep_noted_key() keeps ours.
+    """
+    base = device.smp_session_proxy
+
+    class NotingSession(base):
+        def start_encryption(self, key):
+            if self.sc and self.is_initiator and key == self.ltk:
+                self.connection.airscribe_noted_ltk = key
+            super().start_encryption(key)
+
+    device.smp_session_proxy = NotingSession
+
+
+async def keep_noted_key(device, conn):
+    """After a pairing whose link timed out as encryption started: keep the key noted then, as the scanner did.
+    :returns: whether one was kept."""
+    from bumble.keys import PairingKeys
+
+    ltk = getattr(conn, "airscribe_noted_ltk", None)
+    reasons = getattr(conn, "airscribe_reasons", [])
+    if ltk is None or device.keystore is None or not reasons or reasons[-1] in SCANNER_REFUSED:
+        return False
+    keys = PairingKeys()
+    keys.address_type = conn.peer_address.address_type
+    keys.ltk = PairingKeys.Key(value=ltk, authenticated=False)      # as Bumble keeps a Just Works one
+    await device.keystore.update(str(conn.peer_address), keys)
+    return True
+
+
 async def ask_for_a_faster_link(device, conn, mac):
     """Longer packets and the 2M PHY, where the dongle has them, as an SDS150 uses with a phone. Never raises.
 
@@ -318,6 +352,7 @@ class BumbleStack:
         dev.pairing_config_factory = lambda _c: pairing.PairingConfig(
             sc=True, mitm=True, bonding=True, delegate=delegate)
         keep_link_parameters(dev.l2cap_channel_manager)
+        note_pairing_keys(dev)
         await dev.power_on()
         return dev
 
@@ -577,6 +612,11 @@ class BumbleStack:
             return None
         except (Exception, asyncio.CancelledError) as e:
             if conn.handle not in self.device.connections:
+                await asyncio.sleep(0.3)    # the link's end, to say why
+                if await keep_noted_key(self.device, conn):
+                    why = reason_name(conn.airscribe_reasons[-1])
+                    raise RuntimeError(f"the link to {mac} dropped as pairing finished ({why}); the scanner keeps "
+                                       "its side then, so AirScribe has kept its own, and the next try uses it") from e
                 raise RuntimeError(f"{mac} hung up while pairing ({type(e).__name__}). {SCANNER_HINT}") from e
             return f"the link to {mac} isn't encrypted ({type(e).__name__} {e}). {SCANNER_HINT}"
 

@@ -183,6 +183,32 @@ class ScannerOverBumbleTests(unittest.TestCase):
         bonded = [name for name, _keys in self.stack.run(self.scanner.device.keystore.get_all(), 10)]
         self.assertEqual(bonded, [str(theirs.peer_address)], "the identity it keeps is the address it sees")
         self.assertEqual(bonded, [f"{DONGLE}/P"], "the dongle's public one")
+        ours = [k for _n, k in self.stack.run(self.stack.device.keystore.get_all(), 10)]
+        noted = self.stack.le_sessions[SCANNER].connection.airscribe_noted_ltk
+        self.assertEqual([k.ltk.value for k in ours], [noted], "the key noted as encryption started is the one kept")
+
+    def test_a_link_lost_as_pairing_finishes_keeps_the_key_the_scanner_kept(self):
+        # As a real SDS150 sometimes does: it has the key, keeps it, and goes silent until the link times out
+        device, kept = self.scanner.device, {}
+
+        async def silent(handle, rand, ediv):
+            kept["ltk"] = device.smp_manager.sessions[handle].ltk
+            await device.connections[handle].disconnect(0x08)
+
+        async def has_it(handle, rand, ediv):
+            return kept["ltk"]
+
+        device.get_long_term_key = silent
+        with self.assertRaisesRegex(RuntimeError, "dropped as pairing finished.*kept its own"):
+            self.backend.connect(SCANNER, "sds-ble")
+        ours = [k for _n, k in self.stack.run(self.stack.device.keystore.get_all(), 10)]
+        self.assertEqual([k.ltk.value for k in ours], [kept["ltk"]], "the scanner's key, kept")
+
+        device.get_long_term_key = has_it
+        self.backend.connect(SCANNER, "sds-ble")
+        self.assertEqual(len(self.of("status", state="connected")), 1, self.events)
+        conn = self.stack.le_sessions[SCANNER].connection
+        self.assertFalse(hasattr(conn, "airscribe_noted_ltk"), "encrypted with it, not paired again")
 
     def test_its_parameter_update_keeps_our_interval_and_timeout(self):
         self.backend.connect(SCANNER, "sds-ble")
