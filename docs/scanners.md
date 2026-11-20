@@ -78,6 +78,11 @@ The protocol, fully enough to write another client, is in
 - a real SDS150 through a CSR8510 (Bluetooth 4.0) dongle: pairing,
   reconnecting, the screen, and transmissions whose audio matched a UV-PRO's
   copy of the same call, with no gaps heard;
+- the same SDS150 through a TP-Link UB500 (Bluetooth 5.0): 251-byte packets
+  and 2M, and transmissions with no frames lost;
+- its menus worked from the **Screen** keypad: Menu, the knob (◀ ▶) and E
+  Yes, with each setting's change shown as the scanner made it. The dashed
+  keys and the waterfall are still untried on it;
 - the framing against bytes from captures, and decoding of real captured audio;
 - a fake scanner on Bumble's virtual controller: connecting, polling,
   transmissions, keys, the waterfall, drops, reconnecting, its parameter
