@@ -76,7 +76,19 @@ on the scanner. After it:
 
 **Half-finished pairings:** if pairing completes on the scanner but not on
 the central, the scanner keeps a bond the central doesn't have. It then turns
-away every new pairing. Reset Pairings clears it.
+away every new pairing, with a Security Request and a hang-up (0x13) within
+about 0.1 s. Reset Pairings clears it.
+
+The usual way this happens: the DHKey checks pass, the central starts
+encryption, and the scanner says nothing at all until the link times out
+(0x08). It has kept its side by then. This happened on three of four
+pairings in one evening, on a Bluetooth 5 dongle; once it answered, it did so
+in under half a second. A central that waits for the encryption to finish
+before keeping the key (Bumble does) never has it. With LE Secure Connections
+both sides already hold the key when encryption starts, so AirScribe keeps
+its copy then, if the link is then lost rather than refused. The next
+connection encrypts with it. (That the scanner has kept that key is inferred
+from it turning away new pairings afterwards; not yet seen on a real one.)
 
 **A lost link isn't a refused key.** If the link drops while encrypting
 (0x08, a timeout), keep the key: the scanner still has its side. Forgetting it

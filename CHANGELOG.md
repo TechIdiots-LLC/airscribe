@@ -115,7 +115,9 @@
   dongle can carry. A Bluetooth 5 dongle is asked for 251-byte packets and the 2M PHY, as a phone uses. Bumble loads
   the firmware of a Realtek one, such as the TP-Link UB500, once the files are in place (docs/proxmox.md). On a
   UB500 an SDS150's link ran at 251 bytes and 2M with no audio lost, and on such a link the screen is asked for
-  every 200 ms during a transmission too, rather than once a second.
+  every 200 ms during a transmission too, rather than once a second. When an SDS150 goes silent as encryption
+  starts after pairing, as it often did, AirScribe keeps the key both sides made by then, so the next try can
+  use it rather than needing Reset Pairings on the scanner.
 - **An SDS150's screen, keys and waterfall:** **Screen** on a connected SDS150 shows its screen as it changes, with
   its highlighting and its soft keys named from it; a keypad that holds a key as long as it's held (scroll on the
   screen to turn the knob); and its waterfall, asked for only while it's showing. Keys U/AWARE was seen sending are
