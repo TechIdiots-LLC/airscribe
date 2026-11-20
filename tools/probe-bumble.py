@@ -210,6 +210,16 @@ def describe_controller(dev):
     print(f"manufacturer       : {company} (0x{v.company_identifier:04X})")
     print(f"HCI version / rev  : {v.hci_version} / 0x{v.hci_subversion:04X}")
     print(f"LMP version / sub  : {v.lmp_version} / 0x{v.lmp_subversion:04X}")
+    from bumble.hci import LeFeatureMask
+    for name, feature in (("long LE packets", LeFeatureMask.LE_DATA_PACKET_LENGTH_EXTENSION),
+                          ("LE 2M PHY", LeFeatureMask.LE_2M_PHY)):
+        print(f"{name:<19}: {'yes' if dev.supports_le_features(feature) else 'no'}")
+    # A Realtek dongle still on its ROM, by Bumble's own test: power-on loads the firmware when it finds the files
+    from bumble.drivers import rtk
+    rom = rtk.Driver.find_driver_info(v.hci_version, v.hci_subversion, v.lmp_subversion)
+    if v.company_identifier == 0x005D and rom is not None:
+        print(f"firmware           : NOT LOADED. Bumble looks for {rom.fw_name} and {rom.config_name} in "
+              "/lib/firmware/rtl_bt; see docs/proxmox.md")
 
 
 async def scan(dev, seconds):
