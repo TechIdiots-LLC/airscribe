@@ -135,6 +135,37 @@ class ScannerOverBumbleTests(unittest.TestCase):
         self.assertIs(bumble_link.pick_characteristic(services), real, "ahead of one that only looks like it")
         self.assertIs(bumble_link.pick_characteristic(services[:1]), made_up, "and failing it, what does the same")
 
+    def test_a_newer_dongle_is_asked_for_long_packets_and_2m(self):
+        from bumble import hci
+
+        class Dongle:
+            def __init__(self, features):
+                self.features = features
+
+            def supports_le_features(self, feature):
+                return bool(self.features & feature)
+
+        class Link:
+            def __init__(self, refuse=()):
+                self.asked, self.refuse = [], refuse
+
+            async def set_data_length(self, octets, time_us):
+                self.asked.append(("length", octets, time_us))
+                if "length" in self.refuse:
+                    raise hci.HCI_Error(0x01)
+
+            async def set_phy(self, tx_phys, rx_phys):
+                self.asked.append(("phy", tx_phys, rx_phys))
+
+        both = hci.LeFeatureMask.LE_DATA_PACKET_LENGTH_EXTENSION | hci.LeFeatureMask.LE_2M_PHY
+        five, four, refusing = Link(), Link(), Link(refuse=("length",))
+        asyncio.run(bumble_link.ask_for_a_faster_link(Dongle(both), five, SCANNER))
+        self.assertEqual(five.asked, [("length", 251, 2120), ("phy", [hci.Phy.LE_2M], [hci.Phy.LE_2M])])
+        asyncio.run(bumble_link.ask_for_a_faster_link(Dongle(0), four, SCANNER))
+        self.assertEqual(four.asked, [], "a Bluetooth 4.0 dongle isn't asked what it can't do")
+        asyncio.run(bumble_link.ask_for_a_faster_link(Dongle(both), refusing, SCANNER))
+        self.assertEqual(refusing.asked[-1][0], "phy", "a refusal doesn't stop the rest, nor the connection")
+
     def test_it_pairs_with_the_address_we_connect_from(self):
         self.backend.connect(SCANNER, "sds-ble")
         theirs = next(iter(self.scanner.device.connections.values()))

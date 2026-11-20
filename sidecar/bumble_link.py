@@ -82,6 +82,26 @@ def keep_link_parameters(manager):
     manager.on_l2cap_connection_parameter_update_request = on_request
 
 
+async def ask_for_a_faster_link(device, conn, mac):
+    """Longer packets and the 2M PHY, where the dongle has them, as an SDS150 uses with a phone. Never raises.
+
+    A Bluetooth 4.0 dongle (CSR8510) has neither, and stays at 27 bytes a packet on 1M; a 5.0 one (RTL8761B,
+    TP-Link UB500) carries a frame in one packet instead of up to eighteen.
+    """
+    from bumble import hci
+
+    if device.supports_le_features(hci.LeFeatureMask.LE_DATA_PACKET_LENGTH_EXTENSION):
+        try:
+            await asyncio.wait_for(conn.set_data_length(251, 2120), 5)     # the most a packet carries, and its time
+        except Exception as e:
+            log(f"{mac} kept its packet length: {type(e).__name__} {e}".strip())
+    if device.supports_le_features(hci.LeFeatureMask.LE_2M_PHY):
+        try:
+            await asyncio.wait_for(conn.set_phy(tx_phys=[hci.Phy.LE_2M], rx_phys=[hci.Phy.LE_2M]), 5)
+        except Exception as e:
+            log(f"{mac} kept the 1M PHY: {type(e).__name__} {e}".strip())
+
+
 def log(text):
     """To the server's journal (its stderr)."""
     print(f"[bumble] {text}", file=sys.stderr, flush=True)
@@ -466,6 +486,10 @@ class BumbleStack:
                                f"{conn.parameters.supervision_timeout:g} ms timeout")
             show()
             conn.on("connection_parameters_update", show)
+            conn.on("connection_data_length_change", lambda: log(
+                f"{mac} packets: {conn.data_length.max_tx_octets} bytes out, "
+                f"{conn.data_length.max_rx_octets} in"))
+            conn.on("connection_phy_update", lambda phy: log(f"{mac} PHY: {phy}"))
         if conn is None:
             raise RuntimeError(f"couldn't reach {mac} over LE ({'; '.join(errors)}). Is its Bluetooth on, "
                                "and nothing else (U/AWARE) connected to it?")
@@ -478,6 +502,8 @@ class BumbleStack:
                 await asyncio.wait_for(peer.request_mtu(517), GATT_SECONDS)   # its frames run to ~480 bytes
             except Exception:
                 pass
+            step = "asking for a faster link"
+            await ask_for_a_faster_link(self.device, conn, mac)
             step = "finding its services"
             await asyncio.wait_for(peer.discover_services(), GATT_SECONDS)
             found = []
