@@ -193,18 +193,18 @@ class ScannerOverBumbleTests(unittest.TestCase):
 
         async def silent(handle, rand, ediv):
             kept["ltk"] = device.smp_manager.sessions[handle].ltk
-            await device.connections[handle].disconnect(0x08)
+            await device.connections[handle].disconnect(0x08)     # no answer: the link ends first
 
         async def has_it(handle, rand, ediv):
             return kept["ltk"]
 
-        device.get_long_term_key = silent
+        device.host.long_term_key_provider = silent
         with self.assertRaisesRegex(RuntimeError, "dropped as pairing finished.*kept its own"):
             self.backend.connect(SCANNER, "sds-ble")
         ours = [k for _n, k in self.stack.run(self.stack.device.keystore.get_all(), 10)]
         self.assertEqual([k.ltk.value for k in ours], [kept["ltk"]], "the scanner's key, kept")
 
-        device.get_long_term_key = has_it
+        device.host.long_term_key_provider = has_it
         self.backend.connect(SCANNER, "sds-ble")
         self.assertEqual(len(self.of("status", state="connected")), 1, self.events)
         conn = self.stack.le_sessions[SCANNER].connection

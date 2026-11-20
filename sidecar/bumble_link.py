@@ -558,10 +558,11 @@ class BumbleStack:
             step = "subscribing to its frames"
             await asyncio.wait_for(peer.subscribe(char, on_notify), GATT_SECONDS)
         except BaseException as e:
-            try:
-                await conn.disconnect()
-            except Exception:
-                pass
+            if conn.handle in self.device.connections:      # not one that's already gone
+                try:
+                    await asyncio.wait_for(conn.disconnect(), 5)
+                except Exception:
+                    pass
             if isinstance(e, RuntimeError):
                 raise       # already says what happened
             # Bumble cancels what's waiting when the link drops: the scanner hung up at this step
