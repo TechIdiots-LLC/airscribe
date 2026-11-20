@@ -277,6 +277,7 @@ class ControlTests(unittest.TestCase):
             self.link.press("KEY,M,H")
 
     def test_the_waterfall_is_asked_for_only_while_wanted(self):
+        self.link.on_notify(pieces(1, WATERFALL))
         self.link.tick()
         self.assertEqual(self.texts(), ["GST"])
         self.link.waterfall(1)
@@ -294,6 +295,24 @@ class ControlTests(unittest.TestCase):
         n = len(self.sent)
         self.link.tick()
         self.assertEqual(self.texts()[n:], ["GST"], "and stops when nobody asks again")
+
+    def test_the_waterfall_stops_when_the_scanner_leaves_its_waterfall_mode(self):
+        self.link.waterfall(30)
+        self.link.tick()
+        self.assertNotIn("GW2,1,ON", self.texts(), "not before a screen says it's in waterfall mode")
+        self.link.on_notify(pieces(1, WATERFALL))
+        self.clock.t += sds.WATERFALL_SECONDS
+        self.link.tick()
+        self.assertEqual(self.texts()[-1], "GW2,1,ON")
+        # Back to scanning: it still answers GW2, with the same levels each time
+        self.link.on_notify(pieces(5, gst_text([("Scanning...", "", False)], ["1", "0", "0", "0"])))
+        self.link.on_notify(pieces(9, b"GW2," + bytes(240) + b"\r"))
+        n = len(self.sent)
+        for _ in range(5):
+            self.clock.t += sds.WATERFALL_SECONDS
+            self.link.tick()
+        self.assertNotIn("GW2,1,ON", self.texts()[n:], "no longer asked for")
+        self.assertEqual(self.of("scanner-waterfall"), [], "and a late reply isn't drawn")
 
 
 def wait(pred, seconds=3):

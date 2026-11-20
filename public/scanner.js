@@ -231,5 +231,6 @@ document.addEventListener('airscribe:scanner-screen', (e) => {
   if (radio && e.detail.mac === radio.mac) draw(e.detail.screen);
 });
 document.addEventListener('airscribe:scanner-waterfall', (e) => {
-  if (radio && waterfallOn && e.detail.mac === radio.mac) drawRow(e.detail.levels);
+  // Only while its screen is in waterfall mode: a reply already on its way after it left isn't a row
+  if (radio && waterfallOn && span && e.detail.mac === radio.mac) drawRow(e.detail.levels);
 });

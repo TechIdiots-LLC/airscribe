@@ -274,6 +274,7 @@ class ScannerLink:
         self.waterfall_until = 0
         self.waterfall_at = 0
         self.screen_at = 0
+        self.screen_mode = None     # the last screen's: GW2 is asked for only in "waterfall"
         self.audio_screen_seconds = AUDIO_SCREEN_SECONDS    # the transport sets POLL_SECONDS for a faster link
 
     def open(self, detail=None):
@@ -326,8 +327,10 @@ class ScannerLink:
                 self.screen = text
                 screen = parse_gst(text)
                 if screen:
+                    self.screen_mode = screen["mode"]
                     self.pending.append({"event": "scanner-screen", "mac": self.mac, **screen})
-        elif text.startswith(b"GW2,"):
+        elif text.startswith(b"GW2,") and self.screen_mode == "waterfall":
+            # Out of waterfall mode it still answers, with the same levels each time
             levels = text[4:].rstrip(b"\r")
             if len(levels) >= 240:
                 self.pending.append({"event": "scanner-waterfall", "mac": self.mac,
@@ -390,7 +393,8 @@ class ScannerLink:
                 msgs = [self._next("GST")]
             else:
                 msgs = [self._next("KAL")]
-            if now < self.waterfall_until and now - self.waterfall_at >= WATERFALL_SECONDS - 0.05:
+            if (now < self.waterfall_until and self.screen_mode == "waterfall"
+                    and now - self.waterfall_at >= WATERFALL_SECONDS - 0.05):
                 self.waterfall_at = now
                 msgs.append(self._next("GW2,1,ON"))
             events, self.pending = self.pending, []

@@ -10,7 +10,7 @@ import time
 import unittest
 
 import sds
-from test_sds import TONE, scanner_frame
+from test_sds import TONE, WATERFALL, pieces, scanner_frame
 
 try:
     from bumble import core, pairing
@@ -239,6 +239,7 @@ class ScannerOverBumbleTests(unittest.TestCase):
 
     def test_keys_and_the_waterfall_reach_it(self):
         self.backend.connect(SCANNER, "sds-ble")
+        self.stack.run(self.scanner.send([pieces(1, WATERFALL)]), 10)    # in its waterfall mode
         self.backend.scanner_key(SCANNER, "M", 50)
         self.backend.scanner_waterfall(SCANNER, 5)
         sent = lambda: b"".join(self.scanner.writes)  # noqa: E731
