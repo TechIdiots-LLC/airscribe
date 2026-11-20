@@ -82,7 +82,9 @@ The protocol, fully enough to write another client, is in
   and 2M, and transmissions with no frames lost;
 - its menus worked from the **Screen** keypad: Menu, the knob (◀ ▶) and E
   Yes, with each setting's change shown as the scanner made it. The dashed
-  keys and the waterfall are still untried on it;
+  keys are still untried on it;
+- its waterfall, on the FM broadcast band: levels drawn as they came, with the
+  span and marker from the screen;
 - the framing against bytes from captures, and decoding of real captured audio;
 - a fake scanner on Bumble's virtual controller: connecting, polling,
   transmissions, keys, the waterfall, drops, reconnecting, its parameter
