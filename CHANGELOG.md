@@ -3,6 +3,9 @@
 ## master
 ### ✨ Features and improvements
 - _...Add new stuff here..._
+- **NVIDIA GPUs:** `tools/install-nvidia-libs.sh` installs the Proxmox host's NVIDIA driver version's libraries in the
+  container (they must match), and docs/proxmox.md sets up the host and the container for an NVIDIA card, with
+  whisper.cpp built with CUDA behind the `whisper-server` engine (OpenVINO runs only on Intel hardware).
 - **One address:** visitors who aren't signed in see the public view (what's published, behind the delay) with a
   **Sign in** button, on the same address as the console; `/#signin` goes straight to signing in. `adminPort` and
   `adminHost` are gone: an old settings file that sets them gets a warning, and the console is on `port`. Signed

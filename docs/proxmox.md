@@ -98,6 +98,100 @@ fell back to the CPU) and is slow while the model compiles for the card; `ov-cac
 before the change can be read again with `POST /api/transcribe-missing?engine=openvino`. whisper.cpp with Vulkan is
 the other route ([transcription.md](transcription.md#using-an-intel-gpu)); it hasn't been run on the card yet.
 
+## Transcription on the host's NVIDIA GPU
+
+OpenVINO needs an Intel GPU, so with an NVIDIA card (an RTX 5060 Ti, say) transcription moves to whisper.cpp's
+`whisper-server` engine ([transcription.md](transcription.md#using-an-nvidia-gpu)). NVIDIA's driver goes on the host,
+and the same version's libraries in the container: the two must match exactly.
+
+1. **On the host, install NVIDIA's driver,** with the open kernel modules (RTX 50 cards need them).
+   `curl -s https://download.nvidia.com/XFree86/Linux-x86_64/latest.txt` gives the latest version:
+
+   ```sh
+   apt install proxmox-default-headers proxmox-headers-$(uname -r) build-essential dkms pkg-config
+   printf 'blacklist nouveau\noptions nouveau modeset=0\n' > /etc/modprobe.d/blacklist-nouveau.conf
+   update-initramfs -u -k all && reboot
+   ver=595.58.03
+   wget https://download.nvidia.com/XFree86/Linux-x86_64/$ver/NVIDIA-Linux-x86_64-$ver.run
+   sh NVIDIA-Linux-x86_64-$ver.run --dkms -m=kernel-open
+   nvidia-smi
+   ```
+
+   DKMS builds the module again for each new Proxmox kernel. With Secure Boot on, the installer has to sign it (it
+   asks); turning Secure Boot off is simpler.
+
+2. **Have the host make the card's device nodes as it starts.** The driver makes them only when something first uses
+   the card, and a container can't start while a device it's given is missing:
+
+   ```sh
+   printf 'nvidia\nnvidia_uvm\n' > /etc/modules-load.d/nvidia.conf
+   cat > /etc/udev/rules.d/70-nvidia.rules <<'EOF'
+   KERNEL=="nvidia", RUN+="/bin/bash -c '/usr/bin/nvidia-smi -L && /bin/chmod 666 /dev/nvidia*'"
+   KERNEL=="nvidia_uvm", RUN+="/bin/bash -c '/usr/bin/nvidia-modprobe -c0 -u && /bin/chmod 0666 /dev/nvidia-uvm*'"
+   EOF
+   reboot
+   ls -l /dev/nvidia*      # nvidia0, nvidiactl, nvidia-uvm, nvidia-uvm-tools
+   ```
+
+3. **Pass them in,** in place of the Intel card's render node, which is gone with the card and would stop the container
+   starting. `pct config <id>` shows which `devN` holds `/dev/dri/renderD128` (the dongle keeps its own); here it's
+   `dev1`, and `dev2` to `dev5` are free:
+
+   ```sh
+   pct set <id> -delete dev1
+   pct set <id> -dev1 /dev/nvidia0,mode=0666 -dev2 /dev/nvidiactl,mode=0666 \
+       -dev3 /dev/nvidia-uvm,mode=0666 -dev4 /dev/nvidia-uvm-tools,mode=0666
+   pct reboot <id>
+   ```
+
+4. **Install the driver's libraries in the container** (it downloads the host's driver version from NVIDIA; no
+   kernel module):
+
+   ```sh
+   pct exec <id> -- /opt/airscribe/tools/install-nvidia-libs.sh
+   pct exec <id> -- runuser -u airscribe -- nvidia-smi -L
+   ```
+
+5. **Build whisper.cpp with CUDA.** It needs NVIDIA's CUDA toolkit, from NVIDIA's own repository: Ubuntu 24.04's
+   `nvidia-cuda-toolkit` (12.0) is too old for RTX 50 cards. The toolkit only, not the `cuda` package, which would
+   install a driver too. It takes about 6 GB and stays: whisper.cpp uses its libraries.
+
+   ```sh
+   curl -fsSLO https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2404/x86_64/cuda-keyring_1.1-1_all.deb
+   dpkg -i cuda-keyring_1.1-1_all.deb && apt update
+   apt install -y cuda-toolkit build-essential cmake git
+   export PATH=/usr/local/cuda/bin:$PATH
+   git clone https://github.com/ggml-org/whisper.cpp && cd whisper.cpp
+   cmake -B build -DGGML_CUDA=1 -DCMAKE_CUDA_ARCHITECTURES=120 -DCMAKE_BUILD_TYPE=Release   # 120: RTX 50
+   cmake --build build -j --config Release
+   cmake --install build --prefix /usr/local && ldconfig
+   ```
+
+   The toolkit's CUDA version must be one the host's driver supports (`nvidia-smi` shows the newest it does). A
+   whisper.cpp already built with Vulkan for the Arc also runs on the NVIDIA card, through NVIDIA's Vulkan driver,
+   with no toolkit; it's slower than CUDA.
+
+6. **Switch the engine** to `whisper-server` in `/etc/airscribe/airscribe.config.json`. With 16 GB on the card, a
+   large model fits beside the other containers' work:
+
+   ```json
+   "stt": {
+     "engine": "whisper-server",
+     "whisper-server": {
+       "model": "/var/lib/airscribe/models/ggml-large-v3-turbo.bin",
+       "language": "en",
+       "args": ["--vad", "-vm", "/var/lib/airscribe/models/ggml-silero-v5.1.2.bin"]
+     }
+   }
+   ```
+
+   [transcription.md](transcription.md#whisper-server) has the models and the voice-detection model to download.
+   `systemctl restart airscribe`; the first clip logs `whisper_backend_init_gpu: using CUDA0 backend` when it's on the
+   card, `no GPU found` when it isn't.
+
+7. **After upgrading the host's driver,** run `install-nvidia-libs.sh` again. Until then CUDA fails
+   (`driver/library version mismatch`) and whisper.cpp runs on the CPU.
+
 ## Radios over Bluetooth
 
 The kernel refuses Bluetooth sockets to anything outside the host's own network namespace, which an LXC container is,

@@ -162,6 +162,24 @@ Both reach the card through its render node, so the service account needs the
 [installing.md](installing.md#using-an-intel-gpu). Several containers can share
 the card, so a media server can keep transcoding on it.
 
+## Using an NVIDIA GPU
+
+OpenVINO runs only on Intel hardware: with an NVIDIA card, its `GPU` device
+isn't there and the `openvino` engine falls back to the CPU. Use whisper.cpp
+through `whisper-server` instead, built one of two ways:
+
+- **with CUDA** (`-DGGML_CUDA=1`), the faster, which needs NVIDIA's CUDA
+  toolkit to build it, and keeps it for its libraries;
+- **with Vulkan**, as for an Arc ([below](#whispercpp-on-a-gpu-vulkan)): the
+  same build runs on the NVIDIA card through the Vulkan driver in NVIDIA's
+  libraries, with no toolkit.
+
+Either way the container needs the card's devices and NVIDIA's driver
+libraries, the same version as the host's driver. [proxmox.md](proxmox.md#transcription-on-the-hosts-nvidia-gpu)
+has the steps, and `tools/install-nvidia-libs.sh` installs the libraries. The
+`whisper-server` engine's settings don't change; the first clip's log says
+`using CUDA0 backend` (or `Vulkan0`) when it's on the card.
+
 ## OpenVINO
 
 OpenVINO GenAI runs Whisper and SenseVoice on an Intel GPU, through the same
