@@ -375,6 +375,52 @@
     </div>
     <p class="meta" id="rr-status"></p>
   </div>
+  <div class="panel">
+    <div class="row"><h3>Findings</h3><button id="fd-refresh">Refresh</button></div>
+    <p class="meta">A language model reads each transcript, with the channel’s last few minutes, and picks out the
+      addresses, roads, plates, vehicles, people and units mentioned, the kind of call and a one-line summary. It runs
+      on a server you give here: an Ollama (llm-lxc’s, say) or another OpenAI-style one. What it finds is about people
+      heard on the radio, so only admins see it: never the feed, the public view or a viewer. It’s deleted after the
+      days set here. Speech recognition mishears radio, and a model can turn a misheard word into a confident wrong
+      one: play the clip before acting on anything (docs/findings.md).</p>
+    <div class="row wrap">
+      <label class="toggle"><input type="checkbox" id="fd-enabled"> On</label>
+      <label>Server <select id="fd-api"><option value="ollama">Ollama</option><option value="openai">OpenAI-style</option></select></label>
+      <label>Address <input id="fd-url" size="26" spellcheck="false" placeholder="http://192.168.0.139:11434"></label>
+      <label>Model <input id="fd-model" size="14" spellcheck="false" placeholder="qwen3:8b"></label>
+    </div>
+    <div class="row wrap">
+      <label>API key <input id="fd-key" type="password" autocomplete="new-password" size="14"></label>
+      <label>Webhook <input id="fd-webhook" size="30" spellcheck="false" placeholder="posted to when a watch matches"></label>
+      <label>Keep for <input id="fd-keep" type="number" min="1" max="3650" step="1" size="4"> days</label>
+    </div>
+    <div class="row wrap">
+      <button id="fd-save">Save</button>
+      <button id="fd-test">Test</button>
+      <label>Read the last <input id="fd-hours" type="number" min="1" step="1" value="24" size="4"> hours</label>
+      <button id="fd-backfill">Read them</button>
+      <button id="fd-forget" class="link">Delete all findings</button>
+    </div>
+    <p class="meta" id="fd-status" role="status"></p>
+    <div id="fd-tested"></div>
+    <h4>Watch for</h4>
+    <p class="meta">A plate, a street, a name, a phrase. Each is looked for in the transcript and in what the model
+      found: “Elm St” finds “412 Elm Street”, and “ABC 123” finds a plate read out as “Adam Boy Charlie one two
+      three”. A match is kept here and posted to the webhook.</p>
+    <ul id="fd-watches" class="user-list"></ul>
+    <div class="row wrap">
+      <label>Watch for <input id="fd-term" maxlength="100" size="16" spellcheck="false"></label>
+      <label>Note <input id="fd-note" maxlength="200" size="18" placeholder="why"></label>
+      <button id="fd-watch-add">Add</button>
+    </div>
+    <h4>Found</h4>
+    <div class="row wrap">
+      <label>Search <input id="fd-q" size="18" spellcheck="false" placeholder="a plate, a road, a word"></label>
+      <label class="toggle"><input type="checkbox" id="fd-hits"> only watch matches</label>
+    </div>
+    <ul id="fd-results" class="user-list"></ul>
+    <div class="row"><button id="fd-more" hidden>More</button></div>
+  </div>
 </section>
 <dialog id="controls">
   <div class="row"><h2 id="controls-title">Controls</h2><button id="controls-close">Close</button></div>
@@ -432,6 +478,7 @@
 <script src="insights.js" type="module"></script>
 <script src="map.js" type="module"></script>
 <script src="admin.js" type="module"></script>
+<script src="findings.js" type="module"></script>
 <script src="users.js" type="module"></script>
 <script src="logins.js" type="module"></script>
 <script src="channels.js" type="module"></script>

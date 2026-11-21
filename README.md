@@ -44,6 +44,7 @@ npm run simulate        # fake radio + mock transcriber, no hardware needed
 | A Uniden SDS150 over Bluetooth LE (bumble backend): its audio and what it is on, its screen, keys and waterfall, as U/AWARE has them, no sound card | working on a real SDS150 (pairing, reconnecting, the screen, transcribed audio, its menus from the keypad, its waterfall); the keys U/AWARE wasn't seen sending not yet tried on it. See [docs/scanners.md](docs/scanners.md#over-bluetooth-sds150), and [docs/sds150-bluetooth.md](docs/sds150-bluetooth.md) for the protocol |
 | Delayed publishing to a public page | built: visitors who aren't signed in see what's published, behind the delay, on the same address; the podcast feed not built. See [docs/publishing.md](docs/publishing.md) |
 | Two-step verification (passkeys, authenticator apps, recovery codes) for controlling radios and Admin | working through the API and in Chromium with a virtual passkey; not yet with a real phone or key, see [docs/two-step.md](docs/two-step.md) |
+| Findings: a language model picks plates, addresses, roads and the like out of transcripts, a watch list, a webhook; admins only | working against a stand-in model server, through the API and in Chromium; not yet with a real model, see [docs/findings.md](docs/findings.md) |
 | Digital modes beyond packets (IRC, file transfer) | design only, see [docs/digital-modes.md](docs/digital-modes.md) |
 
 Documentation: [installing](docs/installing.md) · [accounts](docs/accounts.md) ·
@@ -51,7 +52,7 @@ Documentation: [installing](docs/installing.md) · [accounts](docs/accounts.md) 
 [updating](docs/updating.md) · [testing](docs/testing.md) ·
 [publishing](docs/publishing.md) ·
 [segmentation](docs/segmentation.md) ·
-[transcription](docs/transcription.md) · [Bluetooth link](docs/bluetooth.md) ·
+[transcription](docs/transcription.md) · [findings](docs/findings.md) · [Bluetooth link](docs/bluetooth.md) ·
 [a radio's channels](docs/channels.md) · [packets](docs/packets.md) · [scanners](docs/scanners.md) ·
 [the SDS150's Bluetooth protocol](docs/sds150-bluetooth.md) · [finding channels](docs/radioreference.md) · [digital modes](docs/digital-modes.md)
 

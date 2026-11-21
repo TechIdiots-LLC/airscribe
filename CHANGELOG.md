@@ -3,6 +3,13 @@
 ## master
 ### ✨ Features and improvements
 - _...Add new stuff here..._
+- **Findings (Admin → Findings), off until an admin turns it on:** a language model on your own server (llm-lxc's
+  Ollama, or any OpenAI-style one) reads each transcript, with its channel's last few minutes, and picks out the
+  addresses, roads, plates (a phonetic alphabet read out becomes letters), vehicles, people and units, the kind of
+  call and a one-line summary. A watch list of plates, streets, names or phrases is checked against the transcript
+  and what was found, and a match can be posted to a webhook (Home Assistant). Only admins see any of it, behind
+  Admin's own check; it's never in the feed, the event stream, exports or the public view, and it's deleted after 30
+  days by default (docs/findings.md).
 - **NVIDIA GPUs:** `tools/install-nvidia-libs.sh` installs the Proxmox host's NVIDIA driver version's libraries in the
   container (they must match), and docs/proxmox.md sets up the host and the container for an NVIDIA card, with
   whisper.cpp built with CUDA behind the `whisper-server` engine (OpenVINO runs only on Intel hardware).

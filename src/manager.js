@@ -584,6 +584,8 @@ export class Manager extends EventEmitter {
     if (!this.store.hasTransmission(id)) return;
     this.store.saveTranscript(id, engineName, result);
     this.emit('update', { type: 'transmission', ...this.store.transmission(id) });
+    // For Findings, which reads finished transcripts (never sent to the page)
+    this.emit('transcribed', { id, engine: engineName, status: result.status });
   }
 
   /**

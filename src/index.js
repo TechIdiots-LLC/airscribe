@@ -12,6 +12,7 @@ import { Cleanup } from './cleanup.js';
 import { RadioReference } from './radioreference.js';
 import { Accounts } from './accounts.js';
 import { Logins } from './logins.js';
+import { Findings } from './findings.js';
 
 const args = process.argv.slice(2);
 const flag = (n) => args.includes(n);
@@ -76,8 +77,11 @@ cleanup.start();
 const radioreference = new RadioReference({ store, config: config.radioreference });
 // Signing in with Google, GitHub, Discord or Facebook, once an admin turns one on
 const logins = new Logins({ store, accounts, config: config.auth });
+// Admin → Findings: transcripts read by a language model, once an admin turns it on
+const findings = new Findings({ store, manager, primary });
+findings.start();
 const app = createApp({
-  manager, store, sidecar, config, dataDir: config.dataDir, updates, cleanup, radioreference, accounts, logins,
+  manager, store, sidecar, config, dataDir: config.dataDir, updates, cleanup, radioreference, accounts, logins, findings,
 });
 
 // One address: signed-out visitors get the public view (docs/publishing.md)
@@ -96,6 +100,7 @@ const server = app.listen(config.port, config.host, () => {
 const shutdown = () => {
   updates.stop();
   cleanup.stop();
+  findings.stop();
   manager.stopRetrying();
   sidecar.stop();
   for (const e of engines.values()) e.stop?.(); // release any held workers

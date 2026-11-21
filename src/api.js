@@ -129,9 +129,10 @@ function channelQuery(value) {
  * @param {import('./radioreference.js').RadioReference} [o.radioreference] - Map → Find.
  * @param {import('./accounts.js').Accounts} [o.accounts] - People's accounts and invites.
  * @param {import('./logins.js').Logins} [o.logins] - Signing in with Google, GitHub, Discord or Facebook.
+ * @param {import('./findings.js').Findings} [o.findings] - Admin → Findings.
  * @returns {import('express').Express} The app.
  */
-export function createApp({ manager, store, sidecar, config, dataDir, updates, cleanup, radioreference, accounts, logins }) {
+export function createApp({ manager, store, sidecar, config, dataDir, updates, cleanup, radioreference, accounts, logins, findings }) {
   const app = express();
   const linked = accounts && logins ? logins : null;
   const auth = createAuth(config, {
@@ -836,6 +837,23 @@ export function createApp({ manager, store, sidecar, config, dataDir, updates, c
       if (!Number.isInteger(scid) || scid <= 0) throw refuse('a group is a number', 400);
       return radioreference.stations(scid);
     }));
+  }
+
+  // Findings: what a language model reads in the transcripts (docs/findings.md). Admin only, behind Admin's own
+  // check like the rest of /admin, and never on the event stream: it's about people heard on the radio.
+  if (findings) {
+    const admin = auth.requireRole('admin');
+    api.get('/admin/findings', admin, answer(() => findings.settings()));
+    api.put('/admin/findings', admin, answer((req) => findings.save(req.body ?? {})));
+    api.post('/admin/findings/test', admin, answer((req) => findings.test(req.body?.text)));
+    api.post('/admin/findings/backfill', admin, answer((req) => findings.backfill(req.body?.hours)));
+    api.post('/admin/findings/forget', admin, answer(() => findings.forget()));
+    api.get('/admin/findings/results', admin, answer((req) => findings.results({
+      q: req.query.q, hits: req.query.hits === '1', before: req.query.before, limit: req.query.limit,
+    })));
+    api.get('/admin/findings/watches', admin, answer(() => findings.watches()));
+    api.post('/admin/findings/watches', admin, answer((req) => findings.addWatch(req.body ?? {})));
+    api.delete('/admin/findings/watches/:id', admin, answer((req) => findings.removeWatch(Number(req.params.id))));
   }
 
   // Insights: the commonest words, transmissions per hour and per channel, over
