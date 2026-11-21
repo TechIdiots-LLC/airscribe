@@ -107,9 +107,10 @@ test('cookies are read without a parser dependency', () => {
 /** @param {object} auth - Config auth section. @returns {object} A built auth. */
 const build = (auth, rest = {}) => createAuth({ host: '127.0.0.1', auth, ...rest });
 /** @param {object} o - Request bits. @returns {object} A fake request. */
-const req = ({ token, cookie, body } = {}) => ({
-  get: (h) => (h.toLowerCase() === 'authorization' && token ? `Bearer ${token}` : undefined),
-  query: {}, headers: cookie ? { cookie } : {}, body,
+const req = ({ token, cookie, body, from = '127.0.0.1', forwarded } = {}) => ({
+  get: (h) => (h.toLowerCase() === 'authorization' && token ? `Bearer ${token}`
+    : h.toLowerCase() === 'x-forwarded-for' ? forwarded : undefined),
+  query: {}, headers: cookie ? { cookie } : {}, body, socket: { remoteAddress: from },
 });
 /** @returns {object} A fake response capturing what was sent. */
 function res() {
@@ -168,6 +169,24 @@ test('signing in with a password gives a session cookie', () => {
   assert.equal(opts.sameSite, 'lax');
   // And the cookie then authenticates.
   assert.equal(a.roleOf(req({ cookie: `airscribe_session=${value}` })), 'admin');
+});
+
+test('the settings file’s password is taken only from the local network, not through a proxy', () => {
+  const a = build({ passwordHash: hashPassword('hunter2') });
+  for (const from of ['127.0.0.1', '::1', '192.168.1.20', '10.1.2.3', '172.20.0.5', '::ffff:192.168.0.9', 'fd00::5']) {
+    const r = res();
+    a.login(req({ body: { password: 'hunter2' }, from }), r);
+    assert.equal(r.body.role, 'admin', from);
+  }
+  for (const o of [{ from: '203.0.113.7' }, { from: '172.32.0.1' }, { from: '192.168.1.1', forwarded: '203.0.113.7' }]) {
+    const r = res();
+    a.login(req({ body: { password: 'hunter2' }, ...o }), r);
+    assert.equal(r.code, 401, JSON.stringify(o));
+  }
+  const off = build({ passwordHash: hashPassword('hunter2') }, { twoStep: { required: false } });
+  const r = res();
+  off.login(req({ body: { password: 'hunter2' }, from: '203.0.113.7' }), r);
+  assert.equal(r.body.role, 'admin', 'with two-step off, from anywhere, as before');
 });
 
 test('a wrong password is refused and mints nothing', () => {

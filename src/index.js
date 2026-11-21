@@ -46,7 +46,7 @@ console.log(
 );
 const store = new Store(join(config.dataDir, 'airscribe.sqlite'), primary);
 // People's accounts and invites, beside the settings file's password and tokens
-const accounts = new Accounts(store.db);
+const accounts = new Accounts(store.db, { rememberDays: config.twoStep?.rememberDays });
 // An admin account counts as a credential, as one in the settings file does
 assertSafeToListen(config, { admins: accounts.admins() });
 // Bumble keeps its own pairing keys; beside the database, the one folder the service may write

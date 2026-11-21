@@ -68,7 +68,7 @@ test('a radio\'s beacon through the API: an admin\'s, and filled in from one\'s 
       return { ...bss };
     },
   });
-  const config = { host: '127.0.0.1', auth: { tokens: [{ token: 'script' }] } };
+  const config = { host: '127.0.0.1', auth: { tokens: [{ token: 'script' }] }, twoStep: { required: false } };
   const server = createApp({ manager, store, sidecar: {}, config, dataDir: '.', accounts }).listen(0, '127.0.0.1');
   await new Promise((r) => server.once('listening', r));
   const base = `http://127.0.0.1:${server.address().port}/api`;

@@ -10,6 +10,7 @@ import { insights } from './insights.js';
 import { checkWrite, resolveWrite } from './channels.js';
 import { judge } from './quality.js';
 import { checkBeacon, checkProfile } from './beacon.js';
+import { creationOptions, requestOptions } from './webauthn.js';
 
 const PUBLIC = fileURLToPath(new URL('../public', import.meta.url));
 
@@ -145,7 +146,11 @@ const PUBLIC_CLIP = /^\/public\/transmissions\/\d+\/(audio|text)$/;
 export function createApp({ manager, store, sidecar, config, dataDir, updates, cleanup, radioreference, accounts, logins }) {
   const app = express();
   const linked = accounts && logins ? logins : null;
-  const auth = createAuth(config, { accounts, providers: () => linked?.enabled() ?? [] });
+  const auth = createAuth(config, {
+    accounts, providers: () => linked?.enabled() ?? [], publicUrl: () => store.setting?.('login.publicUrl') ?? '',
+  });
+  // Behind a reverse proxy: whose X-Forwarded-For and -Proto to believe (docs/publishing.md#one-address)
+  if (config.trustProxy) app.set('trust proxy', config.trustProxy);
   app.use(express.json({ limit: '32kb' }));
   app.get('/healthz', (req, res) => res.json({ ok: true }));
 
@@ -268,8 +273,7 @@ export function createApp({ manager, store, sidecar, config, dataDir, updates, c
       }
       if (user.disabled) return backTo(res, `signin:error=${encodeURIComponent('this account is turned off; an admin can turn it back on')}`);
       accounts.touchLink(provider, done.identity.subject);
-      auth.startSession(req, res, { userId: user.id, role: user.role });
-      backTo(res, '');
+      backTo(res, auth.firstStepDone(req, res, user).signedIn ? '' : 'signin:two-step');
     });
     // The outside account waiting to be linked, and linking it with a password
     api.get('/auth/waiting', answer((req) => {
@@ -297,10 +301,67 @@ export function createApp({ manager, store, sidecar, config, dataDir, updates, c
       linked.release(token);
       res.clearCookie(WAITING_COOKIE, { path: '/api/auth' });
       accounts.touchLink(held.provider, held.identity.subject);
-      auth.startSession(req, res, { userId: user.id, role: user.role });
+      if (!auth.firstStepDone(req, res, user).signedIn) {
+        return { ok: false, provider: held.provider, twoStep: 'signin', methods: auth.methodsFor(user.id, auth.pageOf(req).rpId) };
+      }
       return { ok: true, provider: held.provider };
     }));
   }
+  // ---- Two-step at sign-in (docs/two-step.md) ---------------------------
+  if (accounts) {
+    const t = accounts.twoStep;
+    const waitingOne = (req) => {
+      const w = auth.waiting(req);
+      if (!w) throw refuse('the sign-in waited too long: sign in again', 401);
+      return w;
+    };
+    // What a sign-in waiting for its second step may use, for the page that asks
+    api.get('/login/two-step', answer((req) => auth.methodsFor(waitingOne(req).userId, auth.pageOf(req).rpId)));
+    api.post('/login/two-step/options', answer((req) => {
+      const w = waitingOne(req);
+      const { rpId } = auth.pageOf(req);
+      const allow = t.allowFor(w.userId, rpId);
+      if (!allow.length) throw refuse('this account has no passkey for this address: use a code', 400);
+      return requestOptions({ rpId, challenge: t.challenge('signin-step', w.token), allow });
+    }));
+    api.post('/login/two-step', answer((req, res) => {
+      if (auth.tooMany(req)) throw refuse('too many tries from here: wait a few minutes', 429);
+      const w = waitingOne(req);
+      let left;
+      try {
+        if (req.body?.credential) {
+          t.usePasskey(req.body.credential, { purpose: 'signin-step', owner: w.token, userId: w.userId, ...auth.pageOf(req) });
+        } else {
+          left = t.useCode(w.userId, req.body?.code).recoveryCodesLeft;
+        }
+      } catch (e) {
+        if (e.status === 403) auth.missed(req);
+        throw e;
+      }
+      const user = auth.secondStepDone(req, res, w, { remember: Boolean(req.body?.remember) });
+      return { ok: true, role: user.role, user: { id: user.id, username: user.username, role: user.role }, recoveryCodesLeft: left };
+    }));
+    // A passkey alone: it names the account, and its fingerprint, face or PIN is the second step
+    api.post('/login/passkey/options', answer((req) => {
+      const { rpId } = auth.pageOf(req);
+      return requestOptions({ rpId, challenge: t.challenge('signin'), userVerification: 'required' });
+    }));
+    api.post('/login/passkey', answer((req, res) => {
+      if (auth.tooMany(req)) throw refuse('too many tries from here: wait a few minutes', 429);
+      let userId;
+      try {
+        userId = t.usePasskey(req.body?.credential, { purpose: 'signin', ...auth.pageOf(req) });
+      } catch (e) {
+        if (e.status === 403) auth.missed(req);
+        throw e;
+      }
+      const user = accounts.user(userId);
+      if (!user || user.disabled) throw refuse('this account is turned off; an admin can turn it back on', 403);
+      auth.startSession(req, res, { userId: user.id, role: user.role, stepped: true });
+      return { ok: true, role: user.role, user: { id: user.id, username: user.username, role: user.role } };
+    }));
+  }
+
   // ---- the public surface -------------------------------------------
   // No credential: this is what the node has chosen to publish. Everything
   // here is filtered by the same predicate, never by the caller's request.
@@ -349,6 +410,8 @@ export function createApp({ manager, store, sidecar, config, dataDir, updates, c
 
   // Everything past here needs at least a viewer.
   api.use(auth.requireRole('viewer'));
+  // Admin, which changes settings, asks for a check of its own (docs/two-step.md)
+  api.use('/admin', auth.settings);
 
   // ---- Accounts: one's own, and an admin's view of them all -------------
   if (accounts) {
@@ -387,6 +450,109 @@ export function createApp({ manager, store, sidecar, config, dataDir, updates, c
       return { ok: true };
     }));
 
+    // ---- Your account → Two-step verification --------------------------
+    const t = accounts.twoStep;
+    const twoStepView = (req) => {
+      const st = auth.standing(req);
+      const page = auth.pageOf(req);
+      return {
+        ...t.status(mine(req)), required: st.required, stepped: st.stepped,
+        checkedUntil: Number.isFinite(st.checkedUntil) ? st.checkedUntil : null,
+        recent: st.recent, passwordConfirmed: st.passwordConfirmed,
+        site: page.rpId, secure: page.secure, passkeyHere: t.allowFor(mine(req), page.rpId).length > 0,
+      };
+    };
+    // Changing how one verifies wants a step in the last 10 minutes; setting up the first, the password again
+    const mayChange = (req) => {
+      const st = auth.standing(req);
+      if (st.setUp ? !st.recent : !(st.recent || st.passwordConfirmed)) {
+        throw Object.assign(refuse(st.setUp ? 'confirm it’s you first' : 'give your password again first', 403), { twoStep: st.setUp ? 'verify' : 'password' });
+      }
+    };
+    const withTwoStep = (fn) => async (req, res) => {
+      try {
+        res.json(await fn(req, res));
+      } catch (e) {
+        res.status(e.status ?? 500).json({ error: e.message, ...(e.twoStep ? { twoStep: e.twoStep } : {}) });
+      }
+    };
+    /** The first way to verify, just set up, passes both checks: it took the password and the new passkey or code. */
+    const firstDone = (req, codes) => {
+      if (codes) accounts.markSession(auth.sessionId(req), { step: true, admin: true });
+    };
+    api.get('/two-step', answer((req) => twoStepView(req)));
+    api.post('/two-step/password', answer((req) => {
+      checkPassword(req, mine(req));
+      accounts.markSession(auth.sessionId(req), { password: true });
+      return twoStepView(req);
+    }));
+    api.post('/two-step/passkeys/options', withTwoStep((req) => {
+      const id = mine(req);
+      mayChange(req);
+      const page = auth.pageOf(req);
+      if (!page.secure) throw refuse('passkeys need the HTTPS address', 400);
+      return creationOptions({
+        rpId: page.rpId, rpName: 'AirScribe', userId: Buffer.from(String(id)), name: req.user.username,
+        challenge: t.challenge('add', id), exclude: t.passkeyRows(id).map((p) => p.id),
+      });
+    }));
+    api.post('/two-step/passkeys', withTwoStep((req) => {
+      const id = mine(req);
+      mayChange(req);
+      const page = auth.pageOf(req);
+      const r = t.addPasskey(id, req.body?.credential, { origins: page.origins, rpId: page.rpId, name: req.body?.name });
+      firstDone(req, r.recoveryCodes);
+      return r;
+    }));
+    api.delete('/two-step/passkeys/:id', withTwoStep((req) => {
+      mayChange(req);
+      if (!t.removePasskey(mine(req), String(req.params.id))) throw refuse('no such passkey', 404);
+      return twoStepView(req);
+    }));
+    api.post('/two-step/authenticator/start', withTwoStep((req) => {
+      mayChange(req);
+      return t.startAuthenticator(mine(req), req.user.username);
+    }));
+    api.post('/two-step/authenticator/enable', withTwoStep((req) => {
+      mayChange(req);
+      const r = t.enableAuthenticator(mine(req), req.body?.code);
+      firstDone(req, r.recoveryCodes);
+      return r;
+    }));
+    api.delete('/two-step/authenticator', withTwoStep((req) => {
+      mayChange(req);
+      if (!t.disableAuthenticator(mine(req))) throw refuse('the authenticator app isn’t on', 404);
+      return twoStepView(req);
+    }));
+    api.post('/two-step/recovery-codes', withTwoStep((req) => {
+      mayChange(req);
+      if (!t.isSetUp(mine(req))) throw refuse('set up a passkey or an authenticator app first', 409);
+      return { recoveryCodes: t.newCodes(mine(req)) };
+    }));
+    // A check in the session: for controlling radios, or with `admin`, for Admin
+    api.post('/two-step/check/options', answer((req) => {
+      const id = mine(req);
+      const { rpId } = auth.pageOf(req);
+      const allow = t.allowFor(id, rpId);
+      if (!allow.length) throw refuse('you have no passkey for this address: use a code', 400);
+      return requestOptions({ rpId, challenge: t.challenge('check', id), allow });
+    }));
+    api.post('/two-step/check', answer((req, res) => {
+      const id = mine(req);
+      if (auth.tooMany(req)) throw refuse('too many tries from here: wait a few minutes', 429);
+      let left;
+      try {
+        if (req.body?.credential) t.usePasskey(req.body.credential, { purpose: 'check', owner: id, userId: id, ...auth.pageOf(req) });
+        else left = t.useCode(id, req.body?.code).recoveryCodesLeft;
+      } catch (e) {
+        if (e.status === 403) auth.missed(req);
+        throw e;
+      }
+      accounts.markSession(auth.sessionId(req), { step: true, admin: Boolean(req.body?.admin) });
+      if (req.body?.remember) auth.rememberBrowser(req, res, id);
+      return { ...twoStepView(req), recoveryCodesLeft: left };
+    }));
+
     const id = (req) => Number(req.params.id);
     api.get('/admin/users', admin, answer((req) => ({
       users: accounts.users(), invites: accounts.invites(), me: req.user?.id ?? null,
@@ -410,6 +576,12 @@ export function createApp({ manager, store, sidecar, config, dataDir, updates, c
     api.put('/admin/users/:id/password', admin, answer((req) => {
       // An admin setting their own keeps the session they set it from
       accounts.setPassword(id(req), req.body?.password, { keep: req.user?.id === id(req) ? auth.sessionId(req) : undefined });
+      return accounts.user(id(req));
+    }));
+    api.post('/admin/users/:id/two-step/reset', admin, answer((req) => {
+      if (!accounts.user(id(req))) throw refuse('no such account', 404);
+      if (req.user?.id === id(req)) throw refuse('change your own under Your account', 400);
+      accounts.twoStep.reset(id(req));
       return accounts.user(id(req));
     }));
     api.post('/admin/users/:id/sign-out', admin, answer((req) => {
@@ -729,7 +901,7 @@ export function createApp({ manager, store, sidecar, config, dataDir, updates, c
     }),
   );
 
-  api.post('/radios', auth.requireRole('admin'), (req, res) => {
+  api.post('/radios', auth.settings, (req, res) => {
     const model = req.body?.model ?? null;
     // A scanner has no Bluetooth address: it's given an id of the same shape
     const mac = sendsRecordings(model) && !req.body?.mac ? newScannerId() : normalizeMac(req.body?.mac);
@@ -743,7 +915,7 @@ export function createApp({ manager, store, sidecar, config, dataDir, updates, c
   });
 
   // Renaming, and publishing, which is a deliberate act separate from adding a radio.
-  api.patch('/radios/:mac', auth.requireRole('admin'), (req, res) => {
+  api.patch('/radios/:mac', auth.settings, (req, res) => {
     const mac = normalizeMac(req.params.mac);
     if (!mac || !store.radio(mac)) return res.status(404).json({ error: 'unknown radio' });
     // The name is how a radio is told apart in the feed: two radios scan in
@@ -761,7 +933,7 @@ export function createApp({ manager, store, sidecar, config, dataDir, updates, c
 
   api.delete(
     '/radios/:mac',
-    auth.requireRole('admin'),
+    auth.settings,
     wrap(async (req, res) => {
       const mac = normalizeMac(req.params.mac);
       if (!mac) return res.status(400).json({ error: 'bad mac' });

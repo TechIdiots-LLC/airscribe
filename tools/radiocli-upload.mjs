@@ -49,6 +49,8 @@ function askPassword(question) {
   });
 }
 
+const TOKEN_HINT = "give it a token from the settings file's auth.tokens in AIRSCRIBE_TOKEN instead (docs/scanners.md)";
+
 /** How it signs in: a token, or a session cookie from signing in, got again when it lapses. */
 function credentials(o) {
   const token = process.env.AIRSCRIBE_TOKEN;
@@ -62,7 +64,9 @@ function credentials(o) {
       method: 'POST', headers: { 'content-type': 'application/json' },
       body: JSON.stringify({ username: o.user, password }),
     });
-    if (!res.ok) throw new Error(`signing in as ${o.user}: ${(await res.json().catch(() => ({}))).error ?? res.status}`);
+    const body = await res.json().catch(() => ({}));
+    if (!res.ok) throw new Error(`signing in as ${o.user}: ${body.error ?? res.status}`);
+    if (body.twoStep) throw new Error(`${o.user} has two-step verification, which a script can't do: ${TOKEN_HINT}`);
     cookie = (res.headers.get('set-cookie') ?? '').split(';')[0];
     return true;
   };
@@ -150,7 +154,8 @@ async function pass(o, auth) {
       refused++;
       console.log(`${name}: refused, moved to rejected: ${answer.error ?? res.status}`);
     } else if ([401, 403, 404].includes(res.status)) {
-      throw new Error(`${answer.error ?? res.status}${res.status === 404 ? ` (is ${o.radio} the scanner's id in AirScribe?)` : ''}`);
+      throw new Error(`${answer.error ?? res.status}${res.status === 404 ? ` (is ${o.radio} the scanner's id in AirScribe?)` : ''}` +
+        (answer.twoStep ? `; ${TOKEN_HINT}` : ''));
     } else {
       console.log(`${name}: AirScribe answered ${res.status}; trying again later`);
       break;

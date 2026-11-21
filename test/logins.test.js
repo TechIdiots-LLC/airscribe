@@ -61,7 +61,7 @@ async function setUp() {
   const accounts = new Accounts(store.db);
   const logins = new Logins({ store, accounts, config: { providerEndpoints: provider.fake.endpoints(provider.base) } });
   const manager = Object.assign(new EventEmitter(), { radios: () => [] });
-  const app = createApp({ manager, store, sidecar: {}, config: { host: '127.0.0.1', auth: {} }, dataDir: '.', accounts, logins });
+  const app = createApp({ manager, store, sidecar: {}, config: { host: '127.0.0.1', auth: {}, twoStep: { required: false } }, dataDir: '.', accounts, logins });
   const server = app.listen(0, '127.0.0.1');
   await new Promise((r) => server.once('listening', r));
   const origin = `http://127.0.0.1:${server.address().port}`;

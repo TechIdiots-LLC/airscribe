@@ -150,7 +150,7 @@ async function serve(config, db) {
   const store = new Store(':memory:', 'base');
   const accounts = new Accounts(db ?? new DatabaseSync(':memory:'));
   const manager = Object.assign(new EventEmitter(), { radios: () => [] });
-  const app = createApp({ manager, store, sidecar: {}, config: { host: '127.0.0.1', ...config }, dataDir: '.', accounts });
+  const app = createApp({ manager, store, sidecar: {}, config: { host: '127.0.0.1', twoStep: { required: false }, ...config }, dataDir: '.', accounts });
   const server = app.listen(0, '127.0.0.1');
   await new Promise((r) => server.once('listening', r));
   const base = `http://127.0.0.1:${server.address().port}/api`;

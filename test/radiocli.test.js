@@ -176,13 +176,14 @@ test('the uploader sends what radiocli recorded, files it away, and leaves what\
       { env: { ...process.env, AIRSCRIBE_TOKEN: 'script' } }).catch((e) => e);
     assert.equal(wrong.code, 1);
     assert.ok(existsSync(join(day, '19-57-00_BUSY.wav')), 'and keeps the recording');
-    // Signed in with an account instead of a token
+    // Signed in with an account instead of a token: an admin's needs two-step, which a script can't do
     const env = { ...process.env, AIRSCRIBE_PASSWORD: 'correct horse' };
     delete env.AIRSCRIBE_TOKEN;
     const asAlice = await promisify(execFile)(process.execPath,
-      [TOOL, '--server', base, '--radio', mac, '--user', 'alice', '--once', folder], { env });
-    assert.match(asAlice.stdout, /19-57-00_BUSY\.wav: sent/);
-    assert.equal(store.transmissions({ mac }).length, 3);
+      [TOOL, '--server', base, '--radio', mac, '--user', 'alice', '--once', folder], { env }).catch((e) => e);
+    assert.ok(asAlice.code, 'it stops');
+    assert.match(asAlice.stderr, /two-step verification.*AIRSCRIBE_TOKEN/);
+    assert.ok(existsSync(join(day, '19-57-00_BUSY.wav')), 'kept for when it can send');
     assert.match(wrong.stderr, /unknown radio/);
   } finally {
     app.close();

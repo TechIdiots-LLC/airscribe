@@ -137,11 +137,13 @@ met a scanner yet.
 3. **Next to radiocli:** copy `tools/radiocli-upload.mjs` from AirScribe
    (it needs only Node 22 or later) and run it on the same folder:
    ```
-   node radiocli-upload.mjs --server http://<airscribe>:8100 --radio <scanner id> --user <name> recordings
+   AIRSCRIBE_TOKEN=<token> node radiocli-upload.mjs --server http://<airscribe>:8100 --radio <scanner id> recordings
    ```
-   It signs in as an account that may manage radios, with the password from
-   `AIRSCRIBE_PASSWORD` or asked for once. Instead of `--user`, set
-   `AIRSCRIBE_TOKEN` to a token from the settings file's `auth.tokens`.
+   Give it a token from the settings file's `auth.tokens` in `AIRSCRIBE_TOKEN`.
+   Signing in as an account (`--user`, with the password from
+   `AIRSCRIBE_PASSWORD` or asked for once) works only where `twoStep.required`
+   is off: sending recordings is an admin's, and an admin needs two-step
+   verification, which a script can't do ([two-step.md](two-step.md)).
 
 The computer can be the AirScribe host itself (the scanner's USB and the
 sound input passed through to the container, as the Bluetooth dongle is), or

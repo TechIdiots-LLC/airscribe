@@ -9,6 +9,11 @@ const DEFAULTS = {
   adminHost: null,
   dataDir: './data',
   auth: { username: null, password: null, passwordHash: null, apiKey: null, tokens: [] },
+  // A second step for controlling radios and for Admin (docs/two-step.md).
+  // required: false lets admins do both with a password alone.
+  twoStep: { required: true, adminHours: 12, rememberDays: 30 },
+  // Behind a reverse proxy, its address: Express's `trust proxy` (docs/publishing.md#one-address)
+  trustProxy: false,
   sidecar: { python: 'python3', backend: 'bluez', controlChannel: null, audioChannel: null, transport: 'usb:0' },
   audio: {
     sampleRate: 32000,
