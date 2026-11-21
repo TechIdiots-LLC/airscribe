@@ -1,4 +1,5 @@
 import { ROLES, generateToken, hashToken, hashPassword, verifyPassword } from './auth.js';
+import { TwoStep } from './twostep.js';
 
 const DAY = 24 * 60 * 60 * 1000;
 /** How long a browser stays signed in without being used. */
@@ -45,9 +46,9 @@ export function checkPassword(password) {
 export class Accounts {
   /**
    * @param {import('node:sqlite').DatabaseSync} db - The store's database.
-   * @param {{now?: () => number}} [o] - The clock, for tests.
+   * @param {{now?: () => number, rememberDays?: number}} [o] - The clock, for tests, and how long two-step remembers a browser.
    */
-  constructor(db, { now = () => Date.now() } = {}) {
+  constructor(db, { now = () => Date.now(), rememberDays = 30 } = {}) {
     this.db = db;
     this.now = now;
     this.failures = new Map();   // lowercased username -> {count, first, until}
@@ -95,6 +96,12 @@ export class Accounts {
         callsign TEXT NOT NULL, ssid INTEGER NOT NULL, symbol TEXT NOT NULL, beacon TEXT NOT NULL,
         updated_at INTEGER NOT NULL);
     `);
+    // When a session passed a second step (docs/two-step.md): first, latest, for Admin, and the password asked again
+    const have = new Set(db.prepare('PRAGMA table_info(sessions)').all().map((c) => c.name));
+    for (const c of ['stepped_at', 'last_step_at', 'checked_at', 'password_at']) {
+      if (!have.has(c)) db.exec(`ALTER TABLE sessions ADD COLUMN ${c} INTEGER`);
+    }
+    this.twoStep = new TwoStep(db, { now, rememberDays });
   }
 
   /**
@@ -142,6 +149,7 @@ export class Accounts {
       disabled: Boolean(u.disabled), has_password: Boolean(u.password_hash),
       links: this.linksFor(u.id).map((l) => ({ provider: l.provider, name: l.name, email: l.email, linked_at: l.linked_at })),
       radio: this.profile(u.id),
+      two_step: this.twoStep.isSetUp(u.id),
     };
   }
 
@@ -209,6 +217,7 @@ export class Accounts {
     this.db.prepare('DELETE FROM sessions WHERE user_id = ?').run(id);
     this.db.prepare('DELETE FROM linked_logins WHERE user_id = ?').run(id);
     this.db.prepare('DELETE FROM radio_profiles WHERE user_id = ?').run(id);
+    this.twoStep.reset(id);
     this.db.prepare('DELETE FROM users WHERE id = ?').run(id);
   }
 
@@ -281,11 +290,12 @@ export class Accounts {
    * @param {{userId?: number|null, role: string}} who - Whose.
    * @returns {string} The session id, for the cookie.
    */
-  startSession({ userId = null, role }) {
+  startSession({ userId = null, role, stepped = false }) {
     const id = generateToken();
     const now = this.now();
-    this.db.prepare('INSERT INTO sessions (id_hash, user_id, role, created_at, expires_at) VALUES (?, ?, ?, ?, ?)')
-      .run(hashToken(id), userId, role, now, now + SESSION_MS);
+    const at = stepped ? now : null;
+    this.db.prepare('INSERT INTO sessions (id_hash, user_id, role, created_at, expires_at, stepped_at, last_step_at) VALUES (?, ?, ?, ?, ?, ?, ?)')
+      .run(hashToken(id), userId, role, now, now + SESSION_MS, at, at);
     if (userId) this.db.prepare('UPDATE users SET last_login_at = ? WHERE id = ?').run(now, userId);
     // Now and then, the expired ones go
     if (Math.random() < 0.05) this.db.prepare('DELETE FROM sessions WHERE expires_at < ?').run(now);
@@ -321,7 +331,23 @@ export class Accounts {
     if (s.expires_at - SESSION_MS < now - 60000) {
       this.db.prepare('UPDATE sessions SET expires_at = ? WHERE id_hash = ?').run(now + SESSION_MS, key);
     }
-    return { role: user ? user.role : s.role, user };
+    const marks = { stepped_at: s.stepped_at, last_step_at: s.last_step_at, checked_at: s.checked_at, password_at: s.password_at };
+    return { role: user ? user.role : s.role, user, marks };
+  }
+
+  /**
+   * Mark a session: a second step passed (and for Admin, when `admin`), or the password given again.
+   * @param {string} id - The session.
+   * @param {{step?: boolean, admin?: boolean, password?: boolean}} what - What happened, now.
+   * @returns {void}
+   */
+  markSession(id, { step = false, admin = false, password = false }) {
+    if (!id) return;
+    const now = this.now();
+    const key = hashToken(id);
+    if (step || admin) this.db.prepare('UPDATE sessions SET stepped_at = COALESCE(stepped_at, ?), last_step_at = ? WHERE id_hash = ?').run(now, now, key);
+    if (admin) this.db.prepare('UPDATE sessions SET checked_at = ? WHERE id_hash = ?').run(now, key);
+    if (password) this.db.prepare('UPDATE sessions SET password_at = ? WHERE id_hash = ?').run(now, key);
   }
 
   /** @param {string} id - The session to end. */

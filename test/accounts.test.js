@@ -51,7 +51,7 @@ test('sessions: kept in the database, and ended by a new password, a role or tur
   const bob = a.create({ username: 'bob', password: 'bob password', role: 'viewer' });
   const phone = a.startSession({ userId: bob.id, role: 'viewer' });
   const laptop = a.startSession({ userId: bob.id, role: 'viewer' });
-  assert.deepEqual(a.session(phone), { role: 'viewer', user: { id: bob.id, username: 'bob', role: 'viewer' } });
+  assert.deepEqual((({ role, user }) => ({ role, user }))(a.session(phone)), { role: 'viewer', user: { id: bob.id, username: 'bob', role: 'viewer' } });
   assert.ok(a.db.prepare('SELECT COUNT(*) AS n FROM sessions WHERE id_hash = ?').get(phone).n === 0, 'only its hash is kept');
   assert.equal(a.user(bob.id).last_login_at, clock.now);
 
@@ -67,7 +67,7 @@ test('sessions: kept in the database, and ended by a new password, a role or tur
   assert.equal(a.signIn('bob', 'new password').username, 'bob');
 
   const config = a.startSession({ role: 'admin' });
-  assert.deepEqual(a.session(config), { role: 'admin', user: null }, 'the settings file\'s password has a session, and no account');
+  assert.deepEqual((({ role, user }) => ({ role, user }))(a.session(config)), { role: 'admin', user: null }, 'the settings file\'s password has a session, and no account');
 
   a.update(bob.id, { disabled: true });
   assert.equal(a.session(laptop), null, 'turning an account off ends its sessions');
