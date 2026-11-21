@@ -2,6 +2,7 @@
 import base64
 import os
 import unittest
+from unittest import mock
 
 import sds
 
@@ -83,8 +84,15 @@ class LinkTests(unittest.TestCase):
         self.events = []
         self.sent = []
         self.clock = Clock()
+        decoder = sds.find_decoder()
+        if not decoder:
+            # No ffmpeg (CI's image): 20 ms of silence a packet in its place, so the rest is still tested
+            patcher = mock.patch.object(sds, "decode", lambda packets, exe="ffmpeg", rate=sds.RATE: bytes(len(packets) * rate // 50 * 2))
+            patcher.start()
+            self.addCleanup(patcher.stop)
+            decoder = "stand-in"
         self.link = sds.ScannerLink("DE:B8:5F:00:00:01", self.events.append, self.sent.append,
-                                    decoder=sds.find_decoder(), clock=self.clock)
+                                    decoder=decoder, clock=self.clock)
 
     def of(self, kind):
         return [e for e in self.events if e["event"] == kind]
