@@ -1,37 +1,56 @@
 # Publishing
 
-**Design, not built.** This records the shape agreed so far, so the decisions
-survive; none of it exists yet. What does exist is described in
-[security](#what-exists-today) at the end.
+One server, three audiences on one address. You and the people you trust see
+everything as it happens. Anyone else sees a subset, later, and only what you
+decided to publish.
 
-The aim: one server, two audiences. You see everything as it happens. Anyone
-you choose to share with sees a subset, later, and only what you decided to
-publish.
+| Who | Sees |
+| --- | --- |
+| Signed out | published radios only, behind the delay, and a **Sign in** button |
+| Viewer | everything, live, unpublished included; changes nothing |
+| Admin | that, plus controlling the radios and Admin, behind two-step verification ([two-step.md](two-step.md)) |
 
-## Two listeners, not just two passwords
+What exists, and what doesn't yet:
 
-Following pmtiles-swarm, which solves the same problem:
+| Part | State |
+| --- | --- |
+| The publishing rule: `publish.enabled`, a radio marked public, the delay, audio off by default, one transcript | built (`src/publish.js`), used by every public route |
+| A radio's `public` flag and `group` | built, through the API (`PATCH /api/radios/:mac`); no switch for them in the console yet |
+| The public page and API (`/api/public/...`) | built, but served only on a separate public port (`adminPort`), which is being replaced by the one address below |
+| The signed-out view on the one address | being built |
+| The podcast feed | not built |
+| Grouping by channel, combining nodes, the word cloud, subscribing | not built |
+| Retention | Admin → Storage deletes by age, by hand or every day; not the size-based rules below |
+
+## One address
+
+The first design gave the public page a port of its own (`port`) and kept the
+console on another (`adminPort`, bound to loopback), as pmtiles-swarm does. That
+made the console unreachable from outside rather than guarded. With accounts,
+roles and two-step verification, the console doesn't need hiding: a visitor who
+isn't signed in gets the public view, and the same page signs people in. One
+address is simpler to put behind a proxy and a certificate, which passkeys need
+anyway.
+
+So `adminPort` and `adminHost` go. Signed out, the API answers only:
+
+- `/api/session`, `/api/login` and the rest of signing in and joining;
+- `/api/public/...`, through the publishing rule;
+- `/feed.xml`, through the same rule.
+
+Everything else answers 401, and the console's data never reaches a visitor.
+
+Behind a reverse proxy (HAProxy, nginx, Caddy) with a certificate:
 
 ```json
-{
-  "host": "0.0.0.0",       "port": 8100,
-  "adminHost": "127.0.0.1", "adminPort": 8101
-}
+{ "host": "0.0.0.0", "port": 8100, "trustProxy": "loopback, 192.0.2.10" }
 ```
 
-| listener | serves |
-| --- | --- |
-| `port` | the public transcript page, the public API, the feed |
-| `adminPort` | all of that, plus radios, settings, engines, audio downloads |
-
-The gate is keyed on **the port the request arrived on** (`req.socket.localPort`),
-never a header, because a header is something the caller controls. On the
-public listener the admin surface answers **404, not 403**: a refusal confirms
-there is something behind it, an absence does not.
-
-Credentials guard; a separate loopback-bound port makes the settings surface
-*unreachable*. That is the stronger statement, and the one a firewall can
-enforce.
+`trustProxy` is Express's `trust proxy`: the addresses of the proxies whose
+`X-Forwarded-For` and `X-Forwarded-Proto` to believe. With it, AirScribe sees
+the visitor's address (for the sign-in lockout) and that the page was HTTPS
+(for the cookie's Secure flag and for passkeys). Without it, every visitor
+looks like the proxy, and twenty wrong passwords from anyone lock everyone out.
 
 ## Nothing is public until it is said to be
 
@@ -58,7 +77,7 @@ people's conversations, so publishing is a decision, not a starting state.
 ## The delay
 
 `delayMinutes` holds a transmission back from the public surface for a while
-after it happened. You see it live on the admin port; the public page, API and
+after it happened. You see it live when signed in; the public page, API and
 feed do not show it until the delay has passed.
 
 This is the convention for public safety audio — Broadcastify and similar
@@ -113,7 +132,7 @@ understands.
   <description>[transcript]</description>
   <guid isPermaLink="false">1284</guid>
   <pubDate>Sun, 21 Sep 2026 19:42:03 GMT</pubDate>
-  <enclosure url=".../api/transmissions/1284/audio" length="928000" type="audio/wav"/>
+  <enclosure url=".../api/public/transmissions/1284/audio" length="928000" type="audio/wav"/>
   <airscribe:radio>UV-PRO</airscribe:radio>
   <airscribe:durationMs>14530</airscribe:durationMs>
   <airscribe:rssi>9</airscribe:rssi>
@@ -156,7 +175,7 @@ filters on it exactly as it filters on radio or group, so "everything" and
 Two things follow. A peer's transmissions must be marked as theirs rather
 than silently presented as local. And what a peer publishes to you is not
 automatically yours to republish onward — the default should be that
-subscribed content stays on your admin surface unless you say otherwise.
+subscribed content stays in the signed-in console unless you say otherwise.
 
 ## A word cloud
 
@@ -209,9 +228,3 @@ Three things would bite, recorded now so they are not rediscovered:
   yours to publish; a commercial podcast's transcript is not. Subscribed
   content should be excluded from the public surface by default.
 
-## What exists today
-
-The current server has one listener and a single token, with the guard in
-`src/auth.js` refusing to bind anywhere reachable without one. The token
-covers the whole API; there are no roles, no sessions, and no public surface
-at all. Everything above replaces that.

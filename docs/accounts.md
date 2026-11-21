@@ -6,7 +6,7 @@ password and a role.
 | Role | May |
 | --- | --- |
 | viewer | read and listen to everything, unpublished transmissions included, and change nothing |
-| admin | everything: radios, settings, deleting, Admin |
+| admin | everything: controlling the radios, deleting, and Admin (settings), each behind two-step verification ([two-step.md](two-step.md)) |
 
 ## The first account
 
@@ -49,7 +49,8 @@ accounts never lock every admin out.
 ## Your account
 
 The name in the header opens it: change your password (which signs out every
-other browser signed in to the account), link Google, GitHub, Discord or
+other browser signed in to the account), set up two-step verification
+([two-step.md](two-step.md)), link Google, GitHub, Discord or
 Facebook to sign in with ([linked-logins.md](linked-logins.md)), set your
 callsign for APRS and a radio's beacon (**Amateur radio**,
 [packets.md](packets.md#your-profile-and-a-radios-beacon)), or sign out
