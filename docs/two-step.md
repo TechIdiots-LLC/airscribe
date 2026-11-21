@@ -1,6 +1,8 @@
 # Two-step verification
 
-**Being built.** This is the design; the sections say what exists so far.
+Tested through the API, and in Chromium with its virtual passkey authenticator
+(setting up a passkey and the authenticator app, signing in on a passkey alone and
+with the second step, Admin's check). Not yet with a real phone or security key.
 
 A second step besides the password: a **passkey** (Face ID, Touch ID, Windows
 Hello, an Android phone, a security key) or a 6-digit code from an

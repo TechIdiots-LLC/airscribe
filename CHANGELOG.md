@@ -3,6 +3,13 @@
 ## master
 ### ✨ Features and improvements
 - _...Add new stuff here..._
+- **Two-step verification:** a passkey (Face ID, Touch ID, Windows Hello, a phone or a security key) or an
+  authenticator app's code, with ten recovery codes, set up under Your account. An account that has it signs in with
+  its password and then a passkey or code (**Remember this browser** skips that for 30 days), or with a passkey alone.
+  Admins need it: controlling the radios wants a step in that session, and Admin, which changes settings, a check of
+  its own that lasts 12 hours. Admin → Users resets another account's. The settings file's password passes both, so
+  it's taken only from the local network; `twoStep.required: false` turns the requirement off. Passkeys work on the
+  HTTPS address (`trustProxy` behind a proxy); the app's codes anywhere. Scripts use API tokens (docs/two-step.md).
 - **`bumble` Bluetooth backend:** reaches radios through a USB dongle that Bumble drives directly, for an LXC
   container, where the system's Bluetooth can't work, and in time Windows. The radio handling is the BlueZ backend's,
   unchanged; only the Bluetooth underneath differs. Set `sidecar.backend` to `bumble`, `sidecar.python` to a Python
