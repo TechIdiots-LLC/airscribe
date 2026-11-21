@@ -1,5 +1,6 @@
 import { showView } from './views.js';
 import { showSecondStep, passkeySignIn, passkeysSupported } from './twostep.js';
+import { showPublic, hidePublic, publicShowing } from './publicview.js';
 
 // The token rides on the query string rather than a header, because the event
 // stream and the audio and text download links cannot set one.
@@ -763,6 +764,7 @@ function showLogin(session = {}, message = '') {
   ] : []));
   // A passkey names its account, so it needs no username; only on the HTTPS address
   $('login-passkey').hidden = !(session.accounts && passkeysSupported());
+  $('login-back').hidden = !publicShowing();
   $('login').hidden = false;
   (session.username && !$('login-user').value ? $('login-user') : $('login-pass')).focus();
 }
@@ -773,6 +775,11 @@ function secondStep(methods) {
   $('login').hidden = true;
   showSecondStep(methods, () => boot(), () => boot());
 }
+
+$('login-back').onclick = () => {
+  $('login-error').textContent = '';
+  $('login').hidden = true;
+};
 
 $('login-passkey').onclick = async () => {
   $('login-error').textContent = '';
@@ -989,11 +996,17 @@ async function boot() {
     const stale = Boolean(token);
     token = '';
     rememberToken('');
-    if (note) dropHash();
-    showLogin(session, note?.key === 'error' ? note.value
-      : stale ? 'The saved API token was not accepted. Sign in again.' : '');
+    const message = note?.key === 'error' ? note.value
+      : stale ? 'The saved API token was not accepted. Sign in again.' : '';
+    // /#signin goes straight to signing in
+    const asked = Boolean(message) || location.hash === '#signin';
+    if (note || location.hash === '#signin') dropHash();
+    // Signed out: what this node publishes, with Sign in; the sign-in page alone where it publishes nothing
+    if (await showPublic(() => showLogin(session)) && !asked) return;
+    showLogin(session, message);
     return;
   }
+  hidePublic();
   // Before the feed draws, so an admin's rows have their Delete
   role = session?.role ?? null;
   me = session?.user?.username ?? null;

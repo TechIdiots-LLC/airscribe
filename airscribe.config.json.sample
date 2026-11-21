@@ -3,9 +3,8 @@
   "port": 8100,
   "dataDir": "./data",
 
-  "_adminPort": "Set this and the public surface moves to `port` while radios, settings and downloads stay on adminPort. Bind adminHost to 127.0.0.1 and the admin surface is unreachable rather than merely guarded.",
-  "adminPort": null,
-  "adminHost": "127.0.0.1",
+  "_trustProxy": "Behind a reverse proxy (HAProxy, nginx, Caddy), its address, so the visitor's address and HTTPS are seen. See docs/publishing.md.",
+  "trustProxy": false,
 
   "auth": {
     "username": null,
@@ -36,7 +35,7 @@
     "appKey": null
   },
 
-  "_publish": "Nothing is published until enabled is true AND a radio is marked public. delayMinutes holds transmissions back from the public surface; the admin port always shows them live.",
+  "_publish": "Nothing is published until enabled is true AND a radio is marked public. delayMinutes holds transmissions back from visitors who aren't signed in; signed in, they show live.",
   "publish": {
     "enabled": false,
     "transcripts": true,

@@ -27,7 +27,24 @@
     <button type="submit">Sign in</button>
     <button type="button" id="login-passkey" hidden>Sign in with a passkey</button>
     <div id="login-providers" class="providers" hidden></div>
+    <button type="button" class="link" id="login-back" hidden>Back to the public page</button>
   </form>
+</div>
+<!-- Signed out: what this node publishes, and Sign in (publicview.js) -->
+<div class="public-page" id="public-view" hidden>
+  <header><h1>AirScribe</h1><span id="public-delay" class="pill"></span>
+    <span class="spacer"></span><button id="public-signin">Sign in</button></header>
+  <main class="public">
+    <section>
+      <div class="row">
+        <h2>Transmissions</h2>
+        <select id="public-group" title="Which radios"><option value="">All</option></select>
+        <input id="public-search" type="search" placeholder="Search…">
+      </div>
+      <ul id="public-feed"></ul>
+      <p id="public-empty" class="meta" hidden>Nothing published yet.</p>
+    </section>
+  </main>
 </div>
 <!-- The second step of signing in, for an account with two-step verification (twostep.js) -->
 <div class="overlay" id="login-step" hidden>

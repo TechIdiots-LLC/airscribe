@@ -54,17 +54,12 @@ test('a node is guarded by any one credential', () => {
   assert.equal(isGuarded({ passwordHash: hashPassword('x') }), true);
 });
 
-test('the admin surface may not face a network unguarded', () => {
+test('the console may not face a network unguarded', () => {
   assert.throws(() => assertSafeToListen({ host: '0.0.0.0', auth: {} }), /refusing/);
   assertSafeToListen({ host: '127.0.0.1', auth: {} });
   assertSafeToListen({ host: '0.0.0.0', auth: { tokens: ['t'] } });
-  // A public listener may face the world as long as admin stays home: that
-  // is the whole point of the two-port split.
-  assertSafeToListen({ host: '0.0.0.0', adminPort: 8101, adminHost: '127.0.0.1', auth: {} });
-  assert.throws(
-    () => assertSafeToListen({ host: '0.0.0.0', adminPort: 8101, adminHost: '0.0.0.0', auth: {} }),
-    /refusing/,
-  );
+  // An old settings file's adminHost no longer keeps anything home
+  assert.throws(() => assertSafeToListen({ host: '0.0.0.0', adminPort: 8101, adminHost: '127.0.0.1', auth: {} }), /refusing/);
 });
 
 test('tokens carry a role, defaulting to admin', () => {

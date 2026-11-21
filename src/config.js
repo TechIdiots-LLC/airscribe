@@ -3,10 +3,6 @@ import { readFileSync } from 'node:fs';
 const DEFAULTS = {
   host: '127.0.0.1',
   port: 8100,
-  // Unset means one listener serving everything. Set it and the public
-  // surface moves to `port` while everything else stays on `adminPort`.
-  adminPort: null,
-  adminHost: null,
   dataDir: './data',
   auth: { username: null, password: null, passwordHash: null, apiKey: null, tokens: [] },
   // A second step for controlling radios and for Admin (docs/two-step.md).

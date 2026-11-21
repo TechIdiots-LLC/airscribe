@@ -108,23 +108,21 @@ export function isGuarded(auth = {}) {
 }
 
 /**
- * Refuse to put the admin surface somewhere reachable with no credential.
+ * Refuse to listen somewhere reachable with no credential.
  *
- * The admin surface can key a transmitter's radio, rewrite the configuration
- * and read every unpublished transcript. Unguarded on a LAN address is not a
- * default worth having. The public listener is exempt: being reachable is
- * what it is for. An admin account counts as a credential, as one in the
- * settings file does.
+ * Unguarded, the console can key a transmitter's radio, rewrite the
+ * configuration and read every unpublished transcript. Unguarded on a LAN
+ * address is not a default worth having. An admin account counts as a
+ * credential, as one in the settings file does.
  * @param {object} config - The whole config.
  * @param {{admins?: number}} [o] - How many admin accounts there are.
  * @returns {void}
  */
 export function assertSafeToListen(config, { admins = 0 } = {}) {
-  const adminHost = config.adminPort ? (config.adminHost ?? config.host) : config.host;
-  if (!isLoopback(adminHost) && !isGuarded(config.auth) && !admins) {
+  if (!isLoopback(config.host) && !isGuarded(config.auth) && !admins) {
     throw new Error(
-      `refusing to serve the admin surface on ${adminHost} with no credential; ` +
-        'set auth.password or auth.tokens, make an admin account, or bind adminHost to 127.0.0.1',
+      `refusing to listen on ${config.host} with no credential; ` +
+        'set auth.password or auth.tokens, make an admin account, or bind host to 127.0.0.1',
     );
   }
 }

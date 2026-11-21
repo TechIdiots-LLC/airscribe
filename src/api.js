@@ -113,28 +113,16 @@ function channelQuery(value) {
   return names.length > 1 ? names : names[0];
 }
 
-/** Paths a public listener may serve. Everything else is 404 there. */
-const PUBLIC_API = new Set([
-  '/session', '/login', '/logout',
-  '/public/transmissions', '/public/filters',
-]);
-
-/** Whether a path is a public per-clip route, which carry an id. */
-const PUBLIC_CLIP = /^\/public\/transmissions\/\d+\/(audio|text)$/;
-
 /**
  * Build the HTTP app: static UI, JSON API, and a server-sent event stream.
  *
- * One app, and where `adminPort` is set, two listeners in front of it. The
- * public one serves only what `PUBLIC_API` allows and answers **404** for the
- * rest: a refusal confirms there is something behind it, an absence does not.
- * The gate is keyed on the port the request arrived on rather than a header,
- * because a header is something the caller controls.
+ * One address for everyone. Signed out, the API answers only signing in and
+ * the public routes, and the page shows the public view (docs/publishing.md).
  * @param {object} o - Dependencies.
  * @param {import('./manager.js').Manager} o.manager - Radio orchestration.
  * @param {import('./store.js').Store} o.store - Persistence.
  * @param {import('./sidecar.js').Sidecar} o.sidecar - Bluetooth helper.
- * @param {object} o.config - The whole config, for auth and the port split.
+ * @param {object} o.config - The whole config.
  * @param {string} o.dataDir - Data directory (clips live under it).
  * @param {import('./updates.js').Updates} [o.updates] - Admin → Updates.
  * @param {import('./cleanup.js').Cleanup} [o.cleanup] - Admin → Storage.
@@ -154,27 +142,6 @@ export function createApp({ manager, store, sidecar, config, dataDir, updates, c
   app.use(express.json({ limit: '32kb' }));
   app.get('/healthz', (req, res) => res.json({ ok: true }));
 
-  const onAdminPort = (req) =>
-    !config.adminPort || req.socket?.localPort === Number(config.adminPort);
-
-  if (config.adminPort) {
-    app.use('/api', (req, res, next) => {
-      if (onAdminPort(req) || PUBLIC_API.has(req.path) || PUBLIC_CLIP.test(req.path)) {
-        return next();
-      }
-      res.status(404).json({ error: 'not found' });
-    });
-  }
-  // On the public listener, / is the public page rather than the console.
-  // Ahead of the static mount, which would otherwise hand out index.html on
-  // both ports — the console is harmless without a credential, but serving
-  // it publicly invites people to try one.
-  if (config.adminPort) {
-    app.get('/', (req, res, next) => {
-      if (onAdminPort(req)) return next();
-      res.sendFile(join(PUBLIC, 'live.html'));
-    });
-  }
   app.use(express.static(PUBLIC));
 
   const publish = { ...PUBLISH_DEFAULTS, ...(config.publish ?? {}) };

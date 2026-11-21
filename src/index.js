@@ -80,26 +80,18 @@ const app = createApp({
   manager, store, sidecar, config, dataDir: config.dataDir, updates, cleanup, radioreference, accounts, logins,
 });
 
-// Two listeners in front of one app when adminPort is set: the public one
-// serves only the public surface, and the admin one everything. Binding the
-// admin listener to loopback makes the settings surface unreachable rather
-// than merely guarded, which is what a firewall can enforce.
-const servers = [];
-if (config.adminPort) {
-  const adminHost = config.adminHost ?? config.host;
-  servers.push(app.listen(config.adminPort, adminHost, () =>
-    console.log(`airscribe admin on http://${adminHost}:${config.adminPort}`)));
+// One address: signed-out visitors get the public view (docs/publishing.md)
+if (config.adminPort || config.adminHost) {
+  console.warn(`[config] adminPort and adminHost are no longer used: everything is on port ${config.port}, ` +
+    'and visitors who aren’t signed in see only the public view');
 }
-servers.push(app.listen(config.port, config.host, () => {
-  console.log(
-    `airscribe ${config.adminPort ? 'public surface' : ''} on ` +
-      `http://${config.host}:${config.port} (${config.sidecar.backend})`,
-  );
+const server = app.listen(config.port, config.host, () => {
+  console.log(`airscribe on http://${config.host}:${config.port} (${config.sidecar.backend})`);
   // Listening is what an updater waiting on this version needs to see
   updates.markRunning();
   // Clips saved before static was measured, measured now from their audio
   manager.measureOlder().catch((e) => console.error(`[quality] ${e.message}`));
-}));
+});
 
 const shutdown = () => {
   updates.stop();
@@ -108,15 +100,10 @@ const shutdown = () => {
   sidecar.stop();
   for (const e of engines.values()) e.stop?.(); // release any held workers
 
-  let left = servers.length;
-  for (const s of servers) {
-    s.close(() => {
-      if (--left === 0) {
-        store.close();
-        process.exit(0);
-      }
-    });
-  }
+  server.close(() => {
+    store.close();
+    process.exit(0);
+  });
   setTimeout(() => process.exit(0), 3000).unref();
 };
 process.on('SIGINT', shutdown);

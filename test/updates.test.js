@@ -100,7 +100,7 @@ test('the running version is written for the updater', () => {
   assert.equal(typeof VERSION, 'string');
 });
 
-test('the updates API is for admins only, and absent from the public listener', async () => {
+test('the updates API is for admins only', async () => {
   const u = updates([release('0.3.0')]);
   const config = { host: '127.0.0.1', auth: { tokens: [{ token: 'adm', role: 'admin' }, { token: 'view', role: 'viewer' }] } };
   const app = createApp({ manager: {}, store: {}, sidecar: {}, config, dataDir: '.', updates: u });
@@ -121,16 +121,5 @@ test('the updates API is for admins only, and absent from the public listener', 
     assert.equal((await ok.json()).pending, true);
   } finally {
     server.close();
-  }
-
-  // With a public listener, the admin routes 404 there whatever the credential
-  const split = { ...config, adminPort: 1 };
-  const pub = createApp({ manager: {}, store: {}, sidecar: {}, config: split, dataDir: '.', updates: u }).listen(0, '127.0.0.1');
-  await new Promise((r) => pub.once('listening', r));
-  try {
-    const res = await fetch(`http://127.0.0.1:${pub.address().port}/api/admin/updates`, { headers: { authorization: 'Bearer adm' } });
-    assert.equal(res.status, 404);
-  } finally {
-    pub.close();
   }
 });
