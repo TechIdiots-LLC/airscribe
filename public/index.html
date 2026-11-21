@@ -25,8 +25,13 @@
     <p class="meta" id="login-hint"></p>
     <p class="error" id="login-error"></p>
     <button type="submit">Sign in</button>
+    <button type="button" id="login-passkey" hidden>Sign in with a passkey</button>
     <div id="login-providers" class="providers" hidden></div>
   </form>
+</div>
+<!-- The second step of signing in, for an account with two-step verification (twostep.js) -->
+<div class="overlay" id="login-step" hidden>
+  <div class="card" id="login-step-card"></div>
 </div>
 <div class="overlay" id="link-wait" hidden>
   <form class="card" id="link-form">
@@ -236,6 +241,10 @@
       <button id="pw-save">Change password</button>
     </div>
     <p class="meta" id="pw-status">Changing it signs out every other browser signed in to this account.</p>
+  </div>
+  <div class="panel" id="twostep-panel">
+    <div class="row"><h3>Two-step verification</h3></div>
+    <div id="twostep-body"></div>
   </div>
   <div class="panel" id="links-panel" hidden>
     <div class="row"><h3>Signing in with another account</h3></div>

@@ -1,4 +1,5 @@
 import { showView } from './views.js';
+import { showSecondStep, passkeySignIn, passkeysSupported } from './twostep.js';
 
 // The token rides on the query string rather than a header, because the event
 // stream and the audio and text download links cannot set one.
@@ -760,9 +761,29 @@ function showLogin(session = {}, message = '') {
     el('span', { className: 'meta' }, 'Or sign in with'),
     ...providers.map((p) => el('button', { type: 'button', onclick: () => { location.href = `/api/auth/${p.id}/start`; } }, p.name)),
   ] : []));
+  // A passkey names its account, so it needs no username; only on the HTTPS address
+  $('login-passkey').hidden = !(session.accounts && passkeysSupported());
   $('login').hidden = false;
   (session.username && !$('login-user').value ? $('login-user') : $('login-pass')).focus();
 }
+
+/** The password was right; the account has two-step, so its second step now. */
+function secondStep(methods) {
+  $('login-pass').value = '';
+  $('login').hidden = true;
+  showSecondStep(methods, () => boot(), () => boot());
+}
+
+$('login-passkey').onclick = async () => {
+  $('login-error').textContent = '';
+  try {
+    await passkeySignIn();
+    $('login').hidden = true;
+    boot();
+  } catch (e) {
+    $('login-error').textContent = e.name === 'NotAllowedError' || e.name === 'AbortError' ? 'The passkey was cancelled.' : e.message;
+  }
+};
 
 $('login-form').onsubmit = async (event) => {
   event.preventDefault();
@@ -782,6 +803,8 @@ $('login-form').onsubmit = async (event) => {
       $('login-pass').select();
       return;
     }
+    const body = await res.json().catch(() => ({}));
+    if (body.twoStep === 'signin') return secondStep(body.methods);
     $('login-pass').value = '';
     token = '';
     rememberToken('');
@@ -915,6 +938,8 @@ $('link-form').onsubmit = async (event) => {
     $('link-pass').value = '';
     dropHash();
     $('link-wait').hidden = true;
+    const body = await res.json().catch(() => ({}));
+    if (body.twoStep === 'signin') return secondStep(body.methods);
     boot();
   } catch (e) {
     $('link-error').textContent = e.message;
@@ -927,12 +952,32 @@ $('link-cancel').onclick = () => {
   boot();
 };
 
+/** An admin's account without two-step can't control the radios yet: say where to set it up. */
+function twoStepNotice(session) {
+  document.getElementById('twostep-notice')?.remove();
+  const st = session?.twoStep;
+  if (session?.role !== 'admin' || !session.user || !st?.required || st.setUp) return;
+  $('main').prepend(el('div', { id: 'twostep-notice', className: 'notice' },
+    'Controlling the radios and opening Admin need two-step verification. ',
+    el('button', { className: 'link', onclick: () => showView('account') }, 'Set it up in Your account'), '.'));
+}
+document.addEventListener('airscribe:view', (e) => {
+  if (e.detail === 'main' && document.getElementById('twostep-notice')) {
+    api('/session').then(twoStepNotice, () => {});
+  }
+});
+
 /** @returns {Promise<void>} Asks who we are, then loads everything or asks to sign in. */
 async function boot() {
   const invite = inviteToken();
   if (invite) return showJoin(invite);
   const note = signinNote();
   if (note?.where === 'signin' && note.key === 'link') return showLinkWait();
+  // Back from Google, GitHub, ... for an account with two-step
+  if (note?.where === 'signin' && note.key === 'two-step') {
+    dropHash();
+    return showSecondStep(undefined, () => boot(), () => boot());
+  }
   let session = null;
   try {
     session = await api('/session');
@@ -964,6 +1009,7 @@ async function boot() {
     $('feed').replaceChildren(el('li', { className: 'tx-text error' }, e.message));
   }
   $('logout').hidden = !session?.guarded;
+  twoStepNotice(session);
   showView('main');
   listen();
   document.dispatchEvent(new CustomEvent('airscribe:signed-in', { detail: session }));

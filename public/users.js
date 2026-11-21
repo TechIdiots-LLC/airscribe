@@ -108,6 +108,7 @@ function userRow(u, meId) {
     el('button', { onclick: () => setPassword(u, pass.value) }, 'Set'));
   const facts = [
     u.disabled ? 'turned off' : '',
+    u.two_step ? 'two-step on' : (u.role === 'admin' ? 'no two-step yet' : ''),
     `last signed in ${when(u.last_login_at)}`,
     u.links.length ? `signs in with ${u.links.map((l) => PROVIDER_NAMES[l.provider] ?? l.provider).join(', ')} too` : '',
   ].filter(Boolean).join(' · ');
@@ -119,6 +120,7 @@ function userRow(u, meId) {
       setBox,
       el('button', { title: 'Sign this account out of every browser', onclick: () => signOut(u, self) }, 'Sign out'),
       el('button', { onclick: () => change(u, { disabled: !u.disabled }, self) }, u.disabled ? 'Turn on' : 'Turn off'),
+      u.two_step && !self ? el('button', { title: 'For someone who lost their passkeys, authenticator and recovery codes', onclick: () => resetTwoStep(u) }, 'Reset two-step') : '',
       el('button', { className: 'link danger', onclick: () => remove(u, self) }, 'Delete')));
 }
 
@@ -145,6 +147,17 @@ async function setPassword(u, password) {
   } catch (e) {
     say('users-status', e.message, true);
   }
+}
+
+async function resetTwoStep(u) {
+  if (!confirm(`Reset ${u.username}’s two-step verification? Their passkeys, authenticator app, recovery codes and remembered browsers stop working, and they set it up again.`)) return;
+  try {
+    await api(`/admin/users/${u.id}/two-step/reset`, { method: 'POST' });
+    say('users-status', `${u.username}’s two-step verification is reset.`);
+  } catch (e) {
+    say('users-status', e.message, true);
+  }
+  loadUsers();
 }
 
 async function signOut(u, self) {

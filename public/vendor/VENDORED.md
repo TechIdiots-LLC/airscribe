@@ -7,6 +7,7 @@ Served by AirScribe itself, so the page needs no CDN, as WifiDB does it (WifiDB'
 | directory | package | version | files |
 |---|---|---|---|
 | `maplibre-gl/` | `maplibre-gl` | 6.16.0 | `dist/maplibre-gl.mjs`, `dist/maplibre-gl-worker.mjs`, `dist/maplibre-gl.css`, `LICENSE.txt` |
+| `qrcode-generator/` | `qrcode-generator` | 2.0.4 | `dist/qrcode.mjs` (MIT; the licence is in its header) |
 
 The same 6.16.0 that WifiDB's map uses with the tiles.wifidb.net styles.
 
@@ -15,6 +16,7 @@ SHA-256, as published:
     fbbdf8ddd9a48e49059a4be6795a4f214a711314bb5809f72d3730b48e7897e3  maplibre-gl.mjs
     0bf06492bdb7ba3d4132b78e435621bfba60d5250967991c02b1a73affea8cd5  maplibre-gl-worker.mjs
     a90798a1953017790e590f7e1bd35ff103a8a4263972cb47290b78adf86f8c20  maplibre-gl.css
+    ea91d7118a5395289170da848b7c6758b996163bfbccf312591ab65a4911b7c0  qrcode.mjs
 
 ## Why ESM, and why an import map
 
@@ -38,3 +40,10 @@ touches these files.
 then copy the files named above out of the tarball's `package/`, update the
 version and checksums here, and check the import map in `index.html` still names
 the entry file.
+
+## qrcode-generator
+
+Draws the QR code an authenticator app scans when two-step verification is set
+up (`public/twostep.js`, docs/two-step.md). It's drawn in the page, so the
+secret in the code never goes to an image service. Imported only when that QR
+code is shown.

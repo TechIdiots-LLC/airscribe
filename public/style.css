@@ -388,3 +388,16 @@ dialog.scanner-dlg h3 { margin: 0; font-size: 15px; }
 .sds-waterfall { display: block; width: 100%; height: 160px; margin-top: 6px; border-radius: 4px; background: #000;
   image-rendering: pixelated; }
 .sds-status:empty { display: none; }
+
+/* Two-step verification (twostep.js) */
+dialog.twostep-dlg { border: 1px solid var(--line); border-radius: 10px; background: var(--bg); color: var(--fg);
+  max-width: min(420px, calc(100vw - 32px)); padding: 16px 18px; }
+dialog.twostep-dlg::backdrop { background: rgba(0, 0, 0, .5); }
+.twostep-verify input { font-family: ui-monospace, monospace; letter-spacing: .05em; }
+.twostep-choices { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 10px; }
+.twostep-choices .panel { margin: 0; }
+.twostep-qr { width: 180px; height: 180px; flex: none; background: #fff; border-radius: 6px; }
+.twostep-qr svg { width: 100%; height: 100%; display: block; }
+.twostep-key { word-break: break-all; }
+.twostep-codes { columns: 2; list-style: none; padding: 0; margin: 8px 0; font-size: 15px; }
+.twostep-codes li { padding: 2px 0; }
