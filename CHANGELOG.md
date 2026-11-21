@@ -3,6 +3,10 @@
 ## master
 ### ✨ Features and improvements
 - _...Add new stuff here..._
+- **One address:** visitors who aren't signed in see the public view (what's published, behind the delay) with a
+  **Sign in** button, on the same address as the console; `/#signin` goes straight to signing in. `adminPort` and
+  `adminHost` are gone: an old settings file that sets them gets a warning, and the console is on `port`. Signed
+  out, every API route but signing in and `/api/public/...` answers 401 (docs/publishing.md#one-address).
 - **Two-step verification:** a passkey (Face ID, Touch ID, Windows Hello, a phone or a security key) or an
   authenticator app's code, with ten recovery codes, set up under Your account. An account that has it signs in with
   its password and then a passkey or code (**Remember this browser** skips that for 30 days), or with a passkey alone.

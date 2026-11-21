@@ -16,8 +16,7 @@ What exists, and what doesn't yet:
 | --- | --- |
 | The publishing rule: `publish.enabled`, a radio marked public, the delay, audio off by default, one transcript | built (`src/publish.js`), used by every public route |
 | A radio's `public` flag and `group` | built, through the API (`PATCH /api/radios/:mac`); no switch for them in the console yet |
-| The public page and API (`/api/public/...`) | built, but served only on a separate public port (`adminPort`), which is being replaced by the one address below |
-| The signed-out view on the one address | being built |
+| The public view and API (`/api/public/...`) | built: what a visitor who isn't signed in sees, on the one address below |
 | The podcast feed | not built |
 | Grouping by channel, combining nodes, the word cloud, subscribing | not built |
 | Retention | Admin → Storage deletes by age, by hand or every day; not the size-based rules below |
@@ -32,13 +31,18 @@ isn't signed in gets the public view, and the same page signs people in. One
 address is simpler to put behind a proxy and a certificate, which passkeys need
 anyway.
 
-So `adminPort` and `adminHost` go. Signed out, the API answers only:
+So `adminPort` and `adminHost` are gone. A settings file that still sets them
+gets a warning at start, and the console is on `port`. Signed out, the API
+answers only:
 
 - `/api/session`, `/api/login` and the rest of signing in and joining;
 - `/api/public/...`, through the publishing rule;
-- `/feed.xml`, through the same rule.
+- `/feed.xml`, through the same rule, once it's built.
 
 Everything else answers 401, and the console's data never reaches a visitor.
+The page shows what's published, how far behind it is, and **Sign in**. Where
+nothing is published it's the sign-in page alone, and `/#signin` always goes
+straight there.
 
 Behind a reverse proxy (HAProxy, nginx, Caddy) with a certificate:
 
