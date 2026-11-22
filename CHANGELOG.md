@@ -10,6 +10,12 @@
   and what was found, and a match can be posted to a webhook (Home Assistant). Only admins see any of it, behind
   Admin's own check; it's never in the feed, the event stream, exports or the public view, and it's deleted after 30
   days by default (docs/findings.md).
+- **Uniden's database for Find, and Find all:** Admin imports the database Uniden's scanners carry from the SD card's
+  `BCDx36HP/HPDB` folder, as a .zip (Windows' Send to → Compressed folder) or the folder itself, the states ticked only.
+  The Map's Find then looks there too, with RadioReference or without it: by the channel's name, which a scanner takes
+  from that database, its frequency, talkgroup and the department the scanner gave, near home. **Find all** looks up
+  every channel not placed, ticks those Uniden's database is sure of, and places the ticked together
+  (docs/radioreference.md#from-unidens-database).
 - **Findings → Roads:** the roads around the channels, fetched from OpenStreetMap or imported from a GeoJSON file
   (`tools/roads-from-osm.sh` cuts one from any `.osm.pbf`, the planet included). The model is told the roads near
   the channel whose names sound like something said, so a misheard road comes back as the one that's there; and the

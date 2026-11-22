@@ -52,7 +52,7 @@ let map = null;
 let role = null;          // an admin may place and move channels
 let channels = [];
 let placing = null;       // the channel the next click on the map places
-let lookupReady = false;  // RadioReference is set up in Admin, so Find can work
+let lookupReady = false;  // Uniden's database or RadioReference is set up in Admin, so Find can work
 let finding = null;       // the channel Find is looking up, with its numbered places
 let popup = null;         // the one popup open, so another replaces it
 const markers = new Map(); // channel name -> {marker, element, channel}
@@ -77,8 +77,10 @@ async function open() {
     status('Loading the map…');
     document.head.append(el('link', { rel: 'stylesheet', href: 'vendor/maplibre-gl/maplibre-gl.css' }));
     maplibregl = await import('maplibre-gl');
-    const { styles, lookup } = await api('/map');
-    lookupReady = Boolean(lookup);
+    const { styles, lookup, rr, uniden } = await api('/map');
+    canFind.rr = Boolean(rr ?? lookup);
+    canFind.uniden = Boolean(uniden);
+    lookupReady = canFind.rr || canFind.uniden;
     if (!styles.length) throw new Error('No base maps are set (map.styles in the settings file).');
     const chosen = recall(STYLE_KEY, null);
     const dark = matchMedia('(prefers-color-scheme: dark)').matches;
@@ -519,8 +521,8 @@ async function showPopup(c) {
     el('button', { onclick: () => { mine.remove(); setFocus([c.name]); } }, 'Show in the list'),
     el('button', { onclick: () => openFeed(c.name) }, 'Open in feed'));
   if (role === 'admin') {
-    if (lookupReady && c.hz) {
-      actions.append(el('button', { title: 'Look its frequency up in RadioReference', onclick: () => { mine.remove(); find(c); } }, 'Find'));
+    if (findable(c)) {
+      actions.append(el('button', { title: 'Look it up in Uniden’s database or RadioReference', onclick: () => { mine.remove(); find(c); } }, 'Find'));
     }
     actions.append(
       // A channel at the same spot as another can't be dragged out from
@@ -607,8 +609,8 @@ function renderSide(placed) {
   const unplaced = channels.filter((c) => !isPlaced(c));
   $('map-unplaced').replaceChildren(...(unplaced.length ? unplaced.map((c) => el('li', {},
     el('span', {}, c.name), el('span', { className: 'meta' }, ` ${mhz(c.hz)} `),
-    role === 'admin' && lookupReady && c.hz
-      ? el('button', { className: finding?.name === c.name ? 'active' : '', title: 'Look its frequency up in RadioReference',
+    role === 'admin' && findable(c)
+      ? el('button', { className: finding?.name === c.name ? 'active' : '', title: 'Look it up in Uniden’s database or RadioReference',
         onclick: () => find(c) }, 'Find')
       : '',
     role === 'admin'
@@ -617,9 +619,12 @@ function renderSide(placed) {
       : ''))
     : [el('li', { className: 'meta' }, channels.length ? 'Every channel is placed.' : 'No channels heard yet.')]));
   $('map-find-hint').hidden = !(role === 'admin' && !lookupReady && unplaced.length);
+  $('map-find-all').hidden = !(role === 'admin' && unplaced.some(findable));
+  $('map-find-all').classList.toggle('active', Boolean(finding?.all));
 }
 
 $('map-find-admin').onclick = () => showView('admin');
+$('map-find-all').onclick = () => findAll();
 
 /** The next click on the map puts this channel there; asked again, or Esc, cancels. */
 function startPlacing(name) {
@@ -650,17 +655,23 @@ async function onMapClick(e) {
   await loadChannels(false);
 }
 
-// ---- Find: where RadioReference says a channel is -------------------------------
-// Its frequency looked up near the ZIP code set in Admin. Each place it might
-// be is numbered, in the list and on the map, best first; Place here puts it
-// there. Admins only, as placing is.
+// ---- Find: where Uniden's database and RadioReference say a channel is -----------
+// Uniden's database (Admin, from a scanner's SD card) by the channel's name, frequency or talkgroup, near home;
+// RadioReference by its frequency near the ZIP code set in Admin. Each place it might be is numbered, in the list
+// and on the map, best first; Place here puts it there. Find all does every channel not placed, ticking those
+// Uniden's database is sure of, to place at once. Admins only, as placing is.
 
+const canFind = { rr: false, uniden: false };   // set up in Admin
 document.addEventListener('airscribe:lookup', (e) => {
-  lookupReady = Boolean(e.detail?.ready);
+  canFind[e.detail?.source ?? 'rr'] = Boolean(e.detail?.ready);
+  lookupReady = canFind.rr || canFind.uniden;
   if (map) renderSide(channels.filter(isPlaced));
 });
 
-/** @param {number} km - Kilometres. @returns {string} In miles, as RadioReference's ranges are. */
+/** @param {object} c - A channel. @returns {boolean} Whether Find has something to look it up by. */
+const findable = (c) => lookupReady && (Boolean(c.hz) || canFind.uniden);
+
+/** @param {number} km - Kilometres. @returns {string} In miles, as the databases' ranges are. */
 const miles = (km) => `${(km / 1.609344).toFixed(km < 16 ? 1 : 0)} mi`;
 
 function closeFinder() {
@@ -670,6 +681,9 @@ function closeFinder() {
   $('map-find').replaceChildren();
   if (map) renderSide(channels.filter(isPlaced));
 }
+
+/** @param {object} r - /lookup's answer. @returns {object[]} Every place, Uniden's first. */
+const placesIn = (r) => [...(r.uniden?.candidates ?? []), ...(r.rr?.candidates ?? [])];
 
 /** @param {object} c - The channel. @returns {Promise<void>} Its places, listed. */
 async function find(c) {
@@ -683,7 +697,7 @@ async function find(c) {
     el('strong', {}, `Find ${c.name}`), el('span', { className: 'meta' }, mhz(c.hz)),
     el('span', { className: 'spacer' }), el('button', { onclick: closeFinder }, 'Close'));
   $('map-find').hidden = false;
-  $('map-find').replaceChildren(head, el('p', { className: 'meta' }, 'Looking it up in RadioReference…'));
+  $('map-find').replaceChildren(head, el('p', { className: 'meta' }, 'Looking it up…'));
   $('map-find').scrollIntoView({ block: 'nearest' });
   let found;
   try {
@@ -701,42 +715,74 @@ function markFound(i, on) {
   finding?.markers[i]?.getElement().classList.toggle('hl', on);
 }
 
+/** A numbered marker for a place found, pointing at its row. */
+function foundMarker(k, i) {
+  const e = el('div', { className: 'find-marker', title: k.title }, el('span', {}, String(i + 1)));
+  e.addEventListener('click', (ev) => {
+    ev.stopPropagation();
+    finding?.items[i]?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
+  });
+  e.addEventListener('mouseenter', () => markFound(i, true));
+  e.addEventListener('mouseleave', () => markFound(i, false));
+  return new maplibregl.Marker({ element: e }).setLngLat([k.lon, k.lat]).addTo(map);
+}
+
 function showFound(c, r, head) {
-  const county = `the county of ${r.area.zip}${r.area.city ? ` (${r.area.city})` : ''}`;
-  const where = r.scope === 'state' ? `in the state, with nothing in ${county}` : `in ${county}`;
   const parts = [head];
-  if (!r.listings) {
-    parts.push(el('p', { className: 'meta' }, `RadioReference has nothing on ${r.mhz} MHz in ${county}` +
-      `${r.scope === 'state' ? ', or anywhere in the state' : ''}. It can be placed by hand instead.`));
-  } else if (!r.candidates.length) {
-    parts.push(el('p', { className: 'meta' },
-      `RadioReference lists ${r.mhz} MHz ${where}, but has no place for it. It can be placed by hand instead.`));
+  const all = placesIn(r);
+  const from = r.rr?.area?.zip ?? 'home';
+  if (r.uniden) {
+    const n = r.uniden.candidates.length;
+    parts.push(el('p', { className: 'meta' }, n
+      ? `Uniden’s database${r.uniden.date ? ` (${r.uniden.date.split(' ')[0]})` : ''}: ${n === 1 ? 'one place' : `${n} places`}` +
+        `${r.uniden.confident ? ', and the first is surely it' : ', best match first'}.`
+      : 'Nothing near here in Uniden’s database by its name, frequency or talkgroup.'));
+  }
+  if (r.rr) {
+    const county = `the county of ${r.rr.area.zip}${r.rr.area.city ? ` (${r.rr.area.city})` : ''}`;
+    const where = r.rr.scope === 'state' ? `in the state, with nothing in ${county}` : `in ${county}`;
+    const n = r.rr.candidates.length;
+    parts.push(el('p', { className: 'meta' }, !r.rr.listings
+      ? `RadioReference has nothing on ${r.rr.mhz} MHz in ${county}${r.rr.scope === 'state' ? ', or anywhere in the state' : ''}.`
+      : !n ? `RadioReference lists ${r.rr.mhz} MHz ${where}, but has no place for it.`
+      : `RadioReference: ${n === 1 ? 'one place' : `${n} places`}, from ${r.rr.listings === 1 ? 'one listing' : `${r.rr.listings} listings`} ` +
+        `of ${r.rr.mhz} MHz ${where}${n > 1 ? ', best match first' : ''}.`));
+  } else if (r.rrError) {
+    parts.push(el('p', { className: 'meta' }, `RadioReference: ${r.rrError}`));
+  }
+  if (!all.length) {
+    parts.push(el('p', { className: 'meta' }, 'It can be placed by hand instead.'));
   } else {
-    const n = r.candidates.length;
-    parts.push(el('p', { className: 'meta' },
-      `${n === 1 ? 'One place' : `${n} places`} it might be, from ${r.listings === 1 ? 'one listing' : `${r.listings} listings`} ` +
-      `of ${r.mhz} MHz ${where}${n > 1 ? ', best match first' : ''}:`));
-    finding.items = r.candidates.map((k, i) => foundItem(c, k, i, r.area.zip));
+    finding.items = all.map((k, i) => foundItem(c, k, i, from));
     parts.push(el('ul', { className: 'find-list' }, ...finding.items));
     // Numbered on the map too, framed with where the channel is now
     const bounds = new maplibregl.LngLatBounds();
-    r.candidates.forEach((k, i) => {
-      const e = el('div', { className: 'find-marker', title: k.title }, el('span', {}, String(i + 1)));
-      e.addEventListener('click', (ev) => {
-        ev.stopPropagation();
-        finding?.items[i]?.scrollIntoView({ block: 'nearest', behavior: 'smooth' });
-      });
-      e.addEventListener('mouseenter', () => markFound(i, true));
-      e.addEventListener('mouseleave', () => markFound(i, false));
-      finding.markers.push(new maplibregl.Marker({ element: e }).setLngLat([k.lon, k.lat]).addTo(map));
+    all.forEach((k, i) => {
+      finding.markers.push(foundMarker(k, i));
       bounds.extend([k.lon, k.lat]);
     });
     if (isPlaced(c)) bounds.extend([c.lon, c.lat]);
     map.fitBounds(bounds, { padding: 80, maxZoom: 15 });
   }
-  parts.push(el('p', { className: 'credit' }, 'Data courtesy of ',
-    el('a', { href: 'https://www.radioreference.com', target: '_blank', rel: 'noopener' }, 'RadioReference.com')));
+  if (r.rr) {
+    parts.push(el('p', { className: 'credit' }, 'Data courtesy of ',
+      el('a', { href: 'https://www.radioreference.com', target: '_blank', rel: 'noopener' }, 'RadioReference.com')));
+  }
   $('map-find').replaceChildren(...parts);
+}
+
+/** @param {object} k - A place found. @returns {string} What it is, and why it's offered. */
+function foundWhat(k) {
+  if (k.kind === 'uniden') {
+    return `${k.where}${k.site ? `, the site ${k.site}` : ''}: Uniden’s database${k.range ? `, about ${k.range} mi around` : ''}`;
+  }
+  if (k.kind === 'fcc') {
+    return `FCC licence ${k.callsign}${k.licensee ? `, ${k.licensee}` : ''}: ${k.address || 'a licensed site'}` +
+      (k.onFrequency ? '' : '. The licence doesn’t say this frequency is sent from there.');
+  }
+  return k.countyWide
+    ? `${k.where || 'The county'}: the middle of the county, as RadioReference has no closer place for it`
+    : `${k.where}: the area RadioReference gives it${k.range ? `, about ${k.range} mi around` : ''}`;
 }
 
 /**
@@ -744,18 +790,12 @@ function showFound(c, r, head) {
  * @param {object} c - The channel.
  * @param {object} k - The candidate, as /lookup gives it.
  * @param {number} i - Its place in the list.
- * @param {string} zip - Where distances are from.
+ * @param {string} from - Where distances are from.
  * @returns {HTMLElement} Its row.
  */
-function foundItem(c, k, i, zip) {
-  const what = k.kind === 'fcc'
-    ? `FCC licence ${k.callsign}${k.licensee ? `, ${k.licensee}` : ''}: ${k.address || 'a licensed site'}` +
-      (k.onFrequency ? '' : '. The licence doesn’t say this frequency is sent from there.')
-    : k.countyWide
-      ? `${k.where || 'The county'}: the middle of the county, as RadioReference has no closer place for it`
-      : `${k.where}: the area RadioReference gives it${k.range ? `, about ${k.range} mi around` : ''}`;
-  const facts = [k.alpha && k.alpha !== k.title ? k.alpha : '', k.tone,
-    k.km === null || k.km === undefined ? '' : `${miles(k.km)} from ${zip}`].filter(Boolean).join(' · ');
+function foundItem(c, k, i, from) {
+  const facts = [k.alpha && k.alpha !== k.title ? k.alpha : '', k.tone, k.tgid ? `talkgroup ${k.tgid}` : '',
+    k.km === null || k.km === undefined ? '' : `${miles(k.km)} from ${from}`].filter(Boolean).join(' · ');
   const li = el('li', {},
     el('div', { className: 'find-head' },
       el('span', { className: 'find-n' }, String(i + 1)),
@@ -764,7 +804,7 @@ function foundItem(c, k, i, zip) {
         onclick: () => map.flyTo({ center: [k.lon, k.lat], zoom: Math.max(map.getZoom(), 15) }),
       }, k.title),
       el('button', { onclick: () => placeFound(c, k) }, 'Place here')),
-    el('div', { className: 'meta' }, what),
+    el('div', { className: 'meta' }, foundWhat(k)),
     facts ? el('div', { className: 'meta' }, facts) : '');
   li.addEventListener('mouseenter', () => markFound(i, true));
   li.addEventListener('mouseleave', () => markFound(i, false));
@@ -782,6 +822,96 @@ async function placeFound(c, k) {
   await loadChannels(false);
   const placed = channels.find((x) => x.name === c.name);
   if (placed && isPlaced(placed)) goTo(placed);
+}
+
+/**
+ * Every channel not placed, looked up one after another: each with the best place found, ticked when Uniden's
+ * database is sure of it, and placed together.
+ * @returns {Promise<void>}
+ */
+async function findAll() {
+  closeFinder();
+  if (placing) startPlacing(placing);
+  showTab('ch');
+  const todo = channels.filter((c) => !isPlaced(c) && findable(c));
+  const mine = { name: null, all: true, markers: [], items: [], rows: [] };
+  finding = mine;
+  renderSide(channels.filter(isPlaced));
+  const count = el('span', { className: 'meta' });
+  const place = el('button', { disabled: true, onclick: () => placeTicked(mine) }, 'Place the ticked');
+  const head = el('div', { className: 'row' }, el('strong', {}, 'Find all'), count,
+    el('span', { className: 'spacer' }), el('button', { onclick: closeFinder }, 'Close'));
+  const list = el('ul', { className: 'find-list find-all' });
+  $('map-find').hidden = false;
+  $('map-find').replaceChildren(head, el('p', { className: 'meta' },
+    'Each channel not placed, with the best place found for it. Those Uniden’s database is sure of (the channel’s ' +
+    'own name, and its frequency or department) are ticked; check the others, or open one to see every place.'),
+    list, el('div', { className: 'row' }, place));
+  $('map-find').scrollIntoView({ block: 'nearest' });
+  const bounds = new maplibregl.LngLatBounds();
+  let done = 0;
+  for (const c of todo) {
+    if (finding !== mine) return;   // closed, or another Find started
+    const status = el('div', { className: 'meta' }, 'Looking it up…');
+    const li = el('li', {}, el('div', { className: 'what' }, el('strong', {}, c.name), el('span', { className: 'meta' }, ` ${mhz(c.hz)}`), status));
+    list.append(li);
+    count.textContent = `${++done} of ${todo.length}`;
+    let r;
+    try {
+      r = await api(`/channels/${encodeURIComponent(c.name)}/lookup?quick=1`);
+    } catch (e) {
+      status.textContent = e.message;
+      continue;
+    }
+    if (finding !== mine) return;
+    const all = placesIn(r);
+    const k = all[0];
+    if (!k) {
+      status.textContent = 'Nothing found.';
+      continue;
+    }
+    const i = mine.rows.length;
+    const box = el('input', { type: 'checkbox', checked: Boolean(r.uniden?.confident && k.kind === 'uniden'),
+      title: 'Place it here', onchange: () => drawCount() });
+    mine.rows.push({ c, k, box });
+    mine.items[i] = li;
+    li.prepend(box);
+    status.replaceChildren(
+      el('button', { className: 'link', title: 'Show it on the map', onclick: () => map.flyTo({ center: [k.lon, k.lat], zoom: Math.max(map.getZoom(), 14) }) },
+        `${i + 1}. ${k.title}`),
+      ` · ${foundWhat(k)}${k.km === null || k.km === undefined ? '' : ` · ${miles(k.km)} away`}`,
+      all.length > 1 ? ' · ' : '', all.length > 1 ? el('button', { className: 'link', onclick: () => find(c) }, `${all.length - 1} more`) : '');
+    li.addEventListener('mouseenter', () => markFound(i, true));
+    li.addEventListener('mouseleave', () => markFound(i, false));
+    mine.markers[i] = foundMarker(k, i);
+    bounds.extend([k.lon, k.lat]);
+    drawCount();
+  }
+  if (finding !== mine) return;
+  if (!bounds.isEmpty()) map.fitBounds(bounds, { padding: 80, maxZoom: 13 });
+  count.textContent = todo.length ? `${todo.length} looked up` : 'Every channel that can be looked up is placed.';
+
+  function drawCount() {
+    const n = mine.rows.filter((x) => x.box.checked).length;
+    place.disabled = !n;
+    place.textContent = n ? `Place the ${n} ticked` : 'Place the ticked';
+  }
+}
+
+/** @param {object} mine - Find all's state. @returns {Promise<void>} Each ticked channel placed where it was found. */
+async function placeTicked(mine) {
+  const ticked = mine.rows.filter((x) => x.box.checked);
+  const failed = [];
+  for (const { c, k } of ticked) {
+    try {
+      await api(`/channels/${encodeURIComponent(c.name)}/place`, { method: 'PUT', body: { lat: k.lat, lon: k.lon } });
+    } catch (e) {
+      failed.push(`${c.name}: ${e.message}`);
+    }
+  }
+  closeFinder();
+  await loadChannels(false);
+  if (failed.length) alert(failed.join('\n'));
 }
 
 // ---- The Transmissions tab: what is said, beside the map ----------------------

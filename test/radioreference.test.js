@@ -217,7 +217,7 @@ test('Find, through the API: admins only, and the account never comes back out',
     assert.equal((await call('GET', '/channels/Holden%20PD/lookup', 'viewer')).status, 403);
     const notYet = await call('GET', '/channels/Holden%20PD/lookup', 'admin');
     assert.equal(notYet.status, 400, 'not set up is the admin\'s to fix');
-    assert.match((await notYet.json()).error, /Admin → RadioReference/);
+    assert.match((await notYet.json()).error, /set up RadioReference, or import Uniden’s database/);
 
     const bad = await call('PUT', '/admin/radioreference', 'admin', { zip: 'abc' });
     assert.equal(bad.status, 400);
@@ -230,7 +230,8 @@ test('Find, through the API: admins only, and the account never comes back out',
     assert.deepEqual([t.username, t.expires, t.settings.ready], ['tester', '03-01-2027', true]);
 
     const found = await (await call('GET', '/channels/Holden%20PD/lookup', 'admin')).json();
-    assert.equal(found.candidates[0].callsign, 'KZZ900');
+    assert.equal(found.rr.candidates[0].callsign, 'KZZ900');
+    assert.equal(found.uniden, null, 'no Uniden database here');
     assert.equal((await call('GET', '/channels/Nowhere/lookup', 'admin')).status, 404);
 
     // Stations near me, an admin's too

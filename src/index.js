@@ -14,6 +14,7 @@ import { Accounts } from './accounts.js';
 import { Logins } from './logins.js';
 import { Findings } from './findings.js';
 import { Roads } from './roads.js';
+import { Uniden } from './uniden.js';
 
 const args = process.argv.slice(2);
 const flag = (n) => args.includes(n);
@@ -76,6 +77,8 @@ const cleanup = new Cleanup({ manager, store, dataDir: config.dataDir });
 cleanup.start();
 // Map → Find: where a channel is, from RadioReference, once an admin sets it up
 const radioreference = new RadioReference({ store, config: config.radioreference });
+// and from Uniden's database, imported from a scanner's SD card
+const uniden = new Uniden({ store });
 // Signing in with Google, GitHub, Discord or Facebook, once an admin turns one on
 const logins = new Logins({ store, accounts, config: config.auth });
 // Admin → Findings: transcripts read by a language model, once an admin turns it on
@@ -84,7 +87,7 @@ const roads = new Roads({ store, overpass: config.findings?.overpass });
 const findings = new Findings({ store, manager, primary, roads });
 findings.start();
 const app = createApp({
-  manager, store, sidecar, config, dataDir: config.dataDir, updates, cleanup, radioreference, accounts, logins, findings,
+  manager, store, sidecar, config, dataDir: config.dataDir, updates, cleanup, radioreference, accounts, logins, findings, uniden,
 });
 
 // One address: signed-out visitors get the public view (docs/publishing.md)

@@ -130,9 +130,10 @@ function channelQuery(value) {
  * @param {import('./accounts.js').Accounts} [o.accounts] - People's accounts and invites.
  * @param {import('./logins.js').Logins} [o.logins] - Signing in with Google, GitHub, Discord or Facebook.
  * @param {import('./findings.js').Findings} [o.findings] - Admin → Findings.
+ * @param {import('./uniden.js').Uniden} [o.uniden] - Uniden's database, for the Map's Find.
  * @returns {import('express').Express} The app.
  */
-export function createApp({ manager, store, sidecar, config, dataDir, updates, cleanup, radioreference, accounts, logins, findings }) {
+export function createApp({ manager, store, sidecar, config, dataDir, updates, cleanup, radioreference, accounts, logins, findings, uniden }) {
   const app = express();
   const linked = accounts && logins ? logins : null;
   const auth = createAuth(config, {
@@ -809,11 +810,61 @@ export function createApp({ manager, store, sidecar, config, dataDir, updates, c
     return { ok: true };
   }));
 
-  // The Map view's base maps, and whether channels can be looked up (Find)
+  // The Map view's base maps, and whether channels can be looked up (Find), and where
   api.get('/map', (req, res) => res.json({
     styles: config.map?.styles ?? [],
-    lookup: Boolean(radioreference?.ready()),
+    lookup: Boolean(radioreference?.ready() || uniden?.count()),
+    rr: Boolean(radioreference?.ready()),
+    uniden: Boolean(uniden?.count()),
   }));
+
+  // ---- Find: where a channel is, from Uniden's database and RadioReference ----
+  // Admins only, as placing a channel is. quick=1 (Find all) skips RadioReference when Uniden's database is sure.
+  if (radioreference || uniden) {
+    const admin = auth.requireRole('admin');
+    const latestDetails = store.db.prepare(`SELECT details FROM transmissions WHERE channel_name = ? AND details IS NOT NULL
+                                              ORDER BY started_at DESC LIMIT 1`);
+    // Where the radios are, near enough: the ZIP code's, else the middle of the channels placed
+    const home = async () => {
+      if (radioreference?.ready()) {
+        const z = await radioreference.zipInfo().catch(() => null);
+        if (Number.isFinite(z?.lat) && Number.isFinite(z?.lon)) return { lat: z.lat, lon: z.lon };
+      }
+      const placed = store.channelsSeen().filter((c) => c.lat !== null && c.lon !== null);
+      if (!placed.length) return null;
+      return { lat: placed.reduce((t, c) => t + c.lat, 0) / placed.length, lon: placed.reduce((t, c) => t + c.lon, 0) / placed.length };
+    };
+    api.get('/channels/:name/lookup', admin, answer(async (req) => {
+      const c = store.channelsSeen().find((x) => x.name === String(req.params.name));
+      if (!c) throw refuse('no transmission has come in on that channel', 404);
+      const rrReady = Boolean(radioreference?.ready());
+      const local = uniden?.count() ? uniden : null;
+      if (!rrReady && !local) throw refuse('set up RadioReference, or import Uniden’s database, in Admin first', 400);
+      const row = latestDetails.get(c.name);
+      let details = null;
+      try { details = row?.details ? JSON.parse(row.details) : null; } catch { /* not ours to fix here */ }
+      const out = { channel: c.name, mhz: c.hz ? Math.round(c.hz / 10) / 1e5 : null, uniden: null, rr: null, rrError: null };
+      if (local) out.uniden = local.candidates({ name: c.name, hz: c.hz, details }, await home());
+      if (rrReady && !(req.query.quick === '1' && out.uniden?.confident)) {
+        try {
+          out.rr = await radioreference.lookup({ name: c.name, hz: c.hz });
+        } catch (e) {
+          out.rrError = e.message;
+        }
+      }
+      if (!local && !out.rr) throw refuse(out.rrError ?? 'nothing to look it up by', 400);
+      return out;
+    }));
+  }
+
+  // Uniden's database, imported a file at a time from the scanner's SD card (BCDx36HP/HPDB)
+  if (uniden) {
+    const admin = auth.requireRole('admin');
+    api.get('/admin/uniden', admin, answer(() => uniden.stats()));
+    api.put('/admin/uniden/files/:name', admin, express.raw({ type: () => true, limit: '32mb' }),
+      answer((req) => uniden.importFile(req.params.name, req.body)));
+    api.delete('/admin/uniden', admin, answer(() => uniden.clear()));
+  }
 
   // ---- RadioReference: where a channel is -------------------------------
   // Admins only, as placing a channel is: the lookup signs in as the admin's
@@ -825,11 +876,6 @@ export function createApp({ manager, store, sidecar, config, dataDir, updates, c
     api.post('/admin/radioreference/test', admin, answer(async () => ({
       ...await radioreference.test(), settings: radioreference.settings(),
     })));
-    api.get('/channels/:name/lookup', admin, answer(async (req) => {
-      const c = store.channelsSeen().find((x) => x.name === String(req.params.name));
-      if (!c) throw refuse('no transmission has come in on that channel', 404);
-      return radioreference.lookup({ name: c.name, hz: c.hz });
-    }));
     // Stations near me: the county's groups nearest first, then one group's frequencies
     api.get('/radioreference/nearby', admin, answer(() => radioreference.nearby()));
     api.get('/radioreference/groups/:scid', admin, answer((req) => {

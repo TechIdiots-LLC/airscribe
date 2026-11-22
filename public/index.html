@@ -218,9 +218,10 @@
         until they part, or to list them where they can't.</p>
       <h3>On the map</h3>
       <ul id="map-placed" class="map-list"></ul>
-      <h3>Not placed yet</h3>
+      <div class="row"><h3>Not placed yet</h3><span class="spacer"></span>
+        <button id="map-find-all" hidden title="Look up every channel not placed, and place those found together">Find all</button></div>
       <ul id="map-unplaced" class="map-list"></ul>
-      <p id="map-find-hint" class="meta" hidden>To look a channel’s place up by its frequency instead, set up
+      <p id="map-find-hint" class="meta" hidden>To look channels’ places up instead, import Uniden’s database or set up
         RadioReference in <button id="map-find-admin" class="link">Admin</button>.</p>
     </div>
     <div id="map-tab-st" class="map-tab" hidden>
@@ -388,6 +389,27 @@
     <p class="meta" id="rr-status"></p>
   </div>
   <div class="panel">
+    <div class="row"><h3>Uniden’s database</h3></div>
+    <p class="meta">Also for the Map’s <strong>Find</strong>, with RadioReference or without it: the database the SDS100,
+      SDS150, SDS200 and BCDx36HP scanners carry, which gives each frequency and talkgroup a place and a range. Choose
+      a .zip of the <code>BCDx36HP/HPDB</code> folder on the scanner’s SD card (the scanner in mass storage mode, or
+      the card in a reader; in Windows, right-click the folder → Send to → Compressed (zipped) folder), or the folder
+      itself, then the states your radios hear, with their neighbours near a border. Sentinel writes the same
+      folder when it updates the card. A channel the scanner named is found by that name, which is the database’s own.</p>
+    <div class="row wrap">
+      <button id="ud-choose-zip">Choose a .zip of it…</button>
+      <input type="file" id="ud-zip" accept=".zip,application/zip" hidden>
+      <button id="ud-choose">or the folder itself…</button>
+      <input type="file" id="ud-folder" webkitdirectory multiple hidden>
+      <button id="ud-clear" class="link">Delete it</button>
+    </div>
+    <div id="ud-pick" hidden>
+      <div id="ud-states" class="ud-states"></div>
+      <div class="row wrap"><button id="ud-import">Import the states ticked</button></div>
+    </div>
+    <p class="meta" id="ud-status"></p>
+  </div>
+  <div class="panel">
     <div class="row"><h3>Findings</h3><button id="fd-refresh">Refresh</button></div>
     <p class="meta">A language model reads each transcript, with the channel’s last few minutes, and picks out the
       addresses, roads, plates, vehicles, people and units mentioned, the kind of call and a one-line summary. It runs
@@ -505,6 +527,7 @@
 <script src="map.js" type="module"></script>
 <script src="admin.js" type="module"></script>
 <script src="findings.js" type="module"></script>
+<script src="uniden.js" type="module"></script>
 <script src="users.js" type="module"></script>
 <script src="logins.js" type="module"></script>
 <script src="channels.js" type="module"></script>

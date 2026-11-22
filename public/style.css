@@ -262,6 +262,10 @@ table.slots td.heard { font-variant-numeric: tabular-nums; cursor: help; }
 #mapview .maplibregl-popup-anchor-left .maplibregl-popup-tip { border-right-color: var(--card); }
 #mapview .maplibregl-popup-anchor-right .maplibregl-popup-tip { border-left-color: var(--card); }
 .ch-popup { font-size: 13px; padding-right: 12px; }
+.ud-states { display: flex; flex-wrap: wrap; gap: 4px 14px; margin: 8px 0; max-height: 220px; overflow-y: auto; }
+/* Find all: each channel not placed, with the place found for it */
+.find-all li { display: flex; align-items: flex-start; gap: 8px; }
+.find-all li .what { flex: 1; min-width: 0; }
 /* Roads Findings heard mentioned: what was said about the one clicked */
 .road-popup { max-height: 360px; overflow-y: auto; }
 .road-popup ul { list-style: none; padding: 0; margin: 4px 0 10px; }

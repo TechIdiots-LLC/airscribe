@@ -1,9 +1,11 @@
-# Finding where a channel is: RadioReference
+# Finding where a channel is: RadioReference and Uniden's database
 
-The Map's **Find** looks a channel's frequency up in the
-[RadioReference.com](https://www.radioreference.com) database and offers the
-places it might be, best first; **Place here** puts the channel there. It's an
-admin's, as placing a channel by hand is.
+The Map's **Find** looks a channel up in the
+[RadioReference.com](https://www.radioreference.com) database, and in the
+database Uniden's scanners carry ([below](#from-unidens-database)), and offers
+the places it might be, best first; **Place here** puts the channel there.
+[**Find all**](#find-all) does every channel not placed at once. It's an admin's,
+as placing a channel by hand is. Either database is enough.
 
 ## What it needs
 
@@ -50,6 +52,57 @@ listings are used: a trunked system's frequencies aren't a channel's.
 
 Answers are kept for six hours, so looking up several channels in one county
 asks for the county once. Saving the settings starts afresh.
+
+## From Uniden's database
+
+Find also looks in the database Uniden's scanners carry (SDS100, SDS150, SDS200,
+BCD436HP, BCD536HP), with RadioReference or without it. It gives each
+conventional frequency's group a place and range, and each talkgroup's group,
+or its system's sites. No account is needed: it comes off the scanner's SD card.
+
+**Importing it.** In **Admin → Uniden's database**:
+
+1. Get the `BCDx36HP/HPDB` folder from the SD card: the scanner in mass storage
+   mode, or the card in a reader. Sentinel writes the same folder when it
+   updates the card, so the card has the latest one.
+2. **Choose a .zip of it**: in Windows, right-click the folder, then **Send to →
+   Compressed (zipped) folder**. A zip of the whole `BCDx36HP` folder works as
+   well. Or **choose the folder itself**. Either way, it's read in the browser.
+3. Tick the states your radios hear, with their neighbours near a border, and
+   **Import the states ticked**. Systems across several states are ticked
+   already. Only the states ticked are sent. A state takes a second or two;
+   the whole country, about 400,000 frequencies and talkgroups, about a minute.
+
+Importing a state again replaces it. **Delete it** removes it all.
+
+**How a channel is matched.** A channel a scanner named has the database's own
+name for it, which is the strongest match. Then:
+
+| | |
+| --- | --- |
+| the channel's name, exactly | 4 |
+| the department the scanner gave its latest transmission | 2 |
+| its frequency (to 50 Hz) | 2 |
+| its talkgroup | 2 |
+| the system the scanner gave | 1 |
+| a name only like it | up to 2 |
+
+Only places within about 150 km of home count. Home is the ZIP code's place
+when RadioReference is set up, otherwise the middle of the channels already
+placed. Find is sure of a place scoring 6 or more (the exact name and the
+frequency, say) when nothing else scores as much. A talkgroup whose group has
+no place of its own is put at its system's site nearest home. A group covering
+a whole region (the national calling channels) has no place, so it isn't
+offered.
+
+## Find all
+
+**Find all**, beside **Not placed yet** in the Map's Channels tab, looks up every
+channel not placed, one after another. Each gets its best place, numbered on
+the map, and those Uniden's database is sure of are ticked. Check the others:
+**N more** opens a channel's every place. **Place the ticked** places them
+together. RadioReference is asked only about the channels Uniden's database
+isn't sure of.
 
 ## Stations near me: writing listings to a radio
 
