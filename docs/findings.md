@@ -104,7 +104,51 @@ The same, for scripts, with an admin's token or session:
 | `GET`, `POST /api/admin/findings/watches`; `DELETE …/watches/:id` | the watch list |
 | `POST /api/admin/findings/forget` | delete every finding and match |
 
-## Later: roads on the map
+## Roads
 
-`roads` is there for the Map: lighting up the roads a channel mentioned, near where the channel is, by matching their
-names in the map's own road layer, with the summary and the clip a click away. That part isn't built yet.
+With the roads around the channels in **Admin → Findings → Roads**, Findings does two more things:
+
+- **The model is told the roads near the channel** whose names sound like something said. "Pheasant Street" in the
+  transcript, with Pleasant Street a mile from the channel, is given to the model as Pleasant Street, and it writes
+  that. Only names close to words in the transmission are sent, at most 25, never the whole list. The channel's name
+  goes with them.
+- **The roads mentioned light up on the Map.** An admin ticks **Roads mentioned** (beside the list's other filters)
+  and chooses how far back. Each road a finding names is drawn where it runs near the transmission's channel, redder
+  the more recent and wider the more it's been mentioned. A road whose name was only *like* one there (misheard,
+  maybe) is dashed. Where an address names two roads that meet ("Main St and Route 9"), the corner gets a dot.
+  Clicking one lists what was said about it, with the clip. **On the map** beside a finding goes there.
+
+A road is found by its name, its other names (`alt_name`, `old_name`, …) and its number. "Route 9", "Rt 9", "State
+Route 9" and "Highway 9" all find a road numbered `MA 9`, and "I-290" and "Interstate 290" find `I 290`. A
+name said without its kind ("Elm") finds Elm Street. Of the roads with that name, the stretch nearest the channel is
+taken, with any that carry on from it: Main Street in this town, not the next. A channel not placed on the map is
+taken to be in the middle of those that are.
+
+**Getting them.** Either:
+
+- **Fetch from OpenStreetMap**: the named roads within the given distance of the placed channels, from
+  [Overpass](https://wiki.openstreetmap.org/wiki/Overpass_API) (`overpass-api.de`, or the settings file's
+  `findings.overpass`). Only the area's box is sent. It takes a minute or two for a county. Channels spread over
+  more than about 150 km are too much for one fetch: use a file.
+- **Import a file**: GeoJSON, one feature a line (GeoJSONSeq) or a FeatureCollection, with OpenStreetMap's tags as
+  each feature's properties. `tools/roads-from-osm.sh` makes one from any `.osm.pbf`, a state extract or the whole
+  planet, with [osmium](https://osmcode.org/osmium-tool/), and can send it to AirScribe:
+
+  ```sh
+  # WEST,SOUTH,EAST,NORTH: the area, a bit beyond the channels
+  AIRSCRIBE_TOKEN=<an admin token from auth.tokens> \
+    tools/roads-from-osm.sh planet-latest.osm.pbf -72.3,42.0,-71.4,42.7 roads.geojsonseq https://airscribe.example
+  ```
+
+  Run after each planet download, it keeps the roads current. From the planet, the cut takes a while; a state
+  extract is quicker.
+
+Either way, the new roads replace the old only once they're all in. Roads are © OpenStreetMap contributors (ODbL).
+
+| | |
+| --- | --- |
+| `GET /api/admin/findings/roads` | how many, from where, an import under way, the last failure |
+| `POST /api/admin/findings/roads/fetch` | `{km}`: fetch from Overpass, in the background |
+| `PUT /api/admin/findings/roads?name=` | the file as the body (`application/octet-stream`) |
+| `DELETE /api/admin/findings/roads` | delete them |
+| `GET /api/admin/findings/map` | `?hours=&also=`: the roads mentioned, as GeoJSON with what was said about each |

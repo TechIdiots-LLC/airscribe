@@ -854,6 +854,19 @@ export function createApp({ manager, store, sidecar, config, dataDir, updates, c
     api.get('/admin/findings/watches', admin, answer(() => findings.watches()));
     api.post('/admin/findings/watches', admin, answer((req) => findings.addWatch(req.body ?? {})));
     api.delete('/admin/findings/watches/:id', admin, answer((req) => findings.removeWatch(Number(req.params.id))));
+    // The roads it mentioned, for the Map; and the roads themselves, from OpenStreetMap (docs/findings.md#roads)
+    api.get('/admin/findings/map', admin, answer((req) => findings.map({ hours: req.query.hours ?? 24, also: req.query.also })));
+    if (findings.roads) {
+      const roads = findings.roads;
+      api.get('/admin/findings/roads', admin, answer(() => roads.stats()));
+      api.post('/admin/findings/roads/fetch', admin, answer((req) => roads.fetchOsm({ km: req.body?.km })));
+      // The file is the body, read as it arrives: GeoJSONSeq, or a FeatureCollection
+      api.put('/admin/findings/roads', admin, answer((req) => {
+        if (req.is('application/json')) throw refuse('send the file as the body, as application/octet-stream', 415);
+        return roads.importStream(req, String(req.query.name ?? 'a file'));
+      }));
+      api.delete('/admin/findings/roads', admin, answer(() => roads.clear()));
+    }
   }
 
   // Insights: the commonest words, transmissions per hour and per channel, over

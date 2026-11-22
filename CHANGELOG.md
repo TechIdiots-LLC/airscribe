@@ -10,6 +10,11 @@
   and what was found, and a match can be posted to a webhook (Home Assistant). Only admins see any of it, behind
   Admin's own check; it's never in the feed, the event stream, exports or the public view, and it's deleted after 30
   days by default (docs/findings.md).
+- **Findings → Roads:** the roads around the channels, fetched from OpenStreetMap or imported from a GeoJSON file
+  (`tools/roads-from-osm.sh` cuts one from any `.osm.pbf`, the planet included). The model is told the roads near
+  the channel whose names sound like something said, so a misheard road comes back as the one that's there; and the
+  roads mentioned light up on the Map for admins (**Roads mentioned**), near their channel, with a dot where an
+  address names a corner, and what was said about each a click away (docs/findings.md#roads).
 - **NVIDIA GPUs:** `tools/install-nvidia-libs.sh` installs the Proxmox host's NVIDIA driver version's libraries in the
   container (they must match), and docs/proxmox.md sets up the host and the container for an NVIDIA card, with
   whisper.cpp built with CUDA behind the `whisper-server` engine (OpenVINO runs only on Intel hardware).

@@ -174,7 +174,8 @@ test('only an admin reaches Findings through the API', { skip: !sqlite }, async 
   accounts.create({ username: 'alice', password: 'correct horse', role: 'admin' });
   accounts.create({ username: 'bob', password: 'battery staple', role: 'viewer' });
   const manager = Object.assign(new EventEmitter(), { radios: () => [] });
-  const findings = new Findings({ store, manager });
+  const { Roads } = await import('../src/roads.js');
+  const findings = new Findings({ store, manager, roads: new Roads({ store }) });
   const app = createApp({ manager, store, sidecar: {}, config: { host: '127.0.0.1', twoStep: { required: false }, auth: {} }, dataDir: '.', accounts, findings });
   const server = app.listen(0, '127.0.0.1');
   await new Promise((r) => server.once('listening', r));
@@ -191,6 +192,8 @@ test('only an admin reaches Findings through the API', { skip: !sqlite }, async 
     const bob = await as('bob', 'battery staple');
     assert.equal((await bob('GET', '/admin/findings')).status, 403, 'a viewer can’t');
     assert.equal((await bob('GET', '/admin/findings/results')).status, 403);
+    assert.equal((await bob('GET', '/admin/findings/map')).status, 403, 'nor the roads it mentioned');
+    assert.equal((await bob('DELETE', '/admin/findings/roads')).status, 403);
     const alice = await as('alice', 'correct horse');
     const s = await alice('PUT', '/admin/findings', { url: 'http://llm.invalid:11434', model: 'qwen3:8b', apiKey: 'secret' });
     assert.equal(s.status, 200);
@@ -202,6 +205,17 @@ test('only an admin reaches Findings through the API', { skip: !sqlite }, async 
     assert.equal((await alice('DELETE', `/admin/findings/watches/${w.body.id}`)).status, 200);
     assert.equal((await alice('DELETE', `/admin/findings/watches/${w.body.id}`)).status, 404);
     assert.equal((await alice('POST', '/admin/findings/backfill', { hours: 1 })).status, 400, 'not while it’s off');
+
+    // Roads: a file as the body, read as it arrives
+    const cookie = (await fetch(`${base}/login`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ username: 'alice', password: 'correct horse' }) })).headers.get('set-cookie').split(';')[0];
+    const feature = { type: 'Feature', properties: { highway: 'residential', name: 'Elm Street' }, geometry: { type: 'LineString', coordinates: [[-71.86, 42.35], [-71.85, 42.351]] } };
+    const up = await fetch(`${base}/admin/findings/roads?name=town.geojsonseq`, { method: 'PUT', headers: { 'content-type': 'application/octet-stream', cookie }, body: `${JSON.stringify(feature)}\n` });
+    assert.equal(up.status, 200);
+    assert.equal((await up.json()).ways, 1);
+    assert.equal((await alice('GET', '/admin/findings/roads')).body.source.name, 'town.geojsonseq');
+    assert.equal((await alice('GET', '/admin/findings/map?hours=24')).body.ways, 1);
+    assert.equal((await alice('PUT', '/admin/findings/roads', { not: 'a file' })).status, 415);
+    assert.equal((await alice('DELETE', '/admin/findings/roads')).body.ways, 0);
   } finally {
     server.close();
   }

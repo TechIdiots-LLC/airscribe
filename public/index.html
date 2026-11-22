@@ -187,7 +187,19 @@
           <input type="checkbox" id="map-hide-silent"> Hide no speech</label>
         <label class="toggle" title="Show what a channel says on the map, at the channel, for a few seconds">
           <input type="checkbox" id="map-words" checked> Words on the map</label>
+        <span id="map-roads-wrap" hidden>
+          <label class="toggle" title="Roads Findings heard mentioned, lit on the map: admins only">
+            <input type="checkbox" id="map-roads"> Roads mentioned</label>
+          <select id="map-roads-hours" title="How far back">
+            <option value="1">Last hour</option>
+            <option value="6">Last 6 hours</option>
+            <option value="24" selected>Last day</option>
+            <option value="168">Last week</option>
+            <option value="720">Last 30 days</option>
+          </select>
+        </span>
       </div>
+      <p id="map-roads-note" class="meta" hidden></p>
       <div id="map-focus" class="focus" hidden>
         <span id="map-focus-names"></span>
         <button id="map-focus-clear" class="link">Show all</button>
@@ -403,6 +415,20 @@
     </div>
     <p class="meta" id="fd-status" role="status"></p>
     <div id="fd-tested"></div>
+    <h4>Roads</h4>
+    <p class="meta">The roads around the channels, from OpenStreetMap. With each transmission, the model is given those
+      near its channel whose names sound like something said, so a road speech recognition misheard comes back as the
+      one that’s there; and the roads mentioned light up on the Map (<strong>Roads mentioned</strong>, for admins).
+      Fetch them for the area around the channels placed on the map, or import a GeoJSON file made from an
+      OpenStreetMap extract (docs/findings.md#roads). Only the area is sent to fetch them, nothing heard.</p>
+    <p class="meta" id="fd-roads-status"></p>
+    <div class="row wrap">
+      <label>Within <input id="fd-roads-km" type="number" min="1" max="60" step="1" value="25" size="3"> km of the channels</label>
+      <button id="fd-roads-fetch">Fetch from OpenStreetMap</button>
+      <button id="fd-roads-import">Import a file…</button>
+      <input type="file" id="fd-roads-file" accept=".geojson,.geojsonseq,.geojsonl,.json,.jsonl,.ndjson" hidden>
+      <button id="fd-roads-clear" class="link">Delete roads</button>
+    </div>
     <h4>Watch for</h4>
     <p class="meta">A plate, a street, a name, a phrase. Each is looked for in the transcript and in what the model
       found: “Elm St” finds “412 Elm Street”, and “ABC 123” finds a plate read out as “Adam Boy Charlie one two

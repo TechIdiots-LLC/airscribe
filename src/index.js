@@ -13,6 +13,7 @@ import { RadioReference } from './radioreference.js';
 import { Accounts } from './accounts.js';
 import { Logins } from './logins.js';
 import { Findings } from './findings.js';
+import { Roads } from './roads.js';
 
 const args = process.argv.slice(2);
 const flag = (n) => args.includes(n);
@@ -78,7 +79,9 @@ const radioreference = new RadioReference({ store, config: config.radioreference
 // Signing in with Google, GitHub, Discord or Facebook, once an admin turns one on
 const logins = new Logins({ store, accounts, config: config.auth });
 // Admin → Findings: transcripts read by a language model, once an admin turns it on
-const findings = new Findings({ store, manager, primary });
+// with the roads around the channels, from OpenStreetMap (docs/findings.md#roads)
+const roads = new Roads({ store, overpass: config.findings?.overpass });
+const findings = new Findings({ store, manager, primary, roads });
 findings.start();
 const app = createApp({
   manager, store, sidecar, config, dataDir: config.dataDir, updates, cleanup, radioreference, accounts, logins, findings,

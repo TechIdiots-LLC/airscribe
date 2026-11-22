@@ -102,6 +102,8 @@ async function open() {
       map.getContainer().querySelector('.maplibregl-ctrl-attrib')?.classList.remove('maplibregl-compact-show');
     });
     await loadChannels(true);
+    // For what draws on it from elsewhere (Findings' roads, an admin's alone), once it's framed the channels
+    document.dispatchEvent(new CustomEvent('airscribe:map', { detail: { map, maplibregl } }));
   } else {
     map.resize();
     await loadChannels(false);

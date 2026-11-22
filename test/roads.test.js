@@ -1,0 +1,134 @@
+import test from 'node:test';
+import assert from 'node:assert/strict';
+import { Readable } from 'node:stream';
+import { addressRoads, base, distance, fromOverpass, refNames, road, words } from '../src/roads.js';
+
+const sqlite = await import('node:sqlite').then(() => true, () => false);
+
+test('road names read the way they’re said', () => {
+  assert.equal(base('north elm street'), 'elm');
+  assert.equal(words('Calle Peñasco'), 'calle penasco', 'accents off, one word');
+  assert.equal(base('elm'), 'elm');
+  assert.equal(base('route 9'), null, 'a number alone is only ever itself');
+  assert.equal(base('5th avenue'), '5th');
+  assert.ok(refNames('MA 9').includes('route 9'));
+  assert.ok(refNames('I-290').includes('interstate 290'));
+  assert.deepEqual(refNames('US 20;MA 9').filter((n) => n.startsWith('route')), ['route 20', 'route 9']);
+  assert.deepEqual(addressRoads('412 Elm St and Route 9'), ['elm street', 'route 9']);
+  assert.deepEqual(addressRoads('Walmart on Route 20'), ['walmart', 'route 20']);
+  assert.equal(distance('pheasant', 'pleasant', 2), 1);
+  assert.equal(distance('elm', 'oak street', 2), 3, 'gives up past the most it’s asked about');
+  assert.equal(road({ highway: 'footway', name: 'Elm Path' }, [[[0, 0], [1, 1]]]), null, 'not a road anyone is sent to');
+  assert.equal(road({ highway: 'residential' }, [[[0, 0], [1, 1]]]), null, 'no name');
+  assert.equal(fromOverpass({ type: 'way', tags: { highway: 'primary', ref: 'MA 9' }, geometry: [{ lat: 1, lon: 2 }, { lat: 1.1, lon: 2 }] }).name, 'MA 9');
+});
+
+// A town around a channel at 42.35, -71.85: Elm Street in two stretches meeting Main Street; another Elm Street
+// in the next town, 11 km off; Pleasant Street; Route 9 by its number; a footpath
+const HOME = { lat: 42.35, lon: -71.85 };
+const line = (name, coords, tags = {}) => ({ type: 'Feature', properties: { highway: 'residential', ...(name ? { name } : {}), ...tags },
+  geometry: { type: 'LineString', coordinates: coords } });
+const TOWN = [
+  line('Elm Street', [[-71.86, 42.35], [-71.85, 42.351]]),
+  line('Elm Street', [[-71.85, 42.351], [-71.84, 42.352]]),
+  line('Main Street', [[-71.85, 42.345], [-71.85, 42.351], [-71.85, 42.36]]),
+  line('Elm Street', [[-71.72, 42.35], [-71.71, 42.35]]),
+  line('Pleasant Street', [[-71.855, 42.34], [-71.845, 42.34]]),
+  line(null, [[-71.9, 42.33], [-71.8, 42.37]], { highway: 'primary', ref: 'MA 9' }),
+  line('Elm Path', [[-71.851, 42.349], [-71.849, 42.349]], { highway: 'footway' }),
+];
+const seq = (features) => Readable.from(features.map((f) => `\x1e${JSON.stringify(f)}\n`).join(''));
+
+async function setUp() {
+  const { Store } = await import('../src/store.js');
+  const { Roads } = await import('../src/roads.js');
+  const store = new Store(':memory:', 'base');
+  store.setChannelPlace('Holden PD', HOME.lat, HOME.lon);
+  return { store, roads: new Roads({ store }) };
+}
+
+test('roads import, and a name is found near the channel, misheard or not', { skip: !sqlite }, async () => {
+  const { roads } = await setUp();
+  const s = await roads.importStream(seq(TOWN), 'town.geojsonseq');
+  assert.equal(s.ways, 6, 'the footpath is left out');
+  assert.equal(s.source.name, 'town.geojsonseq');
+
+  const elm = roads.locate('Elm St', HOME);
+  assert.equal(elm.level, 'exact');
+  assert.equal(elm.lines.length, 2, 'both stretches here, not the next town’s');
+  assert.ok(elm.km < 0.2);
+  assert.equal(roads.locate('elm', HOME).level, 'base', 'said without its kind');
+  const misheard = roads.locate('Pheasant St', HOME);
+  assert.deepEqual([misheard.name, misheard.level], ['Pleasant Street', 'fuzzy']);
+  assert.equal(roads.locate('Route 9', HOME).name, 'MA 9');
+  assert.equal(roads.locate('Oak Street', HOME), null);
+  assert.equal(roads.locate('Elm Street', null).all, true, 'with nowhere to start, every Elm Street');
+
+  assert.deepEqual(roads.corner(elm, roads.locate('Main St', HOME)), [-71.85, 42.351]);
+  assert.equal(roads.corner(elm, roads.locate('Pleasant St', HOME)), null, 'they don’t meet');
+
+  const hint = roads.hint('engine 2 respond pheasant street off of main', HOME);
+  assert.ok(hint.includes('Pleasant Street') && hint.includes('Main Street'), hint.join());
+  assert.ok(!hint.includes('Elm Street'));
+  assert.deepEqual(roads.hint('anything', null), [], 'no channel placed, nothing to go on');
+
+  // A FeatureCollection, the same; and a failed import leaves the roads as they were
+  assert.equal((await roads.importStream(Readable.from(JSON.stringify({ type: 'FeatureCollection', features: TOWN.slice(0, 3) })))).ways, 3);
+  await assert.rejects(roads.importStream(Readable.from('{"type":"Feature"}\nnot json\n')), /line 2 isn’t a GeoJSON feature/);
+  await assert.rejects(roads.importStream(Readable.from(JSON.stringify({ type: 'FeatureCollection', features: [] }))), /no named roads/);
+  assert.equal(roads.stats().ways, 3);
+  assert.equal(roads.stats().busy, null);
+});
+
+test('roads are fetched from Overpass around the placed channels', { skip: !sqlite }, async () => {
+  const { store } = await setUp();
+  const { Roads } = await import('../src/roads.js');
+  const asked = [];
+  const elements = TOWN.map((f, i) => ({ type: 'way', id: i, tags: f.properties, geometry: f.geometry.coordinates.map(([lon, lat]) => ({ lon, lat })) }));
+  const roads = new Roads({ store, overpass: 'https://overpass.invalid/api', fetch: async (url, o) => {
+    asked.push({ url, query: new URLSearchParams(o.body).get('data') });
+    return Response.json({ elements });
+  } });
+  assert.throws(() => roads.fetchOsm({ km: 0 }), /1 to 60 km/);
+  roads.fetchOsm({ km: 10 });
+  assert.throws(() => roads.fetchOsm({ km: 10 }), /being fetched already/);
+  while (roads.stats().busy) await new Promise((r) => setTimeout(r, 5));
+  assert.equal(asked[0].url, 'https://overpass.invalid/api');
+  assert.match(asked[0].query, /way\["highway"\]\[~"\^\(name\|ref\)\$"~"\."\]\(42\.2\d+,-71\.9\d+,42\.4\d+,-71\.7\d+\)/);
+  assert.deepEqual([roads.stats().ways, roads.stats().source.from, roads.stats().source.km], [6, 'openstreetmap', 10]);
+  // The channels too far apart: a file's job
+  store.setChannelPlace('Far', 44, -69);
+  assert.throws(() => roads.fetchOsm({ km: 25 }), /spread too widely/);
+});
+
+test('Findings gives the model the roads near the channel, and maps what it mentions', { skip: !sqlite }, async () => {
+  const { store, roads } = await setUp();
+  const { Findings } = await import('../src/findings.js');
+  await roads.importStream(seq(TOWN));
+  const prompts = [];
+  const answer = { summary: 'Smoke at Elm and Main', incident: 'structure fire', addresses: ['Elm St and Main St'],
+    roads: ['Elm Street', 'Pleasant Street', 'Nowhere Lane'], plates: [], vehicles: [], people: [], units: [] };
+  const findings = new Findings({ store, roads, primary: 'base', fetch: async (url, o) => {
+    prompts.push(JSON.parse(o.body).messages[1].content);
+    return Response.json({ message: { content: JSON.stringify(answer) } });
+  } });
+  findings.save({ enabled: true, url: 'http://llm.invalid:11434' });
+  const at = Date.now();
+  const id = store.addTransmission({ mac: 'AA:BB', startedAt: at, durationMs: 4000, audioFile: 'a.wav', channelName: 'Holden PD' });
+  store.saveTranscript(id, 'base', { status: 'done', text: 'engine 2 smoke showing elm and main, pheasant street is blocked' });
+  await findings.read(id);
+  assert.match(prompts[0], /^Channel: Holden PD/);
+  assert.match(prompts[0], /Roads near this channel with names like words said:\n.*Pleasant Street/);
+
+  const m = findings.map({ hours: 1 });
+  const byName = Object.fromEntries(Object.values(m.places).map((p) => [p.name, p]));
+  assert.deepEqual(Object.keys(byName).sort(), ['Elm Street', 'Elm Street and Main Street', 'Main Street', 'Pleasant Street']);
+  assert.deepEqual(byName['Elm Street'].ids, [id]);
+  assert.equal(byName['Elm Street and Main Street'].kind, 'corner');
+  assert.equal(m.transmissions[id].summary, 'Smoke at Elm and Main');
+  const corner = m.features.features.find((f) => f.properties.kind === 'corner');
+  assert.deepEqual(corner.geometry.coordinates, [-71.85, 42.351]);
+  assert.equal(m.features.features.find((f) => m.places[f.properties.key].name === 'Elm Street').geometry.coordinates.length, 2);
+  assert.equal(findings.map({ hours: 1, also: id }).transmissions[id].channel, 'Holden PD');
+  assert.throws(() => findings.map({ hours: 'x' }), /number of hours/);
+});

@@ -14,6 +14,8 @@
  * `keepDays`.
  */
 
+import { addressRoads, words } from './roads.js';
+
 const KEYS = {
   enabled: 'findings.enabled', api: 'findings.api', url: 'findings.url', model: 'findings.model',
   apiKey: 'findings.apiKey', webhook: 'findings.webhook', keepDays: 'findings.keepDays',
@@ -52,20 +54,13 @@ channel are given only so you can follow the conversation. Answer with JSON:
 - vehicles: vehicles described ("red Honda Civic")
 - people: people named or described; not unit or badge numbers
 - units: unit, car or apparatus names ("Engine 2", "Medic 4", "Car 12")
-Use [] or "" for anything not said. Never guess: leave out what the text doesn't say.`;
+Use [] or "" for anything not said. Never guess: leave out what the text doesn't say.
+When roads near the channel are listed and the transmission means one of them (speech recognition often mishears a
+road's name), write it as listed. Don't report a listed road the transmission doesn't mention.`;
 
 // ---- Matching -------------------------------------------------------------
 
-const SUFFIX = {
-  st: 'street', rd: 'road', ave: 'avenue', av: 'avenue', dr: 'drive', ln: 'lane', rt: 'route', rte: 'route',
-  hwy: 'highway', blvd: 'boulevard', ct: 'court', pl: 'place', pkwy: 'parkway', cir: 'circle', ter: 'terrace',
-  n: 'north', s: 'south', e: 'east', w: 'west',
-};
-
-/** Words, lowercased, street abbreviations spelled out: "Elm St." and "elm street" read the same. */
-export function words(s) {
-  return String(s ?? '').toLowerCase().split(/[^a-z0-9]+/).filter(Boolean).map((w) => SUFFIX[w] ?? w).join(' ');
-}
+export { words };
 
 /** Letters and digits only: "ABC-123", "abc 123" and "A B C 1 2 3" are all abc123. */
 export const compact = (s) => String(s ?? '').toLowerCase().replace(/[^a-z0-9]/g, '');
@@ -141,10 +136,11 @@ export class Findings {
    * @param {typeof fetch} [o.fetch] - For tests.
    * @param {() => number} [o.now] - The clock, for tests.
    */
-  constructor({ store, manager, primary, fetch = globalThis.fetch, now = () => Date.now() }) {
+  constructor({ store, manager, primary, roads = null, fetch = globalThis.fetch, now = () => Date.now() }) {
     this.store = store;
     this.db = store.db;
     this.manager = manager;
+    this.roads = roads;
     this.primary = primary ?? null;
     this.fetch = fetch;
     this.now = now;
@@ -212,6 +208,7 @@ export class Findings {
       ready: this.enabled(),
       queued: this.queue.length,
       lastError: this.lastError,
+      roads: this.roads?.stats() ?? null,
       counts: {
         findings: this.db.prepare('SELECT count(*) AS n FROM findings').get().n,
         hits: this.db.prepare('SELECT count(*) AS n FROM finding_hits').get().n,
@@ -261,16 +258,20 @@ export class Findings {
    * Ask the model about one transmission.
    * @param {string} text - The new transmission's transcript.
    * @param {string[]} [context] - The channel's transcripts just before it, oldest first.
+   * @param {{channel?: string|null, roads?: string[]}} [about] - The channel's name, and roads near it that sound
+   *   like something said.
    * @returns {Promise<object>} tidy() of its answer.
    */
-  async ask(text, context = []) {
+  async ask(text, context = [], { channel = null, roads = [] } = {}) {
     const url = this.get('url');
     const model = this.get('model');
     if (!url || !model) throw fail('Findings has no server or model: set them in Admin → Findings.');
     const user = [
+      channel ? `Channel: ${channel}\n` : '',
+      roads.length ? `Roads near this channel with names like words said:\n${roads.join('; ')}\n` : '',
       context.length ? `Earlier on this channel:\n${context.map((c) => `- ${c}`).join('\n')}\n` : '',
       `New transmission:\n${text}`,
-    ].join('\n');
+    ].filter(Boolean).join('\n');
     const messages = [{ role: 'system', content: SYSTEM }, { role: 'user', content: user }];
     const key = this.store.setting(KEYS.apiKey);
     const headers = { 'Content-Type': 'application/json', ...(key ? { Authorization: `Bearer ${key}` } : {}) };
@@ -380,7 +381,8 @@ export class Findings {
     let found = null;
     let error = null;
     try {
-      found = await this.ask(text, context);
+      const roads = this.roads?.hint([...context, text].join(' '), this.roads.where(t.channel_name)) ?? [];
+      found = await this.ask(text, context, { channel: t.channel_name, roads });
       this.lastError = null;
     } catch (e) {
       error = e.message;
@@ -492,6 +494,73 @@ export class Findings {
       text: text.get(r.id, this.primary ?? '')?.text ?? '',
       found: JSON.parse(r.result), hits: hitsOf.all(r.id),
     }));
+  }
+
+  /**
+   * The roads the findings of the last `hours` mention, for the Map: each road once, with the transmissions that
+   * mention it, near their channel; and a corner where an address names two roads that meet.
+   * @param {{hours?: number, also?: number}} o - How far back, and one transmission to include however old.
+   * @returns {object} {ways, features (GeoJSON), places: {key: about}, transmissions: {id: about}}.
+   */
+  map({ hours = 24, also } = {}) {
+    const h = Number(hours);
+    if (!Number.isFinite(h) || h <= 0 || h > 24 * 3650) throw fail('give a number of hours');
+    const out = { ways: this.roads?.stats().ways ?? 0, features: { type: 'FeatureCollection', features: [] }, places: {}, transmissions: {} };
+    if (!out.ways) return out;
+    const rows = this.db.prepare(`
+      SELECT t.id, t.started_at, t.channel_name, f.result FROM findings f JOIN transmissions t ON t.id = f.transmission_id
+       WHERE f.status = 'done' AND (t.started_at >= ? OR t.id = ?) ORDER BY t.started_at DESC LIMIT 500`)
+      .all(this.now() - h * 3600_000, Number(also) || -1);
+    const text = this.db.prepare(`SELECT text FROM transcripts WHERE transmission_id = ? AND status = 'done'
+                                   ORDER BY (engine = ?) DESC LIMIT 1`);
+    const RANK = { exact: 0, base: 1, fuzzy: 2 };
+    const places = new Map();
+    const note = (key, about, r, said) => {
+      const p = places.get(key) ?? { ...about, said: new Set(), ids: [], last: 0 };
+      if (RANK[about.level] < RANK[p.level]) p.level = about.level;
+      p.said.add(said);
+      if (!p.ids.includes(r.id)) p.ids.push(r.id);
+      p.last = Math.max(p.last, r.started_at);
+      places.set(key, p);
+    };
+    for (const r of rows) {
+      const found = JSON.parse(r.result);
+      const at = this.roads.where(r.channel_name);
+      const located = new Map();
+      const find = (s) => {
+        const k = words(s);
+        if (!located.has(k)) located.set(k, this.roads.locate(s, at));
+        return located.get(k);
+      };
+      let any = false;
+      const road = (m) => {
+        if (!m) return;
+        any = true;
+        note(`road:${m.ids[0]}`, { kind: 'road', name: m.name, level: m.level, lines: m.lines, anywhere: Boolean(m.all) }, r, m.said);
+      };
+      for (const s of found.roads ?? []) road(find(s));
+      for (const a of found.addresses ?? []) {
+        const parts = addressRoads(a).map(find);
+        parts.forEach(road);
+        const [p, q] = parts;
+        const corner = p && q && p.ids[0] !== q.ids[0] ? this.roads.corner(p, q) : null;
+        if (corner) note(`corner:${corner.join(',')}`, { kind: 'corner', name: `${p.name} and ${q.name}`, level: 'exact', point: corner }, r, a);
+      }
+      if (!any) continue;
+      out.transmissions[r.id] = {
+        startedAt: r.started_at, channel: r.channel_name, summary: found.summary, incident: found.incident,
+        text: text.get(r.id, this.primary ?? '')?.text ?? '',
+      };
+    }
+    for (const [key, p] of places) {
+      out.features.features.push({
+        type: 'Feature',
+        geometry: p.kind === 'road' ? { type: 'MultiLineString', coordinates: p.lines } : { type: 'Point', coordinates: p.point },
+        properties: { key, kind: p.kind, level: p.level, count: p.ids.length, last: p.last },
+      });
+      out.places[key] = { kind: p.kind, name: p.name, level: p.level, said: [...p.said], ids: p.ids, last: p.last, anywhere: p.anywhere ?? false };
+    }
+    return out;
   }
 
   /** Delete every finding and match (the watch list stays). */

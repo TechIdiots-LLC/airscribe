@@ -42,6 +42,8 @@ const DEFAULTS = {
   // account and ZIP code are set in Admin; an app key here is used when none
   // is set there. The endpoint is for testing against a stand-in.
   radioreference: { appKey: null, endpoint: null },
+  // Admin → Findings → Roads: the Overpass server roads are fetched from (null: overpass-api.de).
+  findings: { overpass: null },
 };
 
 /**
