@@ -167,6 +167,8 @@
 
 ### 🐞 Bug fixes
 - _...Add new stuff here..._
+- The Map opens in a light-mode browser that hasn't chosen a base map: it was made with no style at all, and stayed
+  on "Loading the map…".
 - Switching a radio to another region no longer leaves transmissions filed under the old region's channel names:
   the channel list is read again when the radio reports a different region. The radio link also matches each reply
   to its request, so a command the radio doesn't answer can't put every later answer out by one.

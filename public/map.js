@@ -82,7 +82,8 @@ async function open() {
     if (!styles.length) throw new Error('No base maps are set (map.styles in the settings file).');
     const chosen = recall(STYLE_KEY, null);
     const dark = matchMedia('(prefers-color-scheme: dark)').matches;
-    const style = styles.find((s) => s.url === chosen) ?? (dark && styles.find((s) => s.dark)) ?? styles[0];
+    // (dark && …) would be false in a light browser, which ?? doesn't pass over: no style at all
+    const style = styles.find((s) => s.url === chosen) ?? (dark ? styles.find((s) => s.dark) : undefined) ?? styles[0];
     $('map-style').replaceChildren(...styles.map((s) => el('option', { value: s.url, selected: s === style }, s.name)));
     map = new maplibregl.Map({ container: 'map-canvas', style: style.url, attributionControl: false });
     map.addControl(new maplibregl.NavigationControl(), 'top-right');
