@@ -9,6 +9,7 @@
  * at the end, so the roads in use never stop being whole.
  */
 import { createInterface } from 'node:readline';
+import { lineFeatures, tileOf } from './mvt.js';
 import { VERSION } from './updates.js';
 
 export const OVERPASS = 'https://overpass-api.de/api/interpreter';
@@ -16,6 +17,10 @@ const NEAR_KM = 25;           // the roads a channel's transmissions are about: 
 const MAX_SPAN_DEG = 1.5;     // the largest area fetched from Overpass in one go; bigger is a file's job
 const SAME_ROAD_KM = 1.5;     // two stretches of a name this much further than the nearest are another road
 const CROSSING_KM = 0.05;     // two roads this close have a corner
+const JOIN_KM = 0.04;         // two stretches of a name whose ends come this close are one road (tiles cut them)
+const TILE_ZOOM = 14;         // OpenMapTiles names every street from here
+const MAX_TILES = 4000;
+const TILE_FETCHES = 8;       // at once
 const BATCH = 2000;
 const WHOLE_MAX = 256 * 1024 * 1024;   // a FeatureCollection is parsed whole: no bigger than this
 const CACHE_MAX = 2000;
@@ -53,9 +58,16 @@ export function words(s) {
  */
 export function base(key) {
   const t = key.split(' ').filter(Boolean);
-  if (t.length > 1 && TYPES.has(t.at(-1))) t.pop();
-  while (t.length > 1 && DIRS.has(t[0])) t.shift();
-  while (t.length > 1 && DIRS.has(t.at(-1))) t.pop();
+  // "Ann Street East" is Ann: its kind and directions, in whatever order they come
+  let typed = false;
+  for (;;) {
+    if (t.length > 1 && DIRS.has(t[0])) t.shift();
+    else if (t.length > 1 && DIRS.has(t.at(-1))) t.pop();
+    else if (t.length > 1 && !typed && TYPES.has(t.at(-1))) (t.pop(), typed = true);
+    else break;
+  }
+  // North Street is North Street, not "street"
+  if (t.every((w) => TYPES.has(w) || DIRS.has(w))) return key.split(' ').some((w) => /^\d+[a-z]?$/.test(w)) ? null : key;
   // A number is only ever itself: Route 8 isn't a mishearing of Route 9 ("5th" is a name)
   if (t.some((w) => /^\d+[a-z]?$/.test(w) && !/^\d+(st|nd|rd|th)$/.test(w))) return null;
   return t.join(' ');
@@ -183,6 +195,22 @@ export function fromFeature(f) {
   return road(p.tags && typeof p.tags === 'object' ? p.tags : p, lines);
 }
 
+/** A road number as it's written ("MA 31", "I 190"), from OpenMapTiles' bare ref and its network. */
+function tileRef(p) {
+  const ref = String(p.ref ?? '').trim();
+  if (!ref || !/^\d+[a-z]?$/i.test(ref)) return ref || null;
+  const net = String(p.network ?? '');
+  if (net === 'us-interstate') return `I ${ref}`;
+  if (net === 'us-highway') return `US ${ref}`;
+  const state = /^US:([A-Z]{2})$/.exec(String(p.route_1_network ?? ''))?.[1];
+  return `${state ?? (net === 'us-state' ? 'SR' : 'Route')} ${ref}`;
+}
+
+/** A transportation_name feature from OpenMapTiles' tiles as a road; its class stands for OSM's highway. */
+export const fromTile = (p, lines) => road({
+  highway: p.class === 'path' ? 'path' : p.class, name: p.name ?? p.name_en ?? p['name:latin'], ref: tileRef(p),
+}, lines);
+
 /** An Overpass way, from `out tags geom`, as a road. */
 export const fromOverpass = (e) => (e?.type === 'way' && Array.isArray(e.geometry)
   ? road(e.tags, [e.geometry.map((c) => [c.lon, c.lat])]) : null);
@@ -192,13 +220,18 @@ export class Roads {
    * @param {object} o - Dependencies.
    * @param {import('./store.js').Store} o.store - Settings, and the channels' places.
    * @param {string} [o.overpass] - The Overpass server: the settings file's findings.overpass.
+   * @param {string} [o.tiles] - The road tiles' TileJSON: the settings file's findings.roadTiles; otherwise the
+   *   OpenMapTiles source of the Map's base maps.
+   * @param {{url: string}[]} [o.styles] - The Map's base maps (map.styles), where those tiles are found.
    * @param {typeof fetch} [o.fetch] - For tests.
    * @param {() => number} [o.now] - The clock, for tests.
    */
-  constructor({ store, overpass, fetch = globalThis.fetch, now = () => Date.now() }) {
+  constructor({ store, overpass, tiles, styles = [], fetch = globalThis.fetch, now = () => Date.now() }) {
     this.store = store;
     this.db = store.db;
     this.overpass = overpass || OVERPASS;
+    this.tiles = tiles || null;
+    this.styles = styles;
     this.fetch = fetch;
     this.now = now;
     this.busy = null;
@@ -230,7 +263,7 @@ export class Roads {
       names: this.db.prepare(`SELECT count(DISTINCT n.key) AS n FROM road_names n JOIN roads r ON r.id = n.road_id
                                WHERE r.gen = ?`).get(g).n,
       source: about,
-      busy: this.busy && { from: this.busy.from, startedAt: this.busy.startedAt, read: this.busy.read },
+      busy: this.busy && { from: this.busy.from, startedAt: this.busy.startedAt, read: this.busy.read, tiles: this.busy.tiles },
       lastError: this.lastError ?? null,
       overpass: this.overpass,
     };
@@ -427,6 +460,105 @@ export class Roads {
     return { started: true };
   }
 
+  /**
+   * The TileJSON whose tiles have OpenMapTiles' transportation_name: the settings file's, or the first the Map's
+   * base maps use.
+   * @returns {Promise<{url: string, tilejson: object}>} It.
+   */
+  async tileSource() {
+    const get = async (url) => {
+      const res = await this.fetch(url, { headers: { 'User-Agent': `AirScribe/${VERSION}` }, signal: AbortSignal.timeout(20_000) });
+      if (!res.ok) throw new Error(`${url} answered ${res.status}`);
+      return res.json();
+    };
+    const named = (tj) => (tj.vector_layers ?? []).some((l) => l.id === 'transportation_name');
+    if (this.tiles) {
+      const tilejson = await get(this.tiles);
+      if (!named(tilejson)) throw fail(`${this.tiles} has no transportation_name layer: it isn’t OpenMapTiles`);
+      return { url: this.tiles, tilejson };
+    }
+    for (const style of this.styles) {
+      let doc;
+      try {
+        doc = await get(style.url);
+      } catch {
+        continue;
+      }
+      for (const src of Object.values(doc?.sources ?? {})) {
+        if (src?.type !== 'vector') continue;
+        // An inline source, or a TileJSON's address (less anything after # a torrent-aware client reads)
+        const tilejson = src.tiles ? src : await get(new URL(String(src.url).split('#')[0], style.url).href).catch(() => null);
+        if (tilejson && named(tilejson)) return { url: src.tiles ? style.url : String(src.url).split('#')[0], tilejson };
+      }
+    }
+    throw fail('none of the Map’s base maps uses OpenMapTiles tiles: set findings.roadTiles in the settings file');
+  }
+
+  /**
+   * Read the roads within `radius` km of the placed channels from the Map's own OpenMapTiles tiles (zoom 14, the
+   * transportation_name layer), in the background: the same tiles MaplibreNativeRouting routes on.
+   * @param {{km?: number}} o - How far around.
+   * @returns {Promise<{started: true, tiles: number, from: string}>} Under way; stats() says how it went.
+   */
+  async fetchTiles({ km: radius = NEAR_KM } = {}) {
+    const r = Number(radius);
+    if (!Number.isFinite(r) || r < 1 || r > 60) throw fail('read roads 1 to 60 km around the channels');
+    const places = this.places();
+    if (!places.length) throw fail('place a channel on the map first: the roads read are those around the channels');
+    if (this.busy) throw fail('roads are being read already', 409);
+    const { url, tilejson } = await this.tileSource();
+    const template = tilejson.tiles?.[0];
+    if (!template) throw fail(`${url} lists no tiles`);
+    const z = Math.min(TILE_ZOOM, Number(tilejson.maxzoom ?? TILE_ZOOM));
+    const want = new Map();
+    for (const p of places) {
+      const [w, s, e, n] = around(p, r);
+      const a = tileOf(w, n, z);
+      const b = tileOf(e, s, z);
+      for (let x = a.x; x <= b.x; x++) for (let y = a.y; y <= b.y; y++) want.set(`${x}/${y}`, { x, y });
+    }
+    if (want.size > MAX_TILES) throw fail(`that’s ${want.size} tiles: read fewer km around the channels`);
+    const base = new URL(url);
+    const tileUrl = ({ x, y }) => new URL(template.replace('{z}', z).replace('{x}', x)
+      .replace('{y}', tilejson.scheme === 'tms' ? 2 ** z - 1 - y : y), base).href;
+    this.begin('tiles');
+    const busy = this.busy;
+    busy.tiles = `0 of ${want.size}`;
+    const about = { from: 'tiles', tilejson: url, km: r, zoom: z, count: want.size };
+    (async () => {
+      const queue = [...want.values()];
+      let done = 0;
+      let failed = 0;
+      const worker = async () => {
+        for (let t = queue.shift(); t; t = queue.shift()) {
+          let feats = [];
+          try {
+            const res = await this.fetch(tileUrl(t), { headers: { 'User-Agent': `AirScribe/${VERSION}` }, signal: AbortSignal.timeout(30_000) });
+            if (res.status !== 204 && res.status !== 404) {
+              if (!res.ok) throw new Error(`${res.status}`);
+              feats = lineFeatures(Buffer.from(await res.arrayBuffer()), { z, ...t }, ['transportation_name']);
+            }
+          } catch {
+            failed++;
+          }
+          // Written between fetches, with nothing awaited inside: nothing else's writes join in
+          this.write(feats.map((f) => fromTile(f.props, f.lines)).filter(Boolean));
+          busy.tiles = `${++done} of ${want.size}`;
+        }
+      };
+      try {
+        await Promise.all(Array.from({ length: TILE_FETCHES }, worker));
+        if (failed > want.size / 10) throw new Error(`${failed} of ${want.size} tiles couldn’t be read from ${base.host}`);
+      } catch (err) {
+        try { this.finish(about, err); } catch { /* kept in lastError */ }
+        console.error(`[roads] ${err.message}`);
+        return;
+      }
+      try { this.finish({ ...about, failed }); } catch (err) { console.error(`[roads] ${err.message}`); }
+    })();
+    return { started: true, tiles: want.size, from: url };
+  }
+
   /** Delete every road. */
   clear() {
     if (this.busy) throw fail('roads are being imported: wait for that to finish', 409);
@@ -507,6 +639,8 @@ export class Roads {
       else if (b && slack(b) && b.split(' ').length <= 3) {
         const max = slack(b);
         for (const g of grams[b.split(' ').length]) {
+          // "street" said isn't a mishearing of Streeter Road
+          if (g.split(' ').every((w) => TYPES.has(w) || DIRS.has(w))) continue;
           const d = distance(g, b, max);
           if (d <= max && (score === null || d < score)) score = d;
           if (score === 1) break;
@@ -533,7 +667,7 @@ export class Roads {
     return this.remember(`locate|${key}|${placeKey}|${r}`, () => {
       const g = this.gen();
       const rows = (col, v) => this.db.prepare(`
-          SELECT DISTINCT r.id, r.name, r.coords, r.a, r.b FROM road_names n JOIN roads r ON r.id = n.road_id
+          SELECT DISTINCT r.id, r.name, r.ref, r.coords, r.a, r.b FROM road_names n JOIN roads r ON r.id = n.road_id
            WHERE n.${col} = ? AND r.gen = ?`).all(v, g);
       const b = base(key);
       let level = 'exact';
@@ -557,7 +691,14 @@ export class Roads {
         }
       }
       if (!found.length) return null;
-      return { said, level, ...this.nearest(found, at) };
+      const road = this.nearest(found, at);
+      // Found by its number: called by it, with the street's own name ("MA 31 (Paxton Road)")
+      const numbered = found.find((x) => x.ref && refNames(x.ref).includes(key));
+      if (numbered) {
+        const ref = numbered.ref.split(';')[0].trim();
+        road.name = road.name === ref ? ref : `${ref} (${road.name})`;
+      }
+      return { said, level, ...road };
     });
   }
 
@@ -572,11 +713,28 @@ export class Roads {
         else byEnd.set(end, x.id);
       }
     }
+    const rows = found.map((x) => {
+      const line = JSON.parse(x.coords);
+      const ends = [line[0], line.at(-1)].map(([lon, lat]) => ({ lon, lat }));
+      const [w, s, e, n] = [Math.min(...line.map((c) => c[0])), Math.min(...line.map((c) => c[1])),
+        Math.max(...line.map((c) => c[0])), Math.max(...line.map((c) => c[1]))];
+      return { ...x, line, ends, box: [w - 0.001, s - 0.001, e + 0.001, n + 0.001] };
+    });
+    // A road a tile's edge cut in two: one piece's end lies on the other, near enough
+    if (rows.length <= 600) {
+      for (const p of rows) {
+        for (const q of rows) {
+          if (p === q || root(p.id) === root(q.id)) continue;
+          if (p.ends.some((c) => c.lon >= q.box[0] && c.lon <= q.box[2] && c.lat >= q.box[1] && c.lat <= q.box[3] &&
+            toLine(c, q.line) <= JOIN_KM)) parent.set(root(p.id), root(q.id));
+        }
+      }
+    }
     const groups = new Map();
-    for (const x of found) {
+    for (const x of rows) {
       const k = root(x.id);
       if (!groups.has(k)) groups.set(k, []);
-      groups.get(k).push({ ...x, line: JSON.parse(x.coords) });
+      groups.get(k).push(x);
     }
     let list = [...groups.values()].map((members) => ({
       members, km: at ? Math.min(...members.map((m) => toLine(at, m.line))) : null,

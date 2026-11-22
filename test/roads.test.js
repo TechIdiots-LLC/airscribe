@@ -11,6 +11,8 @@ test('road names read the way they’re said', () => {
   assert.equal(base('elm'), 'elm');
   assert.equal(base('route 9'), null, 'a number alone is only ever itself');
   assert.equal(base('5th avenue'), '5th');
+  assert.equal(base('ann street east'), 'ann', 'its kind and directions, in any order');
+  assert.equal(base('north street'), 'north street', 'not just "street"');
   assert.ok(refNames('MA 9').includes('route 9'));
   assert.ok(refNames('I-290').includes('interstate 290'));
   assert.deepEqual(refNames('US 20;MA 9').filter((n) => n.startsWith('route')), ['route 20', 'route 9']);
@@ -131,4 +133,86 @@ test('Findings gives the model the roads near the channel, and maps what it ment
   assert.equal(m.features.features.find((f) => m.places[f.properties.key].name === 'Elm Street').geometry.coordinates.length, 2);
   assert.equal(findings.map({ hours: 1, also: id }).transmissions[id].channel, 'Holden PD');
   assert.throws(() => findings.map({ hours: 'x' }), /number of hours/);
+});
+
+// ---- The map's own tiles --------------------------------------------------------------------------------------
+
+// A vector tile written here: just what the reader needs (layers, string values, line geometry)
+const varint = (n) => {
+  const out = [];
+  for (; n >= 0x80; n = Math.floor(n / 128)) out.push((n % 128) | 0x80);
+  return [...out, n];
+};
+const bytes = (f, b) => [...varint(f * 8 + 2), ...varint(b.length), ...b];
+const text = (f, s) => bytes(f, [...Buffer.from(s)]);
+const packed = (f, nums) => bytes(f, nums.flatMap(varint));
+const zz = (n) => (n >= 0 ? n * 2 : -n * 2 - 1);
+function mvt(layers) {
+  return Buffer.from(layers.flatMap((l) => {
+    const keys = [];
+    const values = [];
+    const at = (arr, v) => (arr.includes(v) ? arr.indexOf(v) : arr.push(v) - 1);
+    const feats = l.features.map((f) => {
+      const tags = Object.entries(f.props).flatMap(([k, v]) => [at(keys, k), at(values, v)]);
+      let [x, y] = f.line[0];
+      const geom = [9, zz(x), zz(y), ((f.line.length - 1) << 3) | 2];
+      for (const [px, py] of f.line.slice(1)) (geom.push(zz(px - x), zz(py - y)), [x, y] = [px, py]);
+      return bytes(2, [...packed(2, tags), ...varint(3 * 8), 2, ...packed(4, geom)]);
+    });
+    return bytes(3, [...text(1, l.name), ...feats.flat(), ...keys.flatMap((k) => text(3, k)),
+      ...values.flatMap((v) => bytes(4, text(1, v))), ...varint(5 * 8), ...varint(4096)]);
+  }));
+}
+
+test('roads are read from the OpenMapTiles tiles the Map’s base maps use', { skip: !sqlite }, async () => {
+  const { lineFeatures, tileOf } = await import('../src/mvt.js');
+  const { Store } = await import('../src/store.js');
+  const { Roads } = await import('../src/roads.js');
+  const { x, y } = tileOf(HOME.lon, HOME.lat, 14);
+  // Elm Street runs from one tile into the next, each piece reaching a little past the edge, as tiles' do
+  const tiles = new Map([
+    [`${x}/${y}`, mvt([
+      { name: 'transportation', features: [{ props: { class: 'minor' }, line: [[0, 0], [10, 10]] }] },
+      { name: 'transportation_name', features: [
+        { props: { name: 'Elm Street', class: 'minor' }, line: [[3000, 2048], [4150, 2048]] },
+        { props: { ref: '31', network: 'us-state', route_1_network: 'US:MA', class: 'secondary' }, line: [[100, 100], [900, 3000]] },
+        { props: { name: 'Elm Path', class: 'path' }, line: [[200, 200], [300, 300]] },
+      ] },
+    ])],
+    [`${x + 1}/${y}`, mvt([{ name: 'transportation_name', features: [
+      { props: { name: 'Elm Street', class: 'minor' }, line: [[-60, 2048], [1000, 2048]] },
+    ] }])],
+  ]);
+  const [one] = lineFeatures(tiles.get(`${x + 1}/${y}`), { z: 14, x: x + 1, y }, ['transportation_name']);
+  assert.equal(one.props.name, 'Elm Street');
+  assert.ok(Math.abs(one.lines[0][0][0] - ((x + 1 - 60 / 4096) / 2 ** 14 * 360 - 180)) < 1e-9, 'in longitude');
+  assert.equal(lineFeatures(tiles.get(`${x}/${y}`), { z: 14, x, y }, ['transportation_name']).length, 3);
+
+  const store = new Store(':memory:', 'base');
+  store.setChannelPlace('Holden PD', HOME.lat, HOME.lon);
+  const asked = [];
+  const fetch = async (url) => {
+    asked.push(url);
+    if (url === 'https://maps.invalid/plain.json') return Response.json({ sources: { sat: { type: 'raster', url: 'x' } } });
+    if (url === 'https://maps.invalid/style.json') {
+      return Response.json({ sources: { omt: { type: 'vector', url: 'https://maps.invalid/omt/tiles.json#torrent=x' } } });
+    }
+    if (url === 'https://maps.invalid/omt/tiles.json') {
+      return Response.json({ tiles: ['https://maps.invalid/omt/{z}/{x}/{y}.pbf'], maxzoom: 14, vector_layers: [{ id: 'transportation_name' }] });
+    }
+    const m = /omt\/14\/(\d+)\/(\d+)\.pbf$/.exec(url);
+    return m && tiles.has(`${m[1]}/${m[2]}`) ? new Response(tiles.get(`${m[1]}/${m[2]}`)) : new Response(null, { status: 204 });
+  };
+  const styles = [{ url: 'https://maps.invalid/plain.json' }, { url: 'https://maps.invalid/style.json' }];
+  await assert.rejects(new Roads({ store, fetch, styles: styles.slice(0, 1) }).fetchTiles({ km: 1 }), /set findings\.roadTiles/);
+  const roads = new Roads({ store, fetch, styles });
+  const started = await roads.fetchTiles({ km: 3 });
+  assert.equal(started.from, 'https://maps.invalid/omt/tiles.json', 'found through the base map, the torrent part left off');
+  while (roads.stats().busy) await new Promise((r) => setTimeout(r, 5));
+  const s = roads.stats();
+  assert.deepEqual([s.source.from, s.source.zoom, s.ways, s.lastError], ['tiles', 14, 3, null], 'the footpath is left out');
+  const elm = roads.locate('Elm St', HOME);
+  assert.equal(elm.lines.length, 2, 'the two tiles’ pieces are one road');
+  assert.equal(roads.locate('Route 31', HOME).name, 'MA 31', 'a bare ref, numbered as its network has it');
+  assert.ok(asked.some((u) => u.endsWith(`/14/${x}/${y}.pbf`)));
 });

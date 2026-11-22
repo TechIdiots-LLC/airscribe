@@ -72,19 +72,30 @@ function renderRoads(r) {
   if (!r) return;
   const src = r.source;
   const from = !src ? '' : src.from === 'file' ? `imported from ${src.name}`
+    : src.from === 'tiles' ? `read from the map’s tiles (${new URL(src.tilejson).host}) for ${src.km} km around the channels`
     : `fetched from OpenStreetMap for ${src.km} km around the channels`;
+  const doing = { file: 'Importing', tiles: `Reading the map’s tiles, ${r.busy?.tiles},` }[r.busy?.from] ?? 'Fetching from OpenStreetMap';
   const text = r.busy
-    ? `${r.busy.from === 'file' ? 'Importing' : 'Fetching from OpenStreetMap'}… ${r.busy.read.toLocaleString()} roads so far.`
+    ? `${doing}… ${r.busy.read.toLocaleString()} roads so far.`
     : r.ways ? `${r.ways.toLocaleString()} stretches of road with ${r.names.toLocaleString()} names, ${from}, ` +
       `${new Date(src.at).toLocaleString()}. Roads © OpenStreetMap contributors.`
     : 'No roads yet.';
   $('fd-roads-status').textContent = r.lastError && !r.busy ? `${text} The last try failed: ${r.lastError.error}` : text;
   $('fd-roads-status').className = r.lastError && !r.busy ? 'tx-text error' : 'meta';
-  for (const id of ['fd-roads-fetch', 'fd-roads-import', 'fd-roads-clear']) $(id).disabled = Boolean(r.busy);
+  for (const id of ['fd-roads-tiles', 'fd-roads-fetch', 'fd-roads-import', 'fd-roads-clear']) $(id).disabled = Boolean(r.busy);
   roadsReady = Boolean(r.ways);
   clearTimeout(roadsTimer);
   if (r.busy) roadsTimer = setTimeout(() => api('/admin/findings/roads').then(renderRoads, (e) => say(e.message, true)), 2000);
 }
+
+$('fd-roads-tiles').onclick = async () => {
+  try {
+    await api('/admin/findings/roads/tiles', { method: 'POST', body: { km: Number($('fd-roads-km').value) } });
+    renderRoads(await api('/admin/findings/roads'));
+  } catch (e) {
+    say(e.message, true);
+  }
+};
 
 $('fd-roads-fetch').onclick = async () => {
   try {

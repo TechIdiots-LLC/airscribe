@@ -16,7 +16,8 @@
   from that database, its frequency, talkgroup and the department the scanner gave, near home. **Find all** looks up
   every channel not placed, ticks those Uniden's database is sure of, and places the ticked together
   (docs/radioreference.md#from-unidens-database).
-- **Findings → Roads:** the roads around the channels, fetched from OpenStreetMap or imported from a GeoJSON file
+- **Findings → Roads:** the roads around the channels, read from the map's own OpenMapTiles tiles (the same roads an
+  OpenMapTiles router uses), fetched from OpenStreetMap, or imported from a GeoJSON file
   (`tools/roads-from-osm.sh` cuts one from any `.osm.pbf`, the planet included). The model is told the roads near
   the channel whose names sound like something said, so a misheard road comes back as the one that's there; and the
   roads mentioned light up on the Map for admins (**Roads mentioned**), near their channel, with a dot where an

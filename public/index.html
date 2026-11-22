@@ -441,11 +441,13 @@
     <p class="meta">The roads around the channels, from OpenStreetMap. With each transmission, the model is given those
       near its channel whose names sound like something said, so a road speech recognition misheard comes back as the
       one that’s there; and the roads mentioned light up on the Map (<strong>Roads mentioned</strong>, for admins).
-      Fetch them for the area around the channels placed on the map, or import a GeoJSON file made from an
-      OpenStreetMap extract (docs/findings.md#roads). Only the area is sent to fetch them, nothing heard.</p>
+      Read them from the map’s own tiles (OpenMapTiles), fetch them from OpenStreetMap, for the area around the
+      channels placed on the map, or import a GeoJSON file made from an OpenStreetMap extract (docs/findings.md#roads).
+      Only the area is sent to get them, nothing heard.</p>
     <p class="meta" id="fd-roads-status"></p>
     <div class="row wrap">
       <label>Within <input id="fd-roads-km" type="number" min="1" max="60" step="1" value="25" size="3"> km of the channels</label>
+      <button id="fd-roads-tiles" title="The OpenMapTiles tiles the base maps draw: the same roads a router built on them uses">From the map’s tiles</button>
       <button id="fd-roads-fetch">Fetch from OpenStreetMap</button>
       <button id="fd-roads-import">Import a file…</button>
       <input type="file" id="fd-roads-file" accept=".geojson,.geojsonseq,.geojsonl,.json,.jsonl,.ndjson" hidden>

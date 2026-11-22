@@ -124,8 +124,17 @@ name said without its kind ("Elm") finds Elm Street. Of the roads with that name
 taken, with any that carry on from it: Main Street in this town, not the next. A channel not placed on the map is
 taken to be in the middle of those that are.
 
-**Getting them.** Either:
+**Getting them.** One of:
 
+- **From the map's tiles**: the roads within the given distance of the placed channels, read from the
+  [OpenMapTiles](https://openmaptiles.org/schema/#transportation_name) tiles the Map's base maps draw (zoom 14, the
+  `transportation_name` layer: each road's name, number and class). AirScribe finds them through the base maps in
+  `map.styles`: the first with a vector source that has that layer. The settings file's `findings.roadTiles` names
+  a TileJSON instead. They're the same roads an OpenMapTiles router uses (MaplibreNativeRouting's offline profiles
+  read the same two layers), so one planet build serves the map, navigation and this. Tiles cut a road at their
+  edges; pieces of one name whose ends lie on each other are joined again. A county takes a few hundred tiles and
+  well under a minute. Tiles have only a road's `name` and `ref`, not OpenStreetMap's other names (`alt_name`,
+  `old_name`), so a road locals still call by an old name is found only from an OpenStreetMap fetch or file.
 - **Fetch from OpenStreetMap**: the named roads within the given distance of the placed channels, from
   [Overpass](https://wiki.openstreetmap.org/wiki/Overpass_API) (`overpass-api.de`, or the settings file's
   `findings.overpass`). Only the area's box is sent. It takes a minute or two for a county. Channels spread over
@@ -148,6 +157,7 @@ Either way, the new roads replace the old only once they're all in. Roads are ©
 | | |
 | --- | --- |
 | `GET /api/admin/findings/roads` | how many, from where, an import under way, the last failure |
+| `POST /api/admin/findings/roads/tiles` | `{km}`: read from the map's tiles, in the background |
 | `POST /api/admin/findings/roads/fetch` | `{km}`: fetch from Overpass, in the background |
 | `PUT /api/admin/findings/roads?name=` | the file as the body (`application/octet-stream`) |
 | `DELETE /api/admin/findings/roads` | delete them |
