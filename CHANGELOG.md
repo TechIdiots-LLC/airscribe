@@ -3,6 +3,12 @@
 ## master
 ### ✨ Features and improvements
 - _...Add new stuff here..._
+
+### 🐞 Bug fixes
+- _...Add new stuff here..._
+
+## 0.2.0
+### ✨ Features and improvements
 - **Findings (Admin → Findings), off until an admin turns it on:** a language model on your own server (llm-lxc's
   Ollama, or any OpenAI-style one) reads each transcript, with its channel's last few minutes, and picks out the
   addresses, roads, plates (a phonetic alphabet read out becomes letters), vehicles, people and units, the kind of
@@ -178,7 +184,6 @@
   every apt command, and the login message says to run `apt update` before the first `apt install`.
 
 ### 🐞 Bug fixes
-- _...Add new stuff here..._
 - The Map opens in a light-mode browser that hasn't chosen a base map: it was made with no style at all, and stayed
   on "Loading the map…".
 - Switching a radio to another region no longer leaves transmissions filed under the old region's channel names:
