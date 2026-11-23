@@ -28,7 +28,8 @@ $output = Join-Path ([IO.Path]::GetTempPath()) "bump-$env:CI_JOB_ID.txt"
 $env:GITHUB_OUTPUT = $output
 python build/bump_version.py $BumpType $PreId
 if ($LASTEXITCODE -ne 0) { throw 'bump_version.py failed' }
-$version = ((Get-Content $output) -match '^version=' | Select-Object -Last 1) -replace '^version=', ''
+# @(): a one-line file is a string, and -match on a string returns True instead of the line
+$version = (@(Get-Content $output) -match '^version=' | Select-Object -Last 1) -replace '^version=', ''
 Remove-Item $output
 if (-not $version) { throw 'bump_version.py gave no version' }
 $branch = "release-v$version"
