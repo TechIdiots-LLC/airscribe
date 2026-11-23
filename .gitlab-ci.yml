@@ -3,7 +3,8 @@
 # on the Linux Docker runner (tags "linux", "docker"; gitlab-runner-install's install-linux-runner.sh). The build
 # needs root in the job container, not privileges. The template test boots the template in Docker-in-Docker with
 # systemd and needs the runner registered with --privileged (install-linux-runner.sh --privileged). GitLab ignores
-# .github/, whose workflow runs the same tests on the GitHub mirror.
+# .github/, whose workflows run the same tests on the GitHub mirror and make the GitHub release and bump pull request
+# (release.yml, bump-version.yml) the way these jobs make GitLab's.
 #
 #   test-node        Merge requests and pushes to main: npm test, then the server booted with --simulate.
 #   test-python      The same: the sidecar's tests on Ubuntu 22.04's and 24.04's Python.

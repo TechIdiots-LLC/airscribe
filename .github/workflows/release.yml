@@ -1,0 +1,154 @@
+name: Build and Release
+
+# On a push to main, releases package.json's version if there's no GitHub release for it yet, with the matching
+# CHANGELOG.md section as the notes. The same files as the GitLab pipeline's release-* jobs (.gitlab/scripts/build.sh,
+# in the same ubuntu:24.04 image), and the Proxmox template boot-tested with Docker (proxmox/test-template.sh):
+#   airscribe_<ver>-1_all.deb                 Ubuntu 24.04 / Debian 12 (docs/installing.md)
+#   AirScribe-v<ver>-proxmox-amd64.tar.zst    the Proxmox LXC template (docs/proxmox.md)
+#   SHA256SUMS                                of both
+# Run it by hand with "dry run" to build and test without publishing.
+#
+# Only the GitHub release is published from here. The GitLab release and its package registry files, which
+# Admin -> Updates reads (src/updates.js, docs/updating.md), are made by .gitlab-ci.yml; the step that would do it
+# from here is at the end, commented out.
+
+on:
+  workflow_dispatch:
+    inputs:
+      dry_run:
+        description: Build and test the release files without publishing anything.
+        type: boolean
+        default: false
+  push:
+    branches: [main]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+
+permissions:
+  contents: write
+
+jobs:
+  release-check:
+    name: Check if version is already released
+    runs-on: ubuntu-24.04
+    outputs:
+      version: ${{ steps.check.outputs.version }}
+      build: ${{ steps.check.outputs.build }}
+      publish: ${{ steps.check.outputs.publish }}
+      prerelease: ${{ steps.check.outputs.prerelease }}
+    steps:
+      - uses: actions/checkout@v6
+      - id: check
+        run: |
+          version=$(jq -r .version package.json)
+          if ! [[ $version =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?$ ]]; then
+            echo "::error::package.json's version '$version' isn't x.y.z or x.y.z-pre.n"; exit 1
+          fi
+          status=$(curl -s -o /dev/null -w "%{http_code}" -H "Authorization: Bearer ${{ secrets.GITHUB_TOKEN }}" \
+            "https://api.github.com/repos/${{ github.repository }}/releases/tags/v${version}")
+          if [ "${{ inputs.dry_run }}" = "true" ]; then
+            version="${version}-dev.$(git rev-parse --short HEAD)"
+            build=true publish=false
+          elif [ "$status" = "200" ]; then
+            build=false publish=false
+          else
+            build=true publish=true
+          fi
+          {
+            echo "version=$version"
+            echo "build=$build"
+            echo "publish=$publish"
+            echo "prerelease=$(echo "$version" | grep -q -- '-' && echo true || echo false)"
+          } >> "$GITHUB_OUTPUT"
+          echo "Version $version (release lookup: $status); build: $build, publish: $publish"
+
+  build:
+    name: Build the .deb and the Proxmox template
+    runs-on: ubuntu-24.04
+    needs: release-check
+    if: needs.release-check.outputs.build == 'true'
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v6
+      # As root in ubuntu:24.04, as the GitLab release-build job runs it
+      - name: Build
+        run: |
+          docker run --rm -v "$PWD:/src" -w /src ubuntu:24.04 \
+            bash .gitlab/scripts/build.sh release-files "${{ needs.release-check.outputs.version }}"
+          sudo chown -R "$(id -u):$(id -g)" release-files
+      - name: Boot-test the template
+        run: sudo bash proxmox/test-template.sh release-files/AirScribe-*-proxmox-amd64.tar.zst
+      - uses: actions/upload-artifact@v7
+        with:
+          name: release-files
+          path: release-files/
+          compression-level: 0
+          retention-days: 7
+
+  release:
+    name: Publish GitHub release
+    runs-on: ubuntu-24.04
+    needs: [release-check, build]
+    if: needs.release-check.outputs.publish == 'true'
+    environment: release
+    steps:
+      - uses: actions/checkout@v6
+      - uses: actions/download-artifact@v8
+        with:
+          name: release-files
+          path: release-files
+      - name: SHA256SUMS
+        run: cd release-files && rm -f SHA256SUMS && sha256sum -- * > SHA256SUMS && cat SHA256SUMS
+      - name: Release notes from CHANGELOG.md
+        run: |
+          version="${{ needs.release-check.outputs.version }}"
+          deb=$(cd release-files && ls airscribe_*_all.deb)
+          template=$(cd release-files && ls AirScribe-*-proxmox-amd64.tar.zst)
+          awk -v ver="## $version" 'BEGIN{p=0} $0==ver{p=1; next} /^## / && p==1{exit} p==1{print}' \
+            CHANGELOG.md > notes.md
+          cat >> notes.md <<EOF
+
+          ## Downloads
+
+          - **Proxmox:** \`$template\` is an LXC template with AirScribe installed (docs/proxmox.md).
+          - **Ubuntu 24.04 / Debian 12:** \`$deb\`, with Node 22.13 or newer from NodeSource (docs/installing.md).
+          - **Updating:** an install updates itself from Admin -> Updates (docs/updating.md), from the GitLab release;
+            \`SHA256SUMS\` is what it checks the download against.
+          EOF
+          cat notes.md
+      - uses: ncipollo/release-action@v1
+        with:
+          tag: v${{ needs.release-check.outputs.version }}
+          name: AirScribe v${{ needs.release-check.outputs.version }}
+          commit: ${{ github.sha }}
+          bodyFile: notes.md
+          artifacts: release-files/*
+          prerelease: ${{ needs.release-check.outputs.prerelease }}
+          allowUpdates: true
+
+      # The GitLab release, which .gitlab-ci.yml's release-publish makes (.gitlab/scripts/publish-release.ps1): the
+      # files in the generic package registry, and the release linking them. Left here, off, so GitHub doesn't make
+      # a second one. Turning it on needs GITLAB_RELEASE_TOKEN in the release environment: a GitLab project access
+      # token (Developer, scope api).
+      # - name: Publish the GitLab release
+      #   env:
+      #     GITLAB_TOKEN: ${{ secrets.GITLAB_RELEASE_TOKEN }}
+      #     VERSION: ${{ needs.release-check.outputs.version }}
+      #   run: |
+      #     api=https://gitlab.techidiots.net/api/v4/projects/techidiots-llc%2Fairscribe
+      #     links='[]'
+      #     for f in release-files/*; do
+      #       name=$(basename "$f")
+      #       url="$api/packages/generic/airscribe/$VERSION/$name"
+      #       curl -fsS --retry 3 -H "PRIVATE-TOKEN: $GITLAB_TOKEN" --upload-file "$f" "$url" >/dev/null
+      #       links=$(jq -c --arg n "$name" --arg u "$url" \
+      #         '. + [{name: $n, url: $u, direct_asset_path: ("/" + $n), link_type: "package"}]' <<< "$links")
+      #     done
+      #     name="AirScribe v$VERSION"
+      #     [ "${{ needs.release-check.outputs.prerelease }}" = "true" ] && name="$name (pre-release)"
+      #     jq -n --arg tag "v$VERSION" --arg name "$name" --arg ref "${{ github.sha }}" \
+      #       --rawfile notes notes.md --argjson links "$links" \
+      #       '{tag_name: $tag, name: $name, ref: $ref, description: $notes, assets: {links: $links}}' \
+      #       | curl -fsS -H "PRIVATE-TOKEN: $GITLAB_TOKEN" -H 'Content-Type: application/json' \
+      #           --data @- "$api/releases" >/dev/null
