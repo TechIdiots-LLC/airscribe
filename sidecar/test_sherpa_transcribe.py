@@ -107,8 +107,34 @@ class FamilyTests2(unittest.TestCase):
         from sherpa_transcribe import FAMILIES
         # These emit tokens aligned to the audio, so they cannot return a
         # fragment for a long transmission the way Whisper did.
-        for f in ("transducer", "moonshine", "nemo-ctc"):
+        for f in ("transducer", "nemo-transducer", "moonshine", "nemo-ctc"):
             self.assertIn(f, FAMILIES)
+
+    def _transducer_kwargs(self, family):
+        """What load_recognizer hands sherpa-onnx's from_transducer, with a stand-in module."""
+        import sys
+        import types
+        d = tempfile.mkdtemp()
+        for n in ("encoder.int8.onnx", "decoder.int8.onnx", "joiner.int8.onnx", "tokens.txt"):
+            open(os.path.join(d, n), "w").close()
+        seen = {}
+        fake = types.ModuleType("sherpa_onnx")
+        fake.OfflineRecognizer = types.SimpleNamespace(from_transducer=lambda **kw: seen.update(kw) or "rec")
+        saved = sys.modules.get("sherpa_onnx")
+        sys.modules["sherpa_onnx"] = fake
+        try:
+            self.assertEqual(load_recognizer(family, d, "en", 1), "rec")
+        finally:
+            if saved is None:
+                del sys.modules["sherpa_onnx"]
+            else:
+                sys.modules["sherpa_onnx"] = saved
+        return seen
+
+    def test_parakeet_is_loaded_as_a_nemo_transducer(self):
+        # Without model_type sherpa-onnx fails with "'vocab_size' does not exist in the metadata"
+        self.assertEqual(self._transducer_kwargs("nemo-transducer")["model_type"], "nemo_transducer")
+        self.assertEqual(self._transducer_kwargs("transducer")["model_type"], "")
 
 
 class MoonshineLayoutTests(unittest.TestCase):

@@ -118,7 +118,8 @@ available alongside Whisper:
 | `family` | what it suits |
 | --- | --- |
 | `moonshine` | built for short audio; a median transmission here is 3 s |
-| `transducer` | Zipformer, Parakeet TDT and other encoder/decoder/joiner models |
+| `transducer` | Zipformer and other encoder/decoder/joiner models |
+| `nemo-transducer` | NVIDIA's NeMo transducers: Parakeet TDT (`sherpa-onnx-nemo-parakeet-tdt-0.6b-v2-int8`) |
 | `nemo-ctc` | NeMo CTC models |
 | `sense-voice` | multilingual, autoregressive |
 | `whisper` | the tiny/base/small line, autoregressive |

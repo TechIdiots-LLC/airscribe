@@ -22,7 +22,7 @@ import sys
 import wave
 
 
-FAMILIES = ("sense-voice", "whisper", "transducer", "moonshine", "nemo-ctc")
+FAMILIES = ("sense-voice", "whisper", "transducer", "nemo-transducer", "moonshine", "nemo-ctc")
 
 
 def _one(directory, pattern):
@@ -89,13 +89,15 @@ def load_recognizer(family, model_dir, language, threads):
     # generating a sentence, so they cannot stop early and return a fragment
     # for a long transmission the way an autoregressive model can. On radio
     # traffic that failure costs more than a wrong word.
-    if family == "transducer":
+    if family in ("transducer", "nemo-transducer"):
         enc, dec, join, tok = (
             _one(d, "*encoder*.onnx"), _one(d, "*decoder*.onnx"),
             _one(d, "*joiner*.onnx"), _one(d, "*tokens.txt"),
         )
+        # NeMo's (Parakeet TDT) carry no vocab_size in their metadata, so sherpa-onnx must be told what they are
         return sherpa_onnx.OfflineRecognizer.from_transducer(
             encoder=enc, decoder=dec, joiner=join, tokens=tok, num_threads=threads,
+            model_type="nemo_transducer" if family == "nemo-transducer" else "",
         )
     if family == "moonshine":
         return sherpa_onnx.OfflineRecognizer.from_moonshine(

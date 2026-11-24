@@ -7,6 +7,7 @@
 
 ### 🐞 Bug fixes
 - Findings: new findings show at the top of the open Findings tab within a few seconds, not after leaving and coming back
+- NVIDIA's Parakeet TDT runs through sherpa-onnx: set `"family": "nemo-transducer"` (the `parakeet-tdt` model id does it). As `transducer` every clip failed with "'vocab_size' does not exist in the metadata"
 - _...Add new stuff here..._
 
 ## 0.4.0

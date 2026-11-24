@@ -29,7 +29,7 @@ export const SHERPA_MODELS = [
   },
   {
     id: 'parakeet-tdt',
-    family: 'transducer',
+    family: 'nemo-transducer',
     name: 'NVIDIA Parakeet TDT — transducer, fast and accurate',
     url: 'https://github.com/k2-fsa/sherpa-onnx/releases/tag/asr-models',
   },
