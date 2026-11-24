@@ -4,9 +4,10 @@ Findings has a language model read each transcript and pick out what's useful: t
 people and units mentioned, the kind of call, and a one-line summary. A **watch list** of plates, streets, names or
 phrases is checked against each transcript and against what the model found, and a match can be posted to a webhook.
 
-It's off until an admin turns it on, and **only admins ever see it**. What it keeps is about third parties heard on the
-radio, so it isn't in the feed, the event stream, exports, the public view or anything a viewer can reach. It lives
-under Admin, behind Admin's own two-step check ([two-step.md](two-step.md)), and is deleted after a set number of days.
+It's off until an admin turns it on. **Signed-in users, viewers and admins, see it** on the **Findings** tab; the public
+view never does. What it keeps is about third parties heard on the radio, so it isn't in the feed, the event stream,
+exports or the public view, and it's deleted after a set number of days. Its settings, its roads and the watch list are
+changed only by admins, in **Admin → Findings**, behind Admin's own two-step check ([two-step.md](two-step.md)).
 
 ## Setting it up
 
@@ -23,7 +24,8 @@ same GPU) is the obvious one; any Ollama, or any server with OpenAI's chat compl
 
 From then on, each transcript from the default engine is read as it's finished, one at a time, behind live
 transcription. **Read the last N hours** reads earlier ones that haven't been. A transmission with less than two words
-of speech (a beep, `[BLANK_AUDIO]`) isn't sent.
+of speech (a beep, `[BLANK_AUDIO]`) isn't sent. One that came through static (marked in the feed) is still sent, and
+the model is told so (below).
 
 | Setting | | |
 | --- | --- | --- |
@@ -37,7 +39,12 @@ of speech (a beep, `[BLANK_AUDIO]`) isn't sent.
 ## What the model is asked
 
 The new transmission's transcript, and as context up to three earlier ones on the same channel from the five minutes
-before it, so "the plate is…" after "Car 12, traffic stop on Route 9" reads as one call. It's told to report only what
+before it, so "the plate is…" after "Car 12, traffic stop on Route 9" reads as one call. Any of them that came through
+static is marked "heard through static", and the model is told to report from those only what reads clearly: speech
+recognition writes words into hiss.
+
+Each finding has **Sent to the model** under it: the message as it went, with the channel, the road names hinted, the
+context and the transcript. The instructions that go with every one are at the top of the Findings tab. It's told to report only what
 the new one says, to leave out what isn't said rather than guess, and to answer with:
 
 | Field | |
@@ -87,15 +94,19 @@ in a notification. The webhook URL is the only thing that guards an HA webhook, 
 
 ## Reading them
 
-**Admin → Findings → Found** lists the transmissions read, newest first: when, the channel, the summary, the kind of
+The **Findings** tab's **Found** lists the transmissions read, newest first: when, the channel, the summary, the kind of
 call, the transcript, what was found (watched values marked), and the clip. **Search** looks in what was found and in
 the transcripts (a plate however it's spaced); **only watch matches** narrows it to those. **Delete all findings**
 empties it; the watch list stays.
 
-The same, for scripts, with an admin's token or session:
+The same, for scripts. Reading takes any signed-in user's token or session; the rest, an admin's:
 
 | | |
 | --- | --- |
+| `GET /api/findings` | on or off, how many are kept, the model's instructions |
+| `GET /api/findings/results` | `?q=&hits=1&before=&limit=`: findings, newest first, each with what was `sent` and whether it was `static` |
+| `GET /api/findings/watches` | the watch list |
+| `GET /api/findings/map` | `?hours=&also=`: the roads mentioned, as GeoJSON with what was said about each |
 | `GET /api/admin/findings` | the settings (never the key), how many are kept, the last error |
 | `PUT /api/admin/findings` | change them: `enabled`, `api`, `url`, `model`, `apiKey`, `webhook`, `keepDays`; `forgetKey` |
 | `POST /api/admin/findings/test` | `{text?}`: one through the model |
@@ -112,7 +123,7 @@ With the roads around the channels in **Admin → Findings → Roads**, Findings
   transcript, with Pleasant Street a mile from the channel, is given to the model as Pleasant Street, and it writes
   that. Only names close to words in the transmission are sent, at most 25, never the whole list. The channel's name
   goes with them.
-- **The roads mentioned light up on the Map.** An admin ticks **Roads mentioned** (beside the list's other filters)
+- **The roads mentioned light up on the Map.** A signed-in user ticks **Roads mentioned** (beside the list's other filters)
   and chooses how far back. Each road a finding names is drawn where it runs near the transmission's channel, redder
   the more recent and wider the more it's been mentioned. A road whose name was only *like* one there (misheard,
   maybe) is dashed. Where an address names two roads that meet ("Main St and Route 9"), the corner gets a dot.

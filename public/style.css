@@ -416,3 +416,6 @@ dialog.twostep-dlg::backdrop { background: rgba(0, 0, 0, .5); }
 .twostep-key { word-break: break-all; }
 .twostep-codes { columns: 2; list-style: none; padding: 0; margin: 8px 0; font-size: 15px; }
 .twostep-codes li { padding: 2px 0; }
+.fd-sent summary { cursor: pointer; }
+.fd-sent pre { font: 12px ui-monospace, monospace; white-space: pre-wrap; word-break: break-word; margin: 6px 0;
+  padding: 8px; border: 1px solid var(--line); border-radius: 6px; }

@@ -93,9 +93,12 @@ test('a transcript is read with its channel’s last minutes, and watches catch 
     const user = model[0].body.messages[1].content;
     assert.match(user, /Earlier on this channel:\n- Car 12 go ahead/);
     assert.doesNotMatch(user, /another channel/, 'only this channel’s traffic is context');
+    assert.doesNotMatch(user, /static/, 'a clear signal isn’t called static');
 
     const [r] = findings.results({});
     assert.equal(r.id, id);
+    assert.equal(r.sent, user, 'what was sent is kept');
+    assert.equal(r.static, false);
     assert.deepEqual(r.found.plates, ['ABC123']);
     assert.deepEqual(r.hits.map((h) => [h.term, h.field]).sort(), [['Elm St', 'addresses'], ['abc 123', 'plates']]);
     assert.equal(findings.results({ q: 'abc 123' }).length, 1, 'a plate is found however it’s spaced');
@@ -119,6 +122,21 @@ test('a transcript is read with its channel’s last minutes, and watches catch 
   } finally {
     findings.stop();
   }
+});
+
+test('a clip heard through static is still read, and the model is told so', { skip: !sqlite }, async () => {
+  const { store, findings, calls, say, clock } = await setUp({ answer: { summary: 'Engine 2 to Main' } });
+  findings.save({ enabled: true, url: 'http://llm.invalid:11434' });
+  const earlier = say('copy that engine two', clock() - 60_000);
+  store.setQuality(earlier, 2);
+  const id = say('engine 2 to main st for smoke showing', clock());
+  store.setQuality(id, 3);
+  await findings.read(id);
+  const user = calls[0].body.messages[1].content;
+  assert.match(user, /- \(heard through static\) copy that engine two/);
+  assert.match(user, /New transmission, heard through static/);
+  assert.match(calls[0].body.messages[0].content, /heard through static came in weak/);
+  assert.equal(findings.results({})[0].static, true);
 });
 
 test('with the model down, the error is kept and watches still see the transcript', { skip: !sqlite }, async () => {
@@ -163,7 +181,7 @@ test('an OpenAI-style server is asked the OpenAI way', { skip: !sqlite }, async 
   assert.throws(() => findings.save({ url: 'ftp://x' }), /http:\/\/ or https:\/\//);
 });
 
-test('only an admin reaches Findings through the API', { skip: !sqlite }, async () => {
+test('signed-in users read Findings, only an admin changes it, the public neither', { skip: !sqlite }, async () => {
   const { DatabaseSync } = await import('node:sqlite');
   const { Store } = await import('../src/store.js');
   const { Accounts } = await import('../src/accounts.js');
@@ -188,11 +206,19 @@ test('only an admin reaches Findings through the API', { skip: !sqlite }, async 
     }).then(async (r) => ({ status: r.status, body: await r.json().catch(() => null) }));
   };
   try {
-    assert.equal((await fetch(`${base}/admin/findings`)).status, 401);
+    for (const path of ['/admin/findings', '/findings', '/findings/results', '/findings/watches', '/findings/map']) {
+      assert.equal((await fetch(`${base}${path}`)).status, 401, `${path}: not without signing in`);
+    }
     const bob = await as('bob', 'battery staple');
-    assert.equal((await bob('GET', '/admin/findings')).status, 403, 'a viewer can’t');
-    assert.equal((await bob('GET', '/admin/findings/results')).status, 403);
-    assert.equal((await bob('GET', '/admin/findings/map')).status, 403, 'nor the roads it mentioned');
+    const seen = await bob('GET', '/findings');
+    assert.equal(seen.status, 200, 'a viewer reads it');
+    assert.ok(!('url' in seen.body) && !('lastError' in seen.body), 'but not where it sends');
+    assert.match(seen.body.instructions, /radio traffic/);
+    assert.equal((await bob('GET', '/findings/results')).status, 200);
+    assert.equal((await bob('GET', '/findings/watches')).status, 200);
+    assert.equal((await bob('GET', '/findings/map')).status, 200, 'and the roads it mentioned');
+    assert.equal((await bob('GET', '/admin/findings')).status, 403, 'not its settings');
+    assert.equal((await bob('POST', '/admin/findings/watches', { term: 'x' })).status, 403, 'nor the watch list');
     assert.equal((await bob('DELETE', '/admin/findings/roads')).status, 403);
     const alice = await as('alice', 'correct horse');
     const s = await alice('PUT', '/admin/findings', { url: 'http://llm.invalid:11434', model: 'qwen3:8b', apiKey: 'secret' });

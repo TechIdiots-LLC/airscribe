@@ -1,6 +1,6 @@
 // Findings: what a language model reads in the transcripts (docs/findings.md). Its tab holds the watch list and
-// what was found; Admin → Findings its server and roads; the Map the roads mentioned. Shown only to an admin; the
-// server enforces that regardless.
+// what was found; Admin → Findings its server and roads; the Map the roads mentioned. Any signed-in user reads it;
+// only an admin changes it. The server enforces both regardless.
 import { showView } from './views.js';
 
 const $ = (id) => document.getElementById(id);
@@ -155,13 +155,20 @@ async function load() {
   }
 }
 
-/** The Findings tab: its status, the watch list and what was found. */
+let isAdmin = false;   // from sign-in: whether the watch list can be changed here
+
+/** What was sent to the model, folded away. */
+const sentBox = (label, text) => el('details', { className: 'fd-sent' },
+  el('summary', { className: 'meta' }, label), el('pre', {}, text));
+
+/** The Findings tab: its status, the model's instructions, the watch list and what was found. */
 async function loadTab() {
   try {
-    const s = await api('/admin/findings');
-    roadsReady = Boolean(s.roads?.ways);
+    const s = await api('/findings');
+    roadsReady = s.roads;
     const [text, error] = stateOf(s);
-    tabSay(s.enabled ? text : `${text} Turn it on, and give it a model server, in Admin → Findings.`, error);
+    tabSay(s.enabled ? text : `${text}${isAdmin ? ' Turn it on, and give it a model server, in Admin → Findings.' : ''}`, error);
+    $('fd-instructions').replaceChildren(sentBox('The instructions the model is given, with every transmission', s.instructions));
     await Promise.all([loadWatches(), loadResults()]);
   } catch (e) {
     tabSay(e.message, true);
@@ -192,7 +199,8 @@ $('fd-test').onclick = async () => {
     $('fd-tested').replaceChildren(el('div', { className: 'notice' },
       el('div', { className: 'meta' }, `“${t.text}”`),
       el('div', {}, el('strong', {}, t.found.summary || '(no summary)'), t.found.incident ? ` · ${t.found.incident}` : ''),
-      foundList(t.found)));
+      foundList(t.found),
+      t.sent ? sentBox('Sent to the model', t.sent) : ''));
   } catch (e) {
     say(e.message, true);
   }
@@ -220,13 +228,13 @@ $('fd-forget').onclick = async () => {
 // ---- Watches --------------------------------------------------------------------
 
 async function loadWatches() {
-  const list = await api('/admin/findings/watches');
+  const list = await api('/findings/watches');
   $('fd-watches').replaceChildren(...(list.length ? list.map((w) => el('li', {},
     el('div', { className: 'radio-head' },
       el('strong', {}, w.term),
       w.note ? el('span', { className: 'meta' }, ` ${w.note}`) : '',
       el('span', { className: 'pill' }, `${w.hits} match${w.hits === 1 ? '' : 'es'}`),
-      el('button', {
+      !isAdmin ? '' : el('button', {
         className: 'link',
         onclick: async () => {
           try {
@@ -261,11 +269,13 @@ function resultRow(r) {
     el('div', { className: 'radio-head' },
       el('span', { className: 'meta' }, `${new Date(r.startedAt).toLocaleString()} · ${r.channel ?? 'channel unknown'}`),
       r.found.incident ? el('span', { className: 'pill' }, r.found.incident) : '',
+      r.static ? el('span', { className: 'pill', title: 'A weak signal: the transcript, and what was found in it, may be wrong' }, 'static') : '',
       ...r.hits.map((h) => el('span', { className: 'pill' }, `watch: ${h.term}`))),
     r.found.summary ? el('div', {}, el('strong', {}, r.found.summary)) : '',
     el('div', { className: 'meta' }, `“${r.text}”`),
     foundList(r.found, marked),
     el('audio', { controls: true, preload: 'none', src: withToken(`/api/transmissions/${r.id}/audio`) }),
+    r.sent ? sentBox('Sent to the model', r.sent) : '',
     roadsReady && (r.found.roads?.length || r.found.addresses?.length)
       ? el('div', {}, el('button', { className: 'link', onclick: () => showOnMap(r.id) }, 'On the map')) : '');
 }
@@ -275,7 +285,7 @@ async function loadResults(more = false) {
   if ($('fd-q').value.trim()) params.set('q', $('fd-q').value.trim());
   if ($('fd-hits').checked) params.set('hits', '1');
   if (more && oldest) params.set('before', String(oldest));
-  const rows = await api(`/admin/findings/results?${params}`);
+  const rows = await api(`/findings/results?${params}`);
   const items = rows.map(resultRow);
   if (more) $('fd-results').append(...items);
   else $('fd-results').replaceChildren(...(items.length ? items : [el('li', { className: 'meta' }, 'Nothing found yet.')]));
@@ -293,13 +303,15 @@ $('fd-hits').onchange = () => loadResults().catch((e) => tabSay(e.message, true)
 $('fd-more').onclick = () => loadResults(true).catch((e) => tabSay(e.message, true));
 $('fd-refresh').onclick = load;
 $('fd-tab-refresh').onclick = loadTab;
-// Kept up to date while it's showing, as the Map's roads are: findings aren't on the event stream, which viewers share
+// Kept up to date while it's showing, as the Map's roads are: findings aren't on the event stream
 setInterval(() => {
   if (!$('findings').hidden && !paged && !document.hidden) loadTab();
 }, 30_000);
 
 document.addEventListener('airscribe:signed-in', (e) => {
-  $('findings-toggle').hidden = e.detail?.role !== 'admin';
+  isAdmin = e.detail?.role === 'admin';
+  $('findings-toggle').hidden = !e.detail?.role;
+  $('fd-watch-form').hidden = !isAdmin;
 });
 
 // ---- Roads mentioned, on the Map --------------------------------------------------
@@ -323,7 +335,7 @@ $('map-roads').checked = recall(ROADS_KEY, '0') === '1';
 $('map-roads-hours').value = recall(ROADS_HOURS_KEY, '24');
 
 document.addEventListener('airscribe:signed-in', (e) => {
-  $('map-roads-wrap').hidden = e.detail?.role !== 'admin';
+  $('map-roads-wrap').hidden = !e.detail?.role;
 });
 
 function roadNote(text) {
@@ -374,12 +386,12 @@ async function loadRoads() {
   const p = new URLSearchParams({ hours: $('map-roads-hours').value });
   if (focusId) p.set('also', String(focusId));
   try {
-    mentioned = await api(`/admin/findings/map?${p}`);
+    mentioned = await api(`/findings/map?${p}`);
     roadNote(!mentioned.ways ? 'No roads yet: fetch or import them in Admin → Findings → Roads.'
       : mentioned.features.features.length ? null : 'No roads mentioned in that time.');
   } catch (e) {
     mentioned = null;
-    roadNote(e.status === 403 ? `Roads mentioned: ${e.message} (open Admin).` : `Roads mentioned: ${e.message}`);
+    roadNote(`Roads mentioned: ${e.message}`);
   }
   m.getSource(SRC)?.setData(withAges(mentioned?.features));
   if (focusId && mentioned) {

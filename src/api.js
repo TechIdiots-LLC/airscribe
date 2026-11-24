@@ -885,9 +885,16 @@ export function createApp({ manager, store, sidecar, config, dataDir, updates, c
     }));
   }
 
-  // Findings: what a language model reads in the transcripts (docs/findings.md). Admin only, behind Admin's own
-  // check like the rest of /admin, and never on the event stream: it's about people heard on the radio.
+  // Findings: what a language model reads in the transcripts (docs/findings.md). Signed-in users read it here;
+  // changing it is /admin's, behind Admin's own check. Never on the event stream or the public view: it's about
+  // people heard on the radio.
   if (findings) {
+    api.get('/findings', answer(() => findings.status()));
+    api.get('/findings/results', answer((req) => findings.results({
+      q: req.query.q, hits: req.query.hits === '1', before: req.query.before, limit: req.query.limit,
+    })));
+    api.get('/findings/watches', answer(() => findings.watches()));
+    api.get('/findings/map', answer((req) => findings.map({ hours: req.query.hours ?? 24, also: req.query.also })));
     const admin = auth.requireRole('admin');
     api.get('/admin/findings', admin, answer(() => findings.settings()));
     api.put('/admin/findings', admin, answer((req) => findings.save(req.body ?? {})));

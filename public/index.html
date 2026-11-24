@@ -189,7 +189,7 @@
         <label class="toggle" title="Show what a channel says on the map, at the channel, for a few seconds">
           <input type="checkbox" id="map-words" checked> Words on the map</label>
         <span id="map-roads-wrap" hidden>
-          <label class="toggle" title="Roads Findings heard mentioned, lit on the map: admins only">
+          <label class="toggle" title="Roads Findings heard mentioned, lit on the map: signed-in users only">
             <input type="checkbox" id="map-roads"> Roads mentioned</label>
           <select id="map-roads-hours" title="How far back">
             <option value="0.25">Last 15 minutes</option>
@@ -417,8 +417,8 @@
     <p class="meta">A language model reads each transcript, with the channel’s last few minutes, and picks out the
       addresses, roads, plates, vehicles, people and units mentioned, the kind of call and a one-line summary. It runs
       on a server you give here: an Ollama (llm-lxc’s, say) or another OpenAI-style one. What it finds is about people
-      heard on the radio, so only admins see it: never the feed, the public view or a viewer. It’s deleted after the
-      days set here. Speech recognition mishears radio, and a model can turn a misheard word into a confident wrong
+      heard on the radio, so only signed-in users see it, on the Findings tab: never the feed or the public view. It’s
+      deleted after the days set here. Speech recognition mishears radio, and a model can turn a misheard word into a confident wrong
       one: play the clip before acting on anything (docs/findings.md).</p>
     <div class="row wrap">
       <label class="toggle"><input type="checkbox" id="fd-enabled"> On</label>
@@ -443,7 +443,7 @@
     <h4>Roads</h4>
     <p class="meta">The roads around the channels, from OpenStreetMap. With each transmission, the model is given those
       near its channel whose names sound like something said, so a road speech recognition misheard comes back as the
-      one that’s there; and the roads mentioned light up on the Map (<strong>Roads mentioned</strong>, for admins).
+      one that’s there; and the roads mentioned light up on the Map (<strong>Roads mentioned</strong>).
       Read them from the map’s own tiles (OpenMapTiles), fetch them from OpenStreetMap, for the area around the
       channels placed on the map, or import a GeoJSON file made from an OpenStreetMap extract (docs/findings.md#roads).
       Only the area is sent to get them, nothing heard.</p>
@@ -462,13 +462,14 @@
 <section id="findings" hidden>
   <div class="row"><h2>Findings</h2><button id="fd-tab-refresh">Refresh</button></div>
   <p class="meta" id="fd-tab-status" role="status"></p>
+  <div id="fd-instructions"></div>
   <div class="panel">
     <h3>Watch for</h3>
     <p class="meta">A plate, a street, a name, a phrase. Each is looked for in the transcript and in what the model
       found: “Elm St” finds “412 Elm Street”, and “ABC 123” finds a plate read out as “Adam Boy Charlie one two
-      three”. A match is kept here and posted to the webhook.</p>
+      three”. A match is kept here and posted to the webhook. Admins add and remove them.</p>
     <ul id="fd-watches" class="user-list"></ul>
-    <div class="row wrap">
+    <div class="row wrap" id="fd-watch-form" hidden>
       <label>Watch for <input id="fd-term" maxlength="100" size="16" spellcheck="false"></label>
       <label>Note <input id="fd-note" maxlength="200" size="18" placeholder="why"></label>
       <button id="fd-watch-add">Add</button>

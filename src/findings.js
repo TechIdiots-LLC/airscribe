@@ -1,6 +1,6 @@
 /**
  * Findings: what a language model reads in the transcripts. Off until an admin
- * turns it on, and only ever shown to admins (docs/findings.md).
+ * turns it on; signed-in users see it, the public never does (docs/findings.md).
  *
  * Each finished transcript from the default engine is sent, with the last few
  * minutes of its channel as context, to a model on an Ollama or OpenAI-style
@@ -10,10 +10,11 @@
  * a match is kept, and can be posted to a webhook (Home Assistant, ntfy).
  *
  * What it keeps is about third parties heard on the radio, so it stays out of
- * everything a viewer or the public view can reach, and is deleted after
- * `keepDays`.
+ * the event stream, exports and the public view, and is deleted after
+ * `keepDays`. Only admins change it or its watch list.
  */
 
+import { isStatic } from './quality.js';
 import { addressRoads, words } from './roads.js';
 
 const KEYS = {
@@ -56,7 +57,9 @@ channel are given only so you can follow the conversation. Answer with JSON:
 - units: unit, car or apparatus names ("Engine 2", "Medic 4", "Car 12")
 Use [] or "" for anything not said. Never guess: leave out what the text doesn't say.
 When roads near the channel are listed and the transmission means one of them (speech recognition often mishears a
-road's name), write it as listed. Don't report a listed road the transmission doesn't mention.`;
+road's name), write it as listed. Don't report a listed road the transmission doesn't mention.
+A transmission marked as heard through static came in weak: its transcript is more likely to be wrong, or words made
+up from noise. Report from it only what reads clearly, and nothing that seems invented.`;
 
 // ---- Matching -------------------------------------------------------------
 
@@ -165,6 +168,9 @@ export class Findings {
         created_at INTEGER NOT NULL,
         UNIQUE(watch_id, transmission_id));
       CREATE INDEX IF NOT EXISTS finding_hits_tx ON finding_hits(transmission_id);`);
+    // What was sent to the model with each
+    const cols = new Set(this.db.prepare('PRAGMA table_info(findings)').all().map((c) => c.name));
+    if (!cols.has('sent')) this.db.exec('ALTER TABLE findings ADD COLUMN sent TEXT');
     this.onTranscribed = ({ id, engine, status }) => {
       if (status === 'done' && (!this.primary || engine === this.primary)) this.add(id);
     };
@@ -217,6 +223,25 @@ export class Findings {
   }
 
   /**
+   * What any signed-in user sees of it: whether it's on and how much is kept; not where it sends, or its errors,
+   * which name the server.
+   * @returns {object} The status, and the instructions the model is given.
+   */
+  status() {
+    return {
+      enabled: this.get('enabled') === '1',
+      ready: this.enabled(),
+      queued: this.queue.length,
+      roads: Boolean(this.roads?.stats().ways),
+      counts: {
+        findings: this.db.prepare('SELECT count(*) AS n FROM findings').get().n,
+        hits: this.db.prepare('SELECT count(*) AS n FROM finding_hits').get().n,
+      },
+      instructions: SYSTEM,
+    };
+  }
+
+  /**
    * Save the Admin page's form. An API key left blank keeps the saved one.
    * @param {object} body - enabled, api, url, model, apiKey, webhook, keepDays; or forgetKey.
    * @returns {object} settings().
@@ -262,16 +287,37 @@ export class Findings {
    *   like something said.
    * @returns {Promise<object>} tidy() of its answer.
    */
-  async ask(text, context = [], { channel = null, roads = [] } = {}) {
+  async ask(text, context = [], about = {}) {
+    return this.send(this.message(text, context, about));
+  }
+
+  /**
+   * What the model is told about one transmission, besides the instructions (SYSTEM).
+   * @param {string} text - The new transmission's transcript.
+   * @param {(string|{text: string, static?: boolean})[]} [context] - The channel's transcripts just before it.
+   * @param {{channel?: string|null, roads?: string[], static?: boolean}} [about] - The channel's name, roads near
+   *   it that sound like something said, and whether the new one came through static.
+   * @returns {string} The user message.
+   */
+  message(text, context = [], { channel = null, roads = [], static: noisy = false } = {}) {
+    const said = (c) => (typeof c === 'string' ? c : `${c.static ? '(heard through static) ' : ''}${c.text}`);
+    return [
+      channel ? `Channel: ${channel}\n` : '',
+      roads.length ? `Roads near this channel with names like words said:\n${roads.join('; ')}\n` : '',
+      context.length ? `Earlier on this channel:\n${context.map((c) => `- ${said(c)}`).join('\n')}\n` : '',
+      `New transmission${noisy ? ', heard through static (weak signal: the transcript may be wrong)' : ''}:\n${text}`,
+    ].filter(Boolean).join('\n');
+  }
+
+  /**
+   * Send one user message, with the instructions, and tidy the answer.
+   * @param {string} user - message().
+   * @returns {Promise<object>} tidy() of its answer.
+   */
+  async send(user) {
     const url = this.get('url');
     const model = this.get('model');
     if (!url || !model) throw fail('Findings has no server or model: set them in Admin → Findings.');
-    const user = [
-      channel ? `Channel: ${channel}\n` : '',
-      roads.length ? `Roads near this channel with names like words said:\n${roads.join('; ')}\n` : '',
-      context.length ? `Earlier on this channel:\n${context.map((c) => `- ${c}`).join('\n')}\n` : '',
-      `New transmission:\n${text}`,
-    ].filter(Boolean).join('\n');
     const messages = [{ role: 'system', content: SYSTEM }, { role: 'user', content: user }];
     const key = this.store.setting(KEYS.apiKey);
     const headers = { 'Content-Type': 'application/json', ...(key ? { Authorization: `Bearer ${key}` } : {}) };
@@ -307,8 +353,9 @@ export class Findings {
     const sample = String(text ?? '').trim().slice(0, 2000) ||
       'Car 12 respond to 412 Elm Street for a two car MVA, plate on the Honda is Adam Boy Charlie 1 2 3.';
     const t0 = this.now();
-    const found = await this.ask(sample);
-    return { model: this.get('model'), ms: this.now() - t0, text: sample, found };
+    const sent = this.message(sample);
+    const found = await this.send(sent);
+    return { model: this.get('model'), ms: this.now() - t0, text: sample, sent, found };
   }
 
   // ---- The queue ------------------------------------------------------------
@@ -365,24 +412,28 @@ export class Findings {
    */
   async read(id) {
     const t = this.db.prepare(`
-      SELECT t.id, t.started_at, t.channel_name, x.text FROM transmissions t
+      SELECT t.id, t.started_at, t.channel_name, t.snr_db, x.text FROM transmissions t
         JOIN transcripts x ON x.transmission_id = t.id AND x.status = 'done' AND (? IS NULL OR x.engine = ?)
        WHERE t.id = ?`).get(this.primary, this.primary, id);
     const text = spoken(t?.text);
     // Nothing said (a beep, static): nothing to read
     if (!t || text.split(' ').filter(Boolean).length < 2) return;
     const context = this.db.prepare(`
-      SELECT x.text FROM transmissions t
+      SELECT x.text, t.snr_db FROM transmissions t
         JOIN transcripts x ON x.transmission_id = t.id AND x.status = 'done' AND (? IS NULL OR x.engine = ?)
        WHERE t.channel_name IS ? AND t.started_at < ? AND t.started_at >= ?
        ORDER BY t.started_at DESC LIMIT ?`)
       .all(this.primary, this.primary, t.channel_name, t.started_at, t.started_at - CONTEXT_MS, CONTEXT_COUNT)
-      .map((r) => spoken(r.text)).filter(Boolean).reverse();
+      .map((r) => ({ text: spoken(r.text), static: isStatic(r.snr_db) })).filter((c) => c.text).reverse();
     let found = null;
     let error = null;
+    let sent = null;
     try {
-      const roads = this.roads?.hint([...context, text].join(' '), this.roads.where(t.channel_name)) ?? [];
-      found = await this.ask(text, context, { channel: t.channel_name, roads });
+      const said = [...context.map((c) => c.text), text].join(' ');
+      const roads = this.roads?.hint(said, this.roads.where(t.channel_name)) ?? [];
+      // Static is said, not skipped: the model is told to trust it less
+      sent = this.message(text, context, { channel: t.channel_name, roads, static: isStatic(t.snr_db) });
+      found = await this.send(sent);
       this.lastError = null;
     } catch (e) {
       error = e.message;
@@ -391,11 +442,12 @@ export class Findings {
     }
     // Deleted while the model read it
     if (!this.store.hasTransmission(id)) return;
-    this.db.prepare(`INSERT INTO findings (transmission_id, status, model, result, error, created_at)
-                       VALUES (?, ?, ?, ?, ?, ?)
+    this.db.prepare(`INSERT INTO findings (transmission_id, status, model, result, error, sent, created_at)
+                       VALUES (?, ?, ?, ?, ?, ?, ?)
                      ON CONFLICT(transmission_id) DO UPDATE SET status = excluded.status, model = excluded.model,
-                       result = excluded.result, error = excluded.error, created_at = excluded.created_at`)
-      .run(id, found ? 'done' : 'error', this.get('model'), found ? JSON.stringify(found) : null, error, this.now());
+                       result = excluded.result, error = excluded.error, sent = excluded.sent,
+                       created_at = excluded.created_at`)
+      .run(id, found ? 'done' : 'error', this.get('model'), found ? JSON.stringify(found) : null, error, sent, this.now());
     // Watches see the transcript even when the model failed
     await this.watch(t, text, found);
   }
@@ -483,7 +535,7 @@ export class Findings {
       args.push(`%${search}%`, `%${search}%`, `%${compact(search).toUpperCase() || search}%`);
     }
     const rows = this.db.prepare(`
-      SELECT t.id, t.started_at, t.channel_name, t.duration_ms, f.model, f.result, f.created_at
+      SELECT t.id, t.started_at, t.channel_name, t.duration_ms, t.snr_db, f.model, f.result, f.sent, f.created_at
         FROM findings f JOIN transmissions t ON t.id = f.transmission_id
        WHERE ${where.join(' AND ')} ORDER BY t.started_at DESC LIMIT ?`).all(...args, n);
     const text = this.db.prepare(`SELECT text FROM transcripts WHERE transmission_id = ? AND status = 'done'
@@ -492,7 +544,7 @@ export class Findings {
     return rows.map((r) => ({
       id: r.id, startedAt: r.started_at, channel: r.channel_name, durationMs: r.duration_ms, model: r.model,
       text: text.get(r.id, this.primary ?? '')?.text ?? '',
-      found: JSON.parse(r.result), hits: hitsOf.all(r.id),
+      found: JSON.parse(r.result), hits: hitsOf.all(r.id), sent: r.sent ?? null, static: isStatic(r.snr_db),
     }));
   }
 
