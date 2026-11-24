@@ -182,6 +182,14 @@ function corrections(r) {
   ];
 }
 
+/** Other radios' copies of the transmission, read with it: what each heard, and its clip where there's room. */
+function copiesOf(r, clips) {
+  return (r.copies ?? []).map((c) => el('div', { className: 'fd-copy' },
+    el('div', { className: 'meta' }, el('span', { className: 'pill' }, 'also heard'), ` by another radio, on ${c.channel ?? 'a channel unknown'}`,
+      c.text ? `: “${c.text}”` : ''),
+    clips ? el('audio', { controls: true, preload: 'none', src: withToken(`/api/transmissions/${c.id}/audio`) }) : ''));
+}
+
 /** The Findings tab: its status, the model's instructions, the watch list and what was found. */
 async function loadTab() {
   try {
@@ -299,6 +307,7 @@ function resultRow(r) {
     foundList(r.found, marked),
     ...corrections(r),
     el('audio', { controls: true, preload: 'none', src: withToken(`/api/transmissions/${r.id}/audio`) }),
+    ...copiesOf(r, true),
     r.sent ? sentBox('Sent to the model', r.sent, r.usage) : '',
     roadsReady && (r.found.roads?.length || r.found.addresses?.length)
       ? el('div', {}, el('button', { className: 'link', onclick: () => showOnMap(r.id) }, 'On the map')) : '');
@@ -512,7 +521,8 @@ async function loadMapList() {
     foundList(r.found, new Set(r.hits.map((h) => h.value))),
     ...corrections(r),
     el('div', { className: 'meta tx-text' }, `“${r.text}”`),
-    el('audio', { controls: true, preload: 'none', src: withToken(`/api/transmissions/${r.id}/audio`) })))
+    el('audio', { controls: true, preload: 'none', src: withToken(`/api/transmissions/${r.id}/audio`) }),
+    ...copiesOf(r, false)))
     : [el('li', { className: 'meta' }, 'Nothing found in that time.')]));
 }
 

@@ -22,6 +22,7 @@
 - Findings shows the tokens each prompt and answer took and how long, and Admin → Findings the biggest prompt of the last day
 - Findings gives the model the last few findings (any channel, last 15 minutes), and a later transmission can correct an earlier finding's address, plate, road, unit and so on: both are marked, the Map follows, and the watch list looks again
 - Findings → Speak new findings reads each new finding's channel and summary aloud in the browser, after any clip that's playing; also on the Map's Findings tab
+- Findings reads a call heard by two radios once, with the other radio's copy attached (shown as "also heard", with its clip), so it isn't found twice or its roads counted twice
 
 ### 🐞 Bug fixes
 - The Map groups channels less eagerly: a long name is cut short beside its dot (in full on hover or on the air), and only what's drawn keeps channels apart

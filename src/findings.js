@@ -232,6 +232,8 @@ export class Findings {
     // The tokens and time it took; and what was found before a later transmission corrected it
     if (!cols.has('usage')) this.db.exec('ALTER TABLE findings ADD COLUMN usage TEXT');
     if (!cols.has('original')) this.db.exec('ALTER TABLE findings ADD COLUMN original TEXT');
+    // Another radio's copy of a transmission read once: status 'copy', and the one read
+    if (!cols.has('copy_of')) this.db.exec('ALTER TABLE findings ADD COLUMN copy_of INTEGER');
     this.db.exec(`
       CREATE TABLE IF NOT EXISTS finding_corrections (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -315,7 +317,7 @@ export class Findings {
       lastError: this.lastError,
       roads: this.roads?.stats() ?? null,
       counts: {
-        findings: this.db.prepare('SELECT count(*) AS n FROM findings').get().n,
+        findings: this.db.prepare("SELECT count(*) AS n FROM findings WHERE status != 'copy'").get().n,
         hits: this.db.prepare('SELECT count(*) AS n FROM finding_hits').get().n,
       },
       // The biggest prompt of the last day, as the server counted it: how near the model's context window it comes
@@ -336,7 +338,7 @@ export class Findings {
       queued: this.queue.length,
       roads: Boolean(this.roads?.stats().ways),
       counts: {
-        findings: this.db.prepare('SELECT count(*) AS n FROM findings').get().n,
+        findings: this.db.prepare("SELECT count(*) AS n FROM findings WHERE status != 'copy'").get().n,
         hits: this.db.prepare('SELECT count(*) AS n FROM finding_hits').get().n,
       },
       // When the last was made: where speaking new ones starts from
@@ -562,6 +564,11 @@ export class Findings {
       SELECT id, channel_name FROM transmissions
        WHERE channel_hz = ? AND mac IS NOT ? AND id != ? AND abs(started_at - ?) <= ?`)
       .all(t.channel_hz, t.mac, id, t.started_at, sameCall) : [];
+    // A copy already read is the finding for both: this one is attached to it
+    const first = copies.map((c) => this.db.prepare(`SELECT transmission_id AS id, status, sent FROM findings
+                                                      WHERE transmission_id = ? AND status IN ('done', 'error')`).get(c.id))
+      .find(Boolean);
+    if (first) return this.attach(t, text, first);
     const readings = [
       ...heard.slice(1).map((r) => ({ text: r.text })),
       ...copies.flatMap((c) => this.readings(c.id).slice(0, 1).map((r) => ({ channel: c.channel_name, text: r.text }))),
@@ -611,6 +618,27 @@ export class Findings {
     // Watches see the transcript even when the model failed
     await this.watch(t, text, found);
     if (found?.corrections.length) await this.correct(id, found.corrections, new Set(findings.map((f) => f.id)));
+  }
+
+  /**
+   * Another radio's copy of a transmission already read: kept as a copy of that finding, not read again. Should it
+   * have heard words the first was read without, the first is read again, with this as another radio's reading.
+   * @param {{id: number, started_at: number, channel_name: string|null}} t - The copy.
+   * @param {string} text - What it heard.
+   * @param {{id: number, status: string, sent: string|null}} first - The finding it's a copy of.
+   * @returns {Promise<void>}
+   */
+  async attach(t, text, first) {
+    this.db.prepare(`INSERT INTO findings (transmission_id, status, copy_of, created_at) VALUES (?, 'copy', ?, ?)
+                     ON CONFLICT(transmission_id) DO UPDATE SET status = 'copy', copy_of = excluded.copy_of, model = NULL,
+                       result = NULL, error = NULL, sent = NULL, usage = NULL, original = NULL, created_at = excluded.created_at`)
+      .run(t.id, first.id, this.now());
+    this.db.prepare('DELETE FROM finding_corrections WHERE transmission_id = ? OR by_id = ?').run(t.id, t.id);
+    if (first.status !== 'done' || !` ${words(first.sent ?? '')} `.includes(` ${words(text)} `)) return this.add(first.id);
+    // Its words were in the first's prompt: the watches see them, against what was found there
+    const f = this.db.prepare('SELECT result FROM findings WHERE transmission_id = ?').get(first.id);
+    const ft = this.db.prepare('SELECT id, started_at, channel_name FROM transmissions WHERE id = ?').get(first.id);
+    if (ft) await this.watch(ft, text, f?.result ? JSON.parse(f.result) : null);
   }
 
   /**
@@ -749,9 +777,11 @@ export class Findings {
     if (hits) where.push('EXISTS (SELECT 1 FROM finding_hits h WHERE h.transmission_id = t.id)');
     const search = String(q ?? '').trim();
     if (search) {
-      // In what was found or in the transcript; a plate however it was spaced
-      where.push('(f.result LIKE ? OR t.id IN (SELECT transmission_id FROM transcripts WHERE text LIKE ?) OR f.result LIKE ?)');
-      args.push(`%${search}%`, `%${search}%`, `%${compact(search).toUpperCase() || search}%`);
+      // In what was found or in the transcript, or another radio's copy of it; a plate however it was spaced
+      where.push(`(f.result LIKE ? OR t.id IN (SELECT transmission_id FROM transcripts WHERE text LIKE ?) OR f.result LIKE ?
+                   OR t.id IN (SELECT c.copy_of FROM findings c JOIN transcripts x ON x.transmission_id = c.transmission_id
+                                WHERE c.status = 'copy' AND x.text LIKE ?))`);
+      args.push(`%${search}%`, `%${search}%`, `%${compact(search).toUpperCase() || search}%`, `%${search}%`);
     }
     const rows = this.db.prepare(`
       SELECT t.id, t.started_at, t.channel_name, t.duration_ms, t.snr_db, f.model, f.result, f.sent, f.usage, f.created_at
@@ -767,11 +797,16 @@ export class Findings {
     const of = this.db.prepare(`SELECT c.transmission_id AS id, c.field, c.was, c.now, t.channel_name AS channel, t.started_at AS startedAt
                                   FROM finding_corrections c LEFT JOIN transmissions t ON t.id = c.transmission_id
                                  WHERE c.by_id = ? ORDER BY c.id`);
+    // Other radios' copies of the same transmission, read with it
+    const copies = this.db.prepare(`SELECT t.id, t.channel_name AS channel, t.started_at AS startedAt
+                                      FROM findings f JOIN transmissions t ON t.id = f.transmission_id
+                                     WHERE f.copy_of = ? AND f.status = 'copy' ORDER BY t.started_at`);
     return rows.map((r) => ({
       id: r.id, startedAt: r.started_at, channel: r.channel_name, durationMs: r.duration_ms, model: r.model,
       text: text.get(r.id, this.primary ?? '')?.text ?? '',
       found: JSON.parse(r.result), hits: hitsOf.all(r.id), sent: r.sent ?? null, static: isStatic(r.snr_db),
       usage: r.usage ? JSON.parse(r.usage) : null, correctedBy: by.all(r.id), corrects: of.all(r.id), madeAt: r.created_at,
+      copies: copies.all(r.id).map((c) => ({ ...c, text: text.get(c.id, this.primary ?? '')?.text ?? '' })),
     }));
   }
 

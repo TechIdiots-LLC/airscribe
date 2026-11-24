@@ -166,6 +166,64 @@ test('read once every engine is done, with the other engines and radios as other
   }
 });
 
+test('a call heard by two radios is read once, the other attached', { skip: !sqlite }, async () => {
+  const { Store } = await import('../src/store.js');
+  const { Findings } = await import('../src/findings.js');
+  const store = new Store(':memory:', 'base');
+  const calls = [];
+  const fetch = async (url, opts) => {
+    calls.push(JSON.parse(opts.body));
+    return Response.json({ message: { content: '{"summary":"Car 12 out at Walmart","plates":["ABC123"]}' } });
+  };
+  const findings = new Findings({ store, primary: 'base', fetch });
+  findings.save({ enabled: true, url: 'http://llm.invalid:11434' });
+  findings.addWatch({ term: 'Rutland' });
+  const at = Date.now();
+  const tx = (mac, channelName, text, offset = 0, hz = 453875000) => {
+    const id = store.addTransmission({ mac, startedAt: at + offset, durationMs: 4000, audioFile: `${mac}${offset}.wav`,
+      channelName, channelHz: hz });
+    if (text) store.saveTranscript(id, 'base', { status: 'done', text });
+    return id;
+  };
+  // Both heard before either is read: the first read has the other's words, the second is only attached
+  const a = tx('AA', 'Regional Police Operations', 'car twelve out at walmart plate adam boy charlie one two three');
+  const b = tx('BB', 'Rutld Reg2', 'car twelve out at walmart in rutland', 1500);
+  await findings.read(a);
+  await findings.read(b);
+  await findings.drain();
+  assert.equal(calls.length, 1, 'read once');
+  assert.match(calls[0].messages[1].content, /another radio on the same frequency \(Rutld Reg2\): car twelve out at walmart in rutland/);
+  let [r, ...rest] = findings.results({});
+  assert.equal(rest.length, 0, 'one finding for the call');
+  assert.equal(r.id, a);
+  assert.deepEqual(r.copies.map((c) => [c.id, c.channel, c.text]), [[b, 'Rutld Reg2', 'car twelve out at walmart in rutland']]);
+  assert.deepEqual(r.hits.map((h) => h.term), ['Rutland'], 'the watches see the copy’s words');
+  assert.equal(findings.results({ q: 'rutland' })[0]?.id, a, 'found by what the copy heard');
+  assert.equal(findings.settings().counts.findings, 1);
+  assert.equal(findings.backfill(1).queued, 0, 'the copy isn’t read later either');
+
+  // The copy's words came after the first was read: the first is read again, with them
+  const c = tx('AA', 'Regional Police Operations', 'engine four on scene at the walmart', 60_000);
+  const d = tx('BB', 'Rutld Reg2', null, 61_000);
+  await findings.read(c);
+  assert.equal(calls.length, 2);
+  assert.doesNotMatch(calls[1].messages[1].content, /another radio/);
+  store.saveTranscript(d, 'base', { status: 'done', text: 'engine four on scene walmart lot two' });
+  await findings.read(d);
+  await findings.drain();
+  assert.equal(calls.length, 3, 'the first again, not the copy');
+  assert.match(calls[2].messages[1].content, /New transmission:\nengine four on scene at the walmart/);
+  assert.match(calls[2].messages[1].content, /another radio on the same frequency \(Rutld Reg2\): engine four on scene walmart lot two/);
+  [r] = findings.results({});
+  assert.equal(r.id, c);
+  assert.deepEqual(r.copies.map((x) => x.id), [d]);
+
+  // Another frequency is another call
+  const e = tx('BB', 'Rutld Reg2', 'engine four clear', 62_000, 460000000);
+  await findings.read(e);
+  assert.equal(calls.length, 4);
+});
+
 test('what goes with each transmission is set on the Admin page', { skip: !sqlite }, async () => {
   const { Store } = await import('../src/store.js');
   const { Findings } = await import('../src/findings.js');

@@ -57,6 +57,12 @@ the same frequency within five seconds (two radios on one dispatch channel, a sc
 told to use them together to work out what was said. A copy from another radio is left out of the other channels'
 traffic.
 
+A call heard by two radios is **read once**: whichever copy is read first is the finding, and the other is attached to
+it (status `copy` in the database) rather than sent to the model again, so a call isn't found twice or its roads
+counted twice. Should the second copy have heard words the first was read without (its transcript finished later),
+the first is read again, with them as another radio's reading. The watch list sees the copy's words too. Calls read
+twice before this was in place stay as they are.
+
 Before all that come the **earlier findings**: the last five (by default) from the 15 minutes before, on any
 channel, each with its number, channel, how long before, its summary and what was found in it. They tell the model what
 has been worked out already (the address a call settled on, the units on it), and let it correct them (below). Those
@@ -135,7 +141,8 @@ in a notification. The webhook URL is the only thing that guards an HA webhook, 
 The **Findings** tab's **Found** lists the transmissions read, newest first: when, the channel, the summary, the kind of
 call, the transcript, what was found (watched values marked), and the clip. **Search** looks in what was found and in
 the transcripts (a plate however it's spaced); **only watch matches** narrows it to those. **Delete all findings**
-empties it; the watch list stays.
+empties it; the watch list stays. A call another radio also heard says so (**also heard**), with what that radio heard
+and its clip; a search finds it by those words too.
 
 **Speak new findings** (beside **Refresh**, and **Speak new** on the Map's Findings tab) has this browser read out
 each finding made from then on: its channel and summary, a plate letter by letter, "through static" when it was.
