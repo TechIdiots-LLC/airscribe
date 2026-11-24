@@ -29,6 +29,8 @@ export const CONTEXT = {
   othersCount: { def: 5, min: 0, max: 20, what: 'give 0 to 20 of the other channels’ transmissions' },
   sameCallSeconds: { def: 5, min: 0, max: 30, what: 'count another radio as the same call within 0 to 30 seconds' },
   waitMinutes: { def: 3, min: 0, max: 30, what: 'wait 0 to 30 minutes for the other speech engines' },
+  findingsMinutes: { def: 15, min: 1, max: 60, what: 'give earlier findings from the last 1 to 60 minutes' },
+  findingsCount: { def: 5, min: 0, max: 20, what: 'give 0 to 20 earlier findings' },
 };
 const TIMEOUT_MS = 120_000;          // a model loading onto the card for the first call takes a while
 const QUEUE_MAX = 5000;
@@ -47,8 +49,18 @@ export const SCHEMA = {
     incident: { type: 'string' },
     service: { type: 'string', enum: SERVICES },
     ...Object.fromEntries(LISTS.map((k) => [k, { type: 'array', items: { type: 'string' } }])),
+    corrections: {
+      type: 'array',
+      items: {
+        type: 'object',
+        properties: {
+          finding: { type: 'integer' }, field: { type: 'string', enum: LISTS }, was: { type: 'string' }, now: { type: 'string' },
+        },
+        required: ['finding', 'field', 'was', 'now'],
+      },
+    },
   },
-  required: ['summary', 'incident', 'service', ...LISTS],
+  required: ['summary', 'incident', 'service', ...LISTS, 'corrections'],
 };
 
 const SYSTEM = `You read transcripts of radio traffic (police, fire, EMS, public works, amateur radio), made by speech
@@ -71,7 +83,13 @@ said. Answer with JSON:
 - vehicles: vehicles described ("red Honda Civic")
 - people: people named or described; not unit or badge numbers
 - units: unit, car or apparatus names ("Engine 2", "Medic 4", "Car 12")
+- corrections: when the new transmission clearly corrects a detail of an earlier finding listed, or repeats it more
+  clearly (another house number, plate or street for the same thing), one entry per detail: finding (its number),
+  field (addresses, roads, plates, vehicles, people or units), was (the earlier value, exactly as listed) and now
+  (the right value). Never for a detail of another call
 Use [] or "" for anything not said. Never guess: leave out what the text doesn't say.
+Earlier findings, when listed, are what was worked out from earlier transmissions on any channel, each with its
+number. They're context too: report their details again only when the new transmission says them.
 When roads near the channel are listed and the transmission means one of them (speech recognition often mishears a
 road's name), write it as listed. Don't report a listed road the transmission doesn't mention.
 A transmission marked as heard through static came in weak: its transcript is more likely to be wrong, or words made
@@ -139,6 +157,13 @@ export function tidy(raw) {
       .filter((v) => !seen.has(v.toLowerCase()) && seen.add(v.toLowerCase()))
       .slice(0, 20);
   }
+  const value = (field, v) => (field === 'plates' ? compact(v).toUpperCase() : str(v, 120));
+  out.corrections = (Array.isArray(o.corrections) ? o.corrections : [])
+    .filter((c) => c && Number.isInteger(Number(c.finding)) && LISTS.includes(c.field))
+    .map((c) => ({ finding: Number(c.finding), field: c.field, was: value(c.field, c.was), now: value(c.field, c.now) }))
+    // A change, not the same words written another way
+    .filter((c) => c.was && c.now && words(c.was) !== words(c.now))
+    .slice(0, 5);
   return out;
 }
 
@@ -204,6 +229,17 @@ export class Findings {
     // What was sent to the model with each
     const cols = new Set(this.db.prepare('PRAGMA table_info(findings)').all().map((c) => c.name));
     if (!cols.has('sent')) this.db.exec('ALTER TABLE findings ADD COLUMN sent TEXT');
+    // The tokens and time it took; and what was found before a later transmission corrected it
+    if (!cols.has('usage')) this.db.exec('ALTER TABLE findings ADD COLUMN usage TEXT');
+    if (!cols.has('original')) this.db.exec('ALTER TABLE findings ADD COLUMN original TEXT');
+    this.db.exec(`
+      CREATE TABLE IF NOT EXISTS finding_corrections (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        transmission_id INTEGER NOT NULL, by_id INTEGER NOT NULL,
+        field TEXT NOT NULL, was TEXT NOT NULL, now TEXT NOT NULL,
+        created_at INTEGER NOT NULL);
+      CREATE INDEX IF NOT EXISTS finding_corrections_tx ON finding_corrections(transmission_id);
+      CREATE INDEX IF NOT EXISTS finding_corrections_by ON finding_corrections(by_id);`);
     this.onTranscribed = ({ id, engine }) => {
       if (!this.engines.length) return this.add(id);
       if (!this.engines.includes(engine)) return;
@@ -282,6 +318,9 @@ export class Findings {
         findings: this.db.prepare('SELECT count(*) AS n FROM findings').get().n,
         hits: this.db.prepare('SELECT count(*) AS n FROM finding_hits').get().n,
       },
+      // The biggest prompt of the last day, as the server counted it: how near the model's context window it comes
+      biggestPrompt: this.db.prepare(`SELECT max(json_extract(usage, '$.prompt')) AS n FROM findings
+                                        WHERE usage IS NOT NULL AND created_at >= ?`).get(this.now() - 86_400_000).n ?? null,
     };
   }
 
@@ -359,7 +398,7 @@ export class Findings {
    * @returns {Promise<object>} tidy() of its answer.
    */
   async ask(text, context = [], about = {}) {
-    return this.send(this.message(text, context, about));
+    return (await this.send(this.message(text, context, about))).found;
   }
 
   /**
@@ -372,12 +411,15 @@ export class Findings {
    *   engine's ({text}) or another radio's ({channel, text}).
    * @returns {string} The user message.
    */
-  message(text, context = [], { channel = null, roads = [], static: noisy = false, others = [], readings = [] } = {}) {
+  message(text, context = [], { channel = null, roads = [], static: noisy = false, others = [], readings = [], findings = [] } = {}) {
     const said = (c) => (typeof c === 'string' ? c : `${c.static ? '(heard through static) ' : ''}${c.text}`);
     const where = (c) => `[${c.channel ?? 'channel unknown'}, ${c.ago < 60_000 ? 'under a minute' : `${Math.round(c.ago / 60_000)} min`} before] `;
+    const found = (f) => [f.found.summary, ...LISTS.filter((k) => f.found[k]?.length).map((k) => `${k}: ${f.found[k].join(', ')}`)]
+      .filter(Boolean).join('; ');
     return [
       channel ? `Channel: ${channel}\n` : '',
       roads.length ? `Roads near this channel with names like words said:\n${roads.join('; ')}\n` : '',
+      findings.length ? `Earlier findings:\n${findings.map((f) => `- finding ${f.id} ${where(f)}${found(f)}`).join('\n')}\n` : '',
       others.length ? `Meanwhile on other channels:\n${others.map((c) => `- ${where(c)}${said(c)}`).join('\n')}\n` : '',
       context.length ? `Earlier on this channel:\n${context.map((c) => `- ${said(c)}`).join('\n')}\n` : '',
       `New transmission${noisy ? ', heard through static (weak signal: the transcript may be wrong)' : ''}:\n${text}`,
@@ -389,9 +431,11 @@ export class Findings {
   /**
    * Send one user message, with the instructions, and tidy the answer.
    * @param {string} user - message().
-   * @returns {Promise<object>} tidy() of its answer.
+   * @returns {Promise<{found: object, usage: {prompt?: number, answer?: number, ms: number}}>} tidy() of its
+   *   answer, and the tokens the server counted for the prompt and the answer.
    */
   async send(user) {
+    const t0 = this.now();
     const url = this.get('url');
     const model = this.get('model');
     if (!url || !model) throw fail('Findings has no server or model: set them in Admin → Findings.');
@@ -418,7 +462,11 @@ export class Findings {
     const reply = await res.json().catch(() => null);
     if (!res.ok) throw new Error(`${url} answered ${res.status}: ${reply?.error?.message ?? reply?.error ?? res.statusText}`);
     const content = ollama ? reply?.message?.content : reply?.choices?.[0]?.message?.content;
-    return tidy(parseReply(content));
+    const n = (v) => (Number.isInteger(v) && v >= 0 ? v : undefined);
+    const usage = ollama
+      ? { prompt: n(reply?.prompt_eval_count), answer: n(reply?.eval_count) }
+      : { prompt: n(reply?.usage?.prompt_tokens), answer: n(reply?.usage?.completion_tokens) };
+    return { found: tidy(parseReply(content)), usage: { ...usage, ms: this.now() - t0 } };
   }
 
   /**
@@ -431,8 +479,8 @@ export class Findings {
       'Car 12 respond to 412 Elm Street for a two car MVA, plate on the Honda is Adam Boy Charlie 1 2 3.';
     const t0 = this.now();
     const sent = this.message(sample);
-    const found = await this.send(sent);
-    return { model: this.get('model'), ms: this.now() - t0, text: sample, sent, found };
+    const { found, usage } = await this.send(sent);
+    return { model: this.get('model'), ms: this.now() - t0, text: sample, sent, found, usage };
   }
 
   // ---- The queue ------------------------------------------------------------
@@ -530,15 +578,17 @@ export class Findings {
       .filter((r) => !skip.has(r.id)).slice(0, othersCount)
       .map((r) => ({ channel: r.channel_name, ago: t.started_at - r.started_at, text: r.text, static: isStatic(r.snr_db) }))
       .reverse();
+    const findings = this.earlier(t, skip);
     let found = null;
     let error = null;
     let sent = null;
+    let usage = null;
     try {
       const said = [...context.map((c) => c.text), text].join(' ');
       const roads = this.roads?.hint(said, this.roads.where(t.channel_name)) ?? [];
       // Static is said, not skipped: the model is told to trust it less
-      sent = this.message(text, context, { channel: t.channel_name, roads, static: isStatic(t.snr_db), others, readings });
-      found = await this.send(sent);
+      sent = this.message(text, context, { channel: t.channel_name, roads, static: isStatic(t.snr_db), others, readings, findings });
+      ({ found, usage } = await this.send(sent));
       this.lastError = null;
     } catch (e) {
       error = e.message;
@@ -547,14 +597,72 @@ export class Findings {
     }
     // Deleted while the model read it
     if (!this.store.hasTransmission(id)) return;
-    this.db.prepare(`INSERT INTO findings (transmission_id, status, model, result, error, sent, created_at)
-                       VALUES (?, ?, ?, ?, ?, ?, ?)
+    // Read again: corrections made to what it found before don't apply to the new answer
+    this.db.prepare('DELETE FROM finding_corrections WHERE transmission_id = ?').run(id);
+    this.db.prepare(`INSERT INTO findings (transmission_id, status, model, result, error, sent, usage, created_at)
+                       VALUES (?, ?, ?, ?, ?, ?, ?, ?)
                      ON CONFLICT(transmission_id) DO UPDATE SET status = excluded.status, model = excluded.model,
-                       result = excluded.result, error = excluded.error, sent = excluded.sent,
-                       created_at = excluded.created_at`)
-      .run(id, found ? 'done' : 'error', this.get('model'), found ? JSON.stringify(found) : null, error, sent, this.now());
+                       result = excluded.result, error = excluded.error, sent = excluded.sent, usage = excluded.usage,
+                       original = NULL, created_at = excluded.created_at`)
+      .run(id, found ? 'done' : 'error', this.get('model'), found ? JSON.stringify(found) : null, error, sent,
+        usage ? JSON.stringify(usage) : null, this.now());
     // Watches see the transcript even when the model failed
     await this.watch(t, text, found);
+    if (found?.corrections.length) await this.correct(id, found.corrections, new Set(findings.map((f) => f.id)));
+  }
+
+  /**
+   * The findings just before a transmission, on any channel, with something found: what's been worked out so far.
+   * @param {{id: number, started_at: number}} t - The transmission.
+   * @param {Set<number>} skip - Its copies from other radios.
+   * @returns {{id: number, channel: string|null, ago: number, found: object}[]} Oldest first.
+   */
+  earlier(t, skip = new Set()) {
+    const n = this.number('findingsCount');
+    if (!n) return [];
+    return this.db.prepare(`
+      SELECT t.id, t.channel_name, t.started_at, f.result FROM findings f JOIN transmissions t ON t.id = f.transmission_id
+       WHERE f.status = 'done' AND t.id != ? AND t.started_at < ? AND t.started_at >= ?
+       ORDER BY t.started_at DESC LIMIT ?`)
+      .all(t.id, t.started_at, t.started_at - this.number('findingsMinutes') * 60_000, n * 3)
+      .map((r) => ({ id: r.id, channel: r.channel_name, ago: t.started_at - r.started_at, found: JSON.parse(r.result) }))
+      .filter((f) => !skip.has(f.id) && (f.found.summary || LISTS.some((k) => f.found[k]?.length)))
+      .slice(0, n)
+      .reverse();
+  }
+
+  /**
+   * Put right what a later transmission corrects in earlier findings: only those the model was shown, and only a
+   * value that finding has. What was first found is kept, and the watches look again.
+   * @param {number} by - The transmission that corrects them.
+   * @param {{finding: number, field: string, was: string, now: string}[]} corrections - From its answer.
+   * @param {Set<number>} shown - The earlier findings it was given.
+   * @returns {Promise<object[]>} Those made.
+   */
+  async correct(by, corrections, shown) {
+    const made = [];
+    for (const c of corrections) {
+      if (!shown.has(c.finding)) continue;
+      const row = this.db.prepare("SELECT result, original FROM findings WHERE transmission_id = ? AND status = 'done'").get(c.finding);
+      if (!row) continue;
+      const found = JSON.parse(row.result);
+      const same = (v) => (c.field === 'plates' ? compact(v) === compact(c.was) : words(v) === words(c.was));
+      const list = found[c.field] ?? [];
+      const at = list.findIndex(same);
+      if (at < 0) continue;
+      const was = list[at];
+      list.splice(at, 1, c.now);
+      found[c.field] = list.filter((v, i) => list.findIndex((o) => words(o) === words(v)) === i);
+      this.db.prepare('UPDATE findings SET result = ?, original = coalesce(original, ?) WHERE transmission_id = ?')
+        .run(JSON.stringify(found), row.result, c.finding);
+      this.db.prepare(`INSERT INTO finding_corrections (transmission_id, by_id, field, was, now, created_at)
+                         VALUES (?, ?, ?, ?, ?, ?)`).run(c.finding, by, c.field, was, c.now, this.now());
+      made.push({ ...c, was });
+      // A corrected plate may be one watched for
+      const t = this.db.prepare('SELECT id, started_at, channel_name FROM transmissions WHERE id = ?').get(c.finding);
+      if (t) await this.watch(t, this.readings(t.id)[0]?.text ?? '', found);
+    }
+    return made;
   }
 
   // ---- Watches --------------------------------------------------------------
@@ -642,16 +750,24 @@ export class Findings {
       args.push(`%${search}%`, `%${search}%`, `%${compact(search).toUpperCase() || search}%`);
     }
     const rows = this.db.prepare(`
-      SELECT t.id, t.started_at, t.channel_name, t.duration_ms, t.snr_db, f.model, f.result, f.sent, f.created_at
+      SELECT t.id, t.started_at, t.channel_name, t.duration_ms, t.snr_db, f.model, f.result, f.sent, f.usage, f.created_at
         FROM findings f JOIN transmissions t ON t.id = f.transmission_id
        WHERE ${where.join(' AND ')} ORDER BY t.started_at DESC LIMIT ?`).all(...args, n);
     const text = this.db.prepare(`SELECT text FROM transcripts WHERE transmission_id = ? AND status = 'done'
                                    ORDER BY (engine = ?) DESC LIMIT 1`);
     const hitsOf = this.db.prepare('SELECT term, field, value FROM finding_hits WHERE transmission_id = ?');
+    // Corrected by later transmissions, and correcting earlier ones
+    const by = this.db.prepare(`SELECT c.by_id AS id, c.field, c.was, c.now, t.channel_name AS channel, t.started_at AS startedAt
+                                  FROM finding_corrections c LEFT JOIN transmissions t ON t.id = c.by_id
+                                 WHERE c.transmission_id = ? ORDER BY c.id`);
+    const of = this.db.prepare(`SELECT c.transmission_id AS id, c.field, c.was, c.now, t.channel_name AS channel, t.started_at AS startedAt
+                                  FROM finding_corrections c LEFT JOIN transmissions t ON t.id = c.transmission_id
+                                 WHERE c.by_id = ? ORDER BY c.id`);
     return rows.map((r) => ({
       id: r.id, startedAt: r.started_at, channel: r.channel_name, durationMs: r.duration_ms, model: r.model,
       text: text.get(r.id, this.primary ?? '')?.text ?? '',
       found: JSON.parse(r.result), hits: hitsOf.all(r.id), sent: r.sent ?? null, static: isStatic(r.snr_db),
+      usage: r.usage ? JSON.parse(r.usage) : null, correctedBy: by.all(r.id), corrects: of.all(r.id),
     }));
   }
 
@@ -727,7 +843,7 @@ export class Findings {
   /** Delete every finding and match (the watch list stays). */
   forget() {
     this.queue = [];
-    this.db.exec('DELETE FROM finding_hits; DELETE FROM findings;');
+    this.db.exec('DELETE FROM finding_hits; DELETE FROM finding_corrections; DELETE FROM findings;');
     return this.settings();
   }
 
@@ -736,6 +852,9 @@ export class Findings {
     const cutoff = this.now() - Number(this.get('keepDays')) * 86_400_000;
     this.db.prepare(`DELETE FROM finding_hits WHERE created_at < ?
                        OR transmission_id NOT IN (SELECT id FROM transmissions)`).run(cutoff);
+    this.db.prepare(`DELETE FROM finding_corrections WHERE created_at < ?
+                       OR transmission_id NOT IN (SELECT id FROM transmissions)
+                       OR by_id NOT IN (SELECT id FROM transmissions)`).run(cutoff);
     this.db.prepare(`DELETE FROM findings WHERE created_at < ?
                        OR transmission_id NOT IN (SELECT id FROM transmissions)`).run(cutoff);
   }

@@ -215,6 +215,71 @@ test('what goes with each transmission is set on the Admin page', { skip: !sqlit
   }
 });
 
+test('earlier findings go with each transmission, and a later one can correct them', { skip: !sqlite }, async () => {
+  const { Store } = await import('../src/store.js');
+  const { Findings } = await import('../src/findings.js');
+  const store = new Store(':memory:', 'base');
+  const answers = [];
+  const calls = [];
+  const fetch = async (url, opts) => {
+    calls.push(JSON.parse(opts.body));
+    return Response.json({ message: { content: JSON.stringify(answers.shift() ?? {}) }, prompt_eval_count: 812, eval_count: 64 });
+  };
+  let clock = 1_800_000_000_000;
+  const findings = new Findings({ store, primary: 'base', fetch, now: () => clock });
+  findings.save({ enabled: true, url: 'http://llm.invalid:11434' });
+  const say = (text, at, channel) => {
+    const id = store.addTransmission({ mac: 'AA', startedAt: at, durationMs: 4000, audioFile: `${at}.wav`, channelName: channel });
+    store.saveTranscript(id, 'base', { status: 'done', text });
+    return id;
+  };
+  findings.addWatch({ term: 'ABC 123' });
+  const old = say('too long ago to matter', clock - 20 * 60_000, 'Holden PD');
+  answers.push({ summary: 'Old call', units: ['Car 9'] });
+  await findings.read(old);
+  const first = say('car twelve stop on twelve main plate adam boy charlie one two eight', clock - 3 * 60_000, 'Holden PD');
+  answers.push({ summary: 'Car 12 traffic stop on Main St', addresses: ['12 Main St'], plates: ['ABC128'], units: ['Car 12'] });
+  await findings.read(first);
+  const quiet = say('copy that', clock - 2 * 60_000, 'Holden FD');
+  answers.push({ summary: '' });
+  await findings.read(quiet);
+
+  const next = say('correction one twelve main and the plate is adam boy charlie one two three', clock - 60_000, 'Holden PD');
+  answers.push({
+    summary: 'Car 12 corrects the address and plate', addresses: ['112 Main St'], plates: ['ABC123'],
+    corrections: [
+      { finding: first, field: 'addresses', was: '12 Main Street', now: '112 Main St' },
+      { finding: first, field: 'plates', was: 'ABC 128', now: 'ABC 123' },
+      { finding: old, field: 'units', was: 'Car 9', now: 'Car 19' },          // not shown to the model: ignored
+      { finding: first, field: 'vehicles', was: 'blue Ford', now: 'red Ford' }, // not in that finding: ignored
+    ],
+  });
+  await findings.read(next);
+  const user = calls[3].messages[1].content;
+  assert.match(user, new RegExp(`Earlier findings:\\n- finding ${first} \\[Holden PD, 2 min before\\] Car 12 traffic stop on Main St; ` +
+    'addresses: 12 Main St; plates: ABC128; units: Car 12\\n'));
+  assert.doesNotMatch(user, /Old call|finding \d+ \[Holden FD/, 'too old, or nothing found');
+
+  const rows = Object.fromEntries(findings.results({}).map((r) => [r.id, r]));
+  assert.deepEqual(rows[first].found.addresses, ['112 Main St']);
+  assert.deepEqual(rows[first].found.plates, ['ABC123']);
+  assert.deepEqual(rows[first].correctedBy.map((c) => [c.id, c.field, c.was, c.now]),
+    [[next, 'addresses', '12 Main St', '112 Main St'], [next, 'plates', 'ABC128', 'ABC123']]);
+  assert.deepEqual(rows[next].corrects.map((c) => c.id), [first, first]);
+  assert.deepEqual(rows[old].found.units, ['Car 9']);
+  assert.deepEqual(rows[first].hits.map((h) => h.term), ['ABC 123'], 'the corrected plate is one watched for');
+  assert.deepEqual(rows[next].usage, { prompt: 812, answer: 64, ms: 0 });
+  assert.equal(findings.settings().biggestPrompt, 812);
+  const original = JSON.parse(store.db.prepare('SELECT original FROM findings WHERE transmission_id = ?').get(first).original);
+  assert.deepEqual(original.plates, ['ABC128'], 'what was first found is kept');
+
+  // None: no earlier findings in the prompt
+  findings.save({ findingsCount: 0 });
+  answers.push({ summary: 'x' });
+  await findings.read(say('car twelve clear', clock, 'Holden PD'));
+  assert.doesNotMatch(calls[4].messages[1].content, /Earlier findings/);
+});
+
 test('a clip heard through static is still read, and the model is told so', { skip: !sqlite }, async () => {
   const { store, findings, calls, say, clock } = await setUp({ answer: { summary: 'Engine 2 to Main' } });
   findings.save({ enabled: true, url: 'http://llm.invalid:11434' });

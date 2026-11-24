@@ -59,7 +59,7 @@ function foundList(found, marked = new Set()) {
 
 // ---- Settings -------------------------------------------------------------------
 
-const CONTEXT = ['contextMinutes', 'contextCount', 'othersCount', 'sameCallSeconds', 'waitMinutes'];
+const CONTEXT = ['contextMinutes', 'contextCount', 'othersCount', 'sameCallSeconds', 'waitMinutes', 'findingsCount', 'findingsMinutes'];
 
 function render(s) {
   $('fd-enabled').checked = s.enabled;
@@ -71,7 +71,8 @@ function render(s) {
   $('fd-webhook').value = s.webhook ?? '';
   $('fd-keep').value = s.keepDays;
   for (const k of CONTEXT) $(`fd-${k}`).value = s[k] ?? '';
-  say(...stateOf(s));
+  const [state, error] = stateOf(s);
+  say(s.biggestPrompt ? `${state} Biggest prompt in the last day: ${s.biggestPrompt.toLocaleString()} tokens.` : state, error);
   roadsReady = Boolean(s.roads?.ways);
   renderRoads(s.roads);
 }
@@ -160,9 +161,26 @@ async function load() {
 
 let isAdmin = false;   // from sign-in: whether the watch list can be changed here
 
-/** What was sent to the model, folded away. */
-const sentBox = (label, text) => el('details', { className: 'fd-sent' },
-  el('summary', { className: 'meta' }, label), el('pre', {}, text));
+/** What was sent to the model, folded away; with the tokens the server counted, and the time, when it said. */
+const sentBox = (label, text, usage) => el('details', { className: 'fd-sent' },
+  el('summary', { className: 'meta' }, label, usage ? ` · ${tokens(usage)}` : ''), el('pre', {}, text));
+function tokens(u) {
+  return [u.prompt != null ? `${u.prompt.toLocaleString()} tokens in` : '', u.answer != null ? `${u.answer.toLocaleString()} out` : '',
+    u.ms != null ? `${(u.ms / 1000).toFixed(1)} s` : ''].filter(Boolean).join(', ');
+}
+
+const FIELD = { addresses: 'address', roads: 'road', plates: 'plate', vehicles: 'vehicle', people: 'person', units: 'unit' };
+/** Corrections between findings: those a later transmission made to this one, and those this one made. */
+function corrections(r) {
+  const at = (c) => `${c.channel ?? 'channel unknown'}, ${new Date(c.startedAt).toLocaleTimeString()}`;
+  const change = (c) => `${FIELD[c.field] ?? c.field} ${c.was} → ${c.now}`;
+  return [
+    ...(r.correctedBy ?? []).map((c) => el('div', { className: 'meta fd-correction' }, el('span', { className: 'pill' }, 'corrected'),
+      ` ${change(c)}, by a later transmission (${at(c)})`)),
+    ...(r.corrects ?? []).map((c) => el('div', { className: 'meta fd-correction' }, el('span', { className: 'pill' }, 'corrects'),
+      ` an earlier finding (${at(c)}): ${change(c)}`)),
+  ];
+}
 
 /** The Findings tab: its status, the model's instructions, the watch list and what was found. */
 async function loadTab() {
@@ -204,7 +222,7 @@ $('fd-test').onclick = async () => {
       el('div', { className: 'meta' }, `“${t.text}”`),
       el('div', {}, el('strong', {}, t.found.summary || '(no summary)'), t.found.incident ? ` · ${t.found.incident}` : ''),
       foundList(t.found),
-      t.sent ? sentBox('Sent to the model', t.sent) : ''));
+      t.sent ? sentBox('Sent to the model', t.sent, t.usage) : ''));
   } catch (e) {
     say(e.message, true);
   }
@@ -279,8 +297,9 @@ function resultRow(r) {
     r.found.summary ? el('div', {}, el('strong', {}, r.found.summary)) : '',
     el('div', { className: 'meta' }, `“${r.text}”`),
     foundList(r.found, marked),
+    ...corrections(r),
     el('audio', { controls: true, preload: 'none', src: withToken(`/api/transmissions/${r.id}/audio`) }),
-    r.sent ? sentBox('Sent to the model', r.sent) : '',
+    r.sent ? sentBox('Sent to the model', r.sent, r.usage) : '',
     roadsReady && (r.found.roads?.length || r.found.addresses?.length)
       ? el('div', {}, el('button', { className: 'link', onclick: () => showOnMap(r.id) }, 'On the map')) : '');
 }
@@ -491,6 +510,7 @@ async function loadMapList() {
         ? el('button', { className: 'link', onclick: () => frame(r.id) }, 'Show') : ''),
     r.found.summary ? el('div', {}, el('strong', {}, r.found.summary)) : '',
     foundList(r.found, new Set(r.hits.map((h) => h.value))),
+    ...corrections(r),
     el('div', { className: 'meta tx-text' }, `“${r.text}”`),
     el('audio', { controls: true, preload: 'none', src: withToken(`/api/transmissions/${r.id}/audio`) })))
     : [el('li', { className: 'meta' }, 'Nothing found in that time.')]));

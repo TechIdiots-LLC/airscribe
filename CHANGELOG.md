@@ -19,6 +19,8 @@
 - Findings waits for every speech engine and gives the model each one's reading, and another radio's copy of the same transmission (same frequency, within 5 s); a clip only another engine heard words in is read too; callsign channels are amateur
 - Admin → Findings sets what goes to the model with each transmission: how far back, how many from this channel and from others, when another radio's copy is the same call, and how long to wait for the other speech engines
 - Map → Channels can hide every channel, or each one by itself, from the map (remembered in this browser); a hidden channel no longer groups with those near it
+- Findings shows the tokens each prompt and answer took and how long, and Admin → Findings the biggest prompt of the last day
+- Findings gives the model the last few findings (any channel, last 15 minutes), and a later transmission can correct an earlier finding's address, plate, road, unit and so on: both are marked, the Map follows, and the watch list looks again
 
 ### 🐞 Bug fixes
 - The Map groups channels less eagerly: a long name is cut short beside its dot (in full on hover or on the air), and only what's drawn keeps channels apart

@@ -40,6 +40,8 @@ the model is told so (below).
 | This channel's last | 5 | How many of the same channel's (0–20; 0 gives none). |
 | Other channels' last | 5 | How many of the other channels' (0–20; 0 gives none). |
 | Same call within | 5 s | Another radio on the same frequency this close heard the same transmission (0–30; 0 never counts one). |
+| Earlier findings, last | 5 | How many of the findings already made, on any channel, go with each transmission (0–20; 0 gives none, and nothing is corrected). |
+| from | 15 min | How far back those go (1–60). |
 | Wait for other engines | 3 min | How long to wait for the other speech engines before reading with the default one's alone (0–30; 0 reads the default engine's alone, as soon as it's done). |
 
 ## What the model is asked
@@ -53,12 +55,22 @@ The new one's transcript is the default engine's, or, when that heard nothing, t
 it come **other readings** of the same words: each other engine's, when it differs, and another radio's that heard
 the same frequency within five seconds (two radios on one dispatch channel, a scanner and a handheld). The model is
 told to use them together to work out what was said. A copy from another radio is left out of the other channels'
-traffic. Any of them that came through
+traffic.
+
+Before all that come the **earlier findings**: the last five (by default) from the 15 minutes before, on any
+channel, each with its number, channel, how long before, its summary and what was found in it. They tell the model what
+has been worked out already (the address a call settled on, the units on it), and let it correct them (below). Those
+with nothing found are left out.
+
+Any of the transmissions that came through
 static is marked "heard through static", and the model is told to report from those only what reads clearly: speech
 recognition writes words into hiss.
 
 Each finding has **Sent to the model** under it: the message as it went, with the channel, the road names hinted, the
-context and the transcript. The instructions that go with every one are at the top of the Findings tab. It's told to report only what
+context and the transcript, and beside it the tokens the server counted for the prompt and the answer, and how long it
+took. Admin → Findings says the biggest prompt of the last day: keep it well inside the model's context window
+(llm-lxc's is 8192 tokens, `OLLAMA_CONTEXT_LENGTH`), which a server trims a prompt to without saying so. A server that
+keeps the start of the last prompt cached may count only the rest. The instructions that go with every one are at the top of the Findings tab. It's told to report only what
 the new one says, to leave out what isn't said rather than guess, and to answer with:
 
 | Field | |
@@ -72,8 +84,19 @@ the new one says, to leave out what isn't said rather than guess, and to answer 
 | `vehicles` | "red Honda Civic" |
 | `people` | Names or descriptions, not unit or badge numbers |
 | `units` | "Engine 2", "Medic 4", "Car 12" |
+| `corrections` | What the new transmission corrects in an earlier finding (below): `finding`, `field`, `was`, `now` |
 
 Whatever comes back is held to that shape: lists of short strings, plates as 2 to 10 letters and digits.
+
+### Corrections
+
+"Correction, one-twelve Main" after a finding of "12 Main St": the model is asked to say when the new transmission
+corrects a detail of an earlier finding it was given, or says it more clearly (a house number, a plate, a street).
+AirScribe changes that finding's value, so the Map moves its road and a corrected plate is checked against the watch
+list, and both findings say so: **corrected** on the earlier one, **corrects** on the later. Only a finding the model
+was shown is changed, and only a value it has ("12 Main Street" matches "12 Main St"; a plate however it's spaced);
+anything else it claims is left alone. What was first found is kept in the database (`findings.original`). The
+transcripts themselves never change. A transmission read again starts from its new answer.
 
 **Treat it as a lead, not a fact.** Speech recognition mishears radio, and a model can turn a misheard word into a
 confident wrong plate or address. Each finding shows the transcript and plays the clip: check them before acting on
@@ -119,11 +142,11 @@ The same, for scripts. Reading takes any signed-in user's token or session; the 
 | | |
 | --- | --- |
 | `GET /api/findings` | on or off, how many are kept, the model's instructions |
-| `GET /api/findings/results` | `?q=&hits=1&before=&limit=`: findings, newest first, each with what was `sent` and whether it was `static` |
+| `GET /api/findings/results` | `?q=&hits=1&before=&limit=`: findings, newest first, each with what was `sent`, whether it was `static`, the `usage` (tokens, time), and its corrections (`correctedBy`, `corrects`) |
 | `GET /api/findings/watches` | the watch list |
 | `GET /api/findings/map` | `?hours=&also=`: the roads mentioned, as GeoJSON with what was said about each |
-| `GET /api/admin/findings` | the settings (never the key), how many are kept, the last error |
-| `PUT /api/admin/findings` | change them: `enabled`, `api`, `url`, `model`, `apiKey`, `webhook`, `keepDays`, `contextMinutes`, `contextCount`, `othersCount`, `sameCallSeconds`, `waitMinutes`; `forgetKey` |
+| `GET /api/admin/findings` | the settings (never the key), how many are kept, the biggest prompt of the last day, the last error |
+| `PUT /api/admin/findings` | change them: `enabled`, `api`, `url`, `model`, `apiKey`, `webhook`, `keepDays`, `contextMinutes`, `contextCount`, `othersCount`, `sameCallSeconds`, `waitMinutes`, `findingsCount`, `findingsMinutes`; `forgetKey` |
 | `POST /api/admin/findings/test` | `{text?}`: one through the model |
 | `POST /api/admin/findings/backfill` | `{hours}`: read the transmissions of the last `hours` |
 | `GET /api/admin/findings/results` | `?q=&hits=1&before=&limit=`: findings, newest first |
