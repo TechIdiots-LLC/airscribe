@@ -3,6 +3,12 @@
 ## master
 ### ✨ Features and improvements
 - _...Add new stuff here..._
+
+### 🐞 Bug fixes
+- _...Add new stuff here..._
+
+## 0.3.0
+### ✨ Features and improvements
 - Map → Roads mentioned can show the last 15 or 30 minutes
 - Findings has its own tab, which viewers see too (never the public view); its settings and the watch list stay with admins
 - Findings shows what was sent to the model with each transmission, and the model's instructions
@@ -15,7 +21,6 @@
 - Map → Channels can hide every channel, or each one by itself, from the map (remembered in this browser); a hidden channel no longer groups with those near it
 
 ### 🐞 Bug fixes
-- _...Add new stuff here..._
 - The Map groups channels less eagerly: a long name is cut short beside its dot (in full on hover or on the air), and only what's drawn keeps channels apart
 
 ## 0.2.0
