@@ -10,6 +10,7 @@
 - The Map has a Findings tab: what was found in the hours chosen, each able to frame the roads it mentions; Roads on the map moved there
 - Findings asks the model which service is talking (police, fire, EMS, public works, amateur); roads on the map are drawn in that service's colour, fading with age
 - Findings gives the model the other channels' last five minutes as context, as well as the same channel's
+- Findings waits for every speech engine and gives the model each one's reading, and another radio's copy of the same transmission (same frequency, within 5 s); a clip only another engine heard words in is read too; callsign channels are amateur
 
 ### 🐞 Bug fixes
 - _...Add new stuff here..._

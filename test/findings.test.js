@@ -128,6 +128,44 @@ test('a transcript is read with its channel’s last minutes, and watches catch 
   }
 });
 
+test('read once every engine is done, with the other engines and radios as other readings', { skip: !sqlite }, async () => {
+  const { Store } = await import('../src/store.js');
+  const { Findings } = await import('../src/findings.js');
+  const store = new Store(':memory:', 'base');
+  const manager = new EventEmitter();
+  const calls = [];
+  const fetch = async (url, opts) => {
+    calls.push(JSON.parse(opts.body));
+    return Response.json({ message: { content: '{"summary":"x"}' } });
+  };
+  const findings = new Findings({ store, manager, primary: 'base', engines: ['ov'], fetch });
+  findings.save({ enabled: true, url: 'http://llm.invalid:11434' });
+  findings.start();
+  try {
+    const at = Date.now();
+    const tx = (mac, channelName, s, offset = 0) => store.addTransmission({ mac, startedAt: at + offset, durationMs: 4000,
+      audioFile: `${mac}${offset}.wav`, channelName, channelHz: 453875000 });
+    const id = tx('AA', 'Regional Police Operations');
+    const copy = tx('BB', 'Rutld Reg2', '', 1500);
+    store.saveTranscript(copy, 'base', { status: 'done', text: 'mileage 3 4 7 9 5' });
+    // The default engine heard nothing; it waits for the other
+    store.saveTranscript(id, 'base', { status: 'done', text: '[BLANK_AUDIO]' });
+    manager.emit('transcribed', { id, engine: 'base', status: 'done' });
+    await findings.drain();
+    assert.equal(calls.length, 0, 'not before every engine is done');
+    store.saveTranscript(id, 'ov', { status: 'done', text: 'Marry mileage, 3-4-7-9-5, 2-1-31.' });
+    manager.emit('transcribed', { id, engine: 'ov', status: 'done' });
+    await findings.drain();
+    assert.equal(calls.length, 1);
+    const user = calls[0].messages[1].content;
+    assert.match(user, /New transmission:\nMarry mileage, 3-4-7-9-5, 2-1-31\./, 'the engine that heard something');
+    assert.match(user, /Other readings of the new transmission:\n- another radio on the same frequency \(Rutld Reg2\): mileage 3 4 7 9 5/);
+    assert.doesNotMatch(user, /Meanwhile on other channels/, 'the copy isn’t other traffic');
+  } finally {
+    findings.stop();
+  }
+});
+
 test('a clip heard through static is still read, and the model is told so', { skip: !sqlite }, async () => {
   const { store, findings, calls, say, clock } = await setUp({ answer: { summary: 'Engine 2 to Main' } });
   findings.save({ enabled: true, url: 'http://llm.invalid:11434' });

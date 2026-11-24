@@ -25,6 +25,8 @@ const DEFAULTS = { api: 'ollama', model: 'qwen3:8b', keepDays: 30 };
 const CONTEXT_MS = 5 * 60 * 1000;    // the channel's earlier traffic given as context
 const CONTEXT_COUNT = 3;
 const OTHERS_COUNT = 5;              // and the other channels' in the same minutes
+const SAME_CALL_MS = 5000;           // another radio on the same frequency this close: the same transmission
+const LATE_MS = 3 * 60 * 1000;       // read with the default engine alone if the others haven't finished by then
 const TIMEOUT_MS = 120_000;          // a model loading onto the card for the first call takes a while
 const QUEUE_MAX = 5000;
 const SWEEP_MS = 60 * 60 * 1000;
@@ -50,11 +52,14 @@ const SYSTEM = `You read transcripts of radio traffic (police, fire, EMS, public
 recognition, which mishears words. Report only what the NEW transmission says; earlier transmissions on the same
 channel, and on other channels in the same minutes, are given only so you can follow what's going on (a unit sent on
 one channel and talking on another, a call that moves from dispatch to a fireground). Never report what only those
-say. Answer with JSON:
+say. Other readings of the new transmission may follow it: another speech engine's, or another radio's that heard the
+same frequency at the same moment. Those are the same words heard differently: use them together to work out what was
+said. Answer with JSON:
 - summary: one short sentence on what the new transmission says, or "" if it says nothing of substance
 - incident: the kind of call in a few words ("motor vehicle crash", "structure fire"), or ""
 - service: who is talking: "police", "fire", "ems", "works" (public works, highway, utilities, transit), "amateur"
-  (ham radio), or "other". The channel's name helps: "Holden PD" is police, "Paxton FD" fire
+  (ham radio), or "other". The channel's name helps: "Holden PD" is police, "Paxton FD" fire, and a channel named
+  by a callsign ("W1BIM", "N1LHP") is an amateur repeater
 - addresses: street addresses, intersections and named places, written as an address is ("412 Elm St",
   "Main St and Route 9", "Walmart on Route 20")
 - roads: the names of the roads those mention, each once ("Elm Street", "Route 9")
@@ -148,6 +153,7 @@ export function parseReply(content) {
 }
 
 /** A transcript with the model's annotations ("(static)", "[BLANK_AUDIO]") taken out. */
+const count = (text) => String(text ?? '').split(' ').filter(Boolean).length;
 const spoken = (text) => String(text ?? '').replace(/\([^)]*\)|\[[^\]]*\]|\*[^*]*\*/g, ' ').replace(/\s+/g, ' ').trim();
 
 export class Findings {
@@ -159,8 +165,11 @@ export class Findings {
    * @param {typeof fetch} [o.fetch] - For tests.
    * @param {() => number} [o.now] - The clock, for tests.
    */
-  constructor({ store, manager, primary, roads = null, fetch = globalThis.fetch, now = () => Date.now() }) {
+  constructor({ store, manager, primary, engines = [], roads = null, fetch = globalThis.fetch, now = () => Date.now() }) {
     this.store = store;
+    // Every engine that transcribes each clip: a transmission is read once they all have
+    this.engines = [...new Set([primary, ...engines].filter(Boolean))];
+    this.late = new Map();   // id → the timer that reads it should the other engines lag
     this.db = store.db;
     this.manager = manager;
     this.roads = roads;
@@ -191,8 +200,26 @@ export class Findings {
     // What was sent to the model with each
     const cols = new Set(this.db.prepare('PRAGMA table_info(findings)').all().map((c) => c.name));
     if (!cols.has('sent')) this.db.exec('ALTER TABLE findings ADD COLUMN sent TEXT');
-    this.onTranscribed = ({ id, engine, status }) => {
-      if (status === 'done' && (!this.primary || engine === this.primary)) this.add(id);
+    this.onTranscribed = ({ id, engine }) => {
+      if (!this.engines.length) return this.add(id);
+      if (!this.engines.includes(engine)) return;
+      const marks = this.engines.map(() => '?').join(',');
+      const { n } = this.db.prepare(`SELECT count(DISTINCT engine) AS n FROM transcripts
+                                       WHERE transmission_id = ? AND engine IN (${marks}) AND status IN ('done', 'error')`)
+        .get(id, ...this.engines);
+      if (n >= this.engines.length) {
+        clearTimeout(this.late.get(id));
+        this.late.delete(id);
+        this.add(id);
+      } else if (engine === this.primary && !this.late.has(id)) {
+        // The others are queued behind live transcription: don't wait on them for ever
+        const t = setTimeout(() => {
+          this.late.delete(id);
+          if (!this.db.prepare('SELECT 1 FROM findings WHERE transmission_id = ?').get(id)) this.add(id);
+        }, LATE_MS);
+        t.unref?.();
+        this.late.set(id, t);
+      }
     };
   }
 
@@ -207,6 +234,8 @@ export class Findings {
   stop() {
     this.manager?.off('transcribed', this.onTranscribed);
     clearInterval(this.timer);
+    for (const t of this.late.values()) clearTimeout(t);
+    this.late.clear();
     this.queue = [];
   }
 
@@ -317,10 +346,11 @@ export class Findings {
    * @param {(string|{text: string, static?: boolean})[]} [context] - The channel's transcripts just before it.
    * @param {{channel?: string|null, roads?: string[], static?: boolean, others?: object[]}} [about] - The channel's
    *   name, roads near it that sound like something said, whether the new one came through static, and other
-   *   channels' transmissions just before ({channel, ago, text, static}).
+   *   channels' transmissions just before ({channel, ago, text, static}), and other readings of the new one: another
+   *   engine's ({text}) or another radio's ({channel, text}).
    * @returns {string} The user message.
    */
-  message(text, context = [], { channel = null, roads = [], static: noisy = false, others = [] } = {}) {
+  message(text, context = [], { channel = null, roads = [], static: noisy = false, others = [], readings = [] } = {}) {
     const said = (c) => (typeof c === 'string' ? c : `${c.static ? '(heard through static) ' : ''}${c.text}`);
     const where = (c) => `[${c.channel ?? 'channel unknown'}, ${c.ago < 60_000 ? 'under a minute' : `${Math.round(c.ago / 60_000)} min`} before] `;
     return [
@@ -329,6 +359,8 @@ export class Findings {
       others.length ? `Meanwhile on other channels:\n${others.map((c) => `- ${where(c)}${said(c)}`).join('\n')}\n` : '',
       context.length ? `Earlier on this channel:\n${context.map((c) => `- ${said(c)}`).join('\n')}\n` : '',
       `New transmission${noisy ? ', heard through static (weak signal: the transcript may be wrong)' : ''}:\n${text}`,
+      readings.length ? `\nOther readings of the new transmission:\n${readings.map((r) => `- ${r.channel
+        ? `another radio on the same frequency (${r.channel})` : 'another speech engine'}: ${r.text}`).join('\n')}` : '',
     ].filter(Boolean).join('\n');
   }
 
@@ -433,30 +465,47 @@ export class Findings {
    * @param {number} id - The transmission.
    * @returns {Promise<void>}
    */
+  /**
+   * A transmission's transcripts, the default engine's first, each with what was said.
+   * @param {number} id - The transmission.
+   * @returns {{engine: string, text: string}[]} Those with two words or more, the best first: the default engine's,
+   *   else the one that heard most.
+   */
+  readings(id) {
+    const all = this.db.prepare("SELECT engine, text FROM transcripts WHERE transmission_id = ? AND status = 'done'").all(id)
+      .map((r) => ({ engine: r.engine, text: spoken(r.text) })).filter((r) => count(r.text) >= 2);
+    return all.sort((a, b) => (b.engine === this.primary) - (a.engine === this.primary) || count(b.text) - count(a.text));
+  }
+
   async read(id) {
-    const t = this.db.prepare(`
-      SELECT t.id, t.started_at, t.channel_name, t.snr_db, x.text FROM transmissions t
-        JOIN transcripts x ON x.transmission_id = t.id AND x.status = 'done' AND (? IS NULL OR x.engine = ?)
-       WHERE t.id = ?`).get(this.primary, this.primary, id);
-    const text = spoken(t?.text);
-    // Nothing said (a beep, static): nothing to read
-    if (!t || text.split(' ').filter(Boolean).length < 2) return;
-    const context = this.db.prepare(`
-      SELECT x.text, t.snr_db FROM transmissions t
-        JOIN transcripts x ON x.transmission_id = t.id AND x.status = 'done' AND (? IS NULL OR x.engine = ?)
-       WHERE t.channel_name IS ? AND t.started_at < ? AND t.started_at >= ?
-       ORDER BY t.started_at DESC LIMIT ?`)
-      .all(this.primary, this.primary, t.channel_name, t.started_at, t.started_at - CONTEXT_MS, CONTEXT_COUNT)
-      .map((r) => ({ text: spoken(r.text), static: isStatic(r.snr_db) })).filter((c) => c.text).reverse();
-    // Other channels in the same minutes, with something said
-    const others = this.db.prepare(`
-      SELECT x.text, t.snr_db, t.channel_name, t.started_at FROM transmissions t
-        JOIN transcripts x ON x.transmission_id = t.id AND x.status = 'done' AND (? IS NULL OR x.engine = ?)
-       WHERE t.channel_name IS NOT ? AND t.data = 0 AND t.started_at < ? AND t.started_at >= ?
-       ORDER BY t.started_at DESC LIMIT ?`)
-      .all(this.primary, this.primary, t.channel_name, t.started_at, t.started_at - CONTEXT_MS, OTHERS_COUNT * 3)
-      .map((r) => ({ channel: r.channel_name, ago: t.started_at - r.started_at, text: spoken(r.text), static: isStatic(r.snr_db) }))
-      .filter((c) => c.text.split(' ').length >= 2).slice(0, OTHERS_COUNT).reverse();
+    const t = this.db.prepare('SELECT id, mac, started_at, channel_name, channel_hz, snr_db FROM transmissions WHERE id = ?').get(id);
+    const heard = t ? this.readings(id) : [];
+    // Nothing said by any engine (a beep, static): nothing to read
+    if (!heard.length) return;
+    const text = heard[0].text;
+    const same = (a, b) => words(a) === words(b);
+    // The same transmission from another radio on the frequency: another reading, not other traffic
+    const copies = t.channel_hz ? this.db.prepare(`
+      SELECT id, channel_name FROM transmissions
+       WHERE channel_hz = ? AND mac IS NOT ? AND id != ? AND abs(started_at - ?) <= ?`)
+      .all(t.channel_hz, t.mac, id, t.started_at, SAME_CALL_MS) : [];
+    const readings = [
+      ...heard.slice(1).map((r) => ({ text: r.text })),
+      ...copies.flatMap((c) => this.readings(c.id).slice(0, 1).map((r) => ({ channel: c.channel_name, text: r.text }))),
+    ].filter((r, i, all) => !same(r.text, text) && all.findIndex((o) => same(o.text, r.text)) === i);
+    const before = (where, args, n) => this.db.prepare(`
+      SELECT id, channel_name, started_at, snr_db FROM transmissions
+       WHERE ${where} AND data = 0 AND started_at < ? AND started_at >= ? ORDER BY started_at DESC LIMIT ?`)
+      .all(...args, t.started_at, t.started_at - CONTEXT_MS, n)
+      .map((r) => ({ ...r, text: this.readings(r.id)[0]?.text ?? '' })).filter((r) => r.text);
+    const context = before('channel_name IS ?', [t.channel_name], CONTEXT_COUNT)
+      .map((r) => ({ text: r.text, static: isStatic(r.snr_db) })).reverse();
+    // Other channels in the same minutes, with something said, the copies of this one aside
+    const skip = new Set(copies.map((c) => c.id));
+    const others = before('channel_name IS NOT ?', [t.channel_name], OTHERS_COUNT * 3)
+      .filter((r) => !skip.has(r.id)).slice(0, OTHERS_COUNT)
+      .map((r) => ({ channel: r.channel_name, ago: t.started_at - r.started_at, text: r.text, static: isStatic(r.snr_db) }))
+      .reverse();
     let found = null;
     let error = null;
     let sent = null;
@@ -464,7 +513,7 @@ export class Findings {
       const said = [...context.map((c) => c.text), text].join(' ');
       const roads = this.roads?.hint(said, this.roads.where(t.channel_name)) ?? [];
       // Static is said, not skipped: the model is told to trust it less
-      sent = this.message(text, context, { channel: t.channel_name, roads, static: isStatic(t.snr_db), others });
+      sent = this.message(text, context, { channel: t.channel_name, roads, static: isStatic(t.snr_db), others, readings });
       found = await this.send(sent);
       this.lastError = null;
     } catch (e) {

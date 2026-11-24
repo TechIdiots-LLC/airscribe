@@ -84,7 +84,7 @@ const logins = new Logins({ store, accounts, config: config.auth });
 // Admin → Findings: transcripts read by a language model, once an admin turns it on
 // with the roads around the channels, from OpenStreetMap (docs/findings.md#roads)
 const roads = new Roads({ store, overpass: config.findings?.overpass, tiles: config.findings?.roadTiles, styles: config.map?.styles });
-const findings = new Findings({ store, manager, primary, roads });
+const findings = new Findings({ store, manager, primary, engines: extra, roads });
 findings.start();
 const app = createApp({
   manager, store, sidecar, config, dataDir: config.dataDir, updates, cleanup, radioreference, accounts, logins, findings, uniden,

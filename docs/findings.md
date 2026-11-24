@@ -22,9 +22,10 @@ same GPU) is the obvious one; any Ollama, or any server with OpenAI's chat compl
 3. **Test** sends a made-up transmission and shows what came back, and how long it took. The first time, the model has
    to load onto the card, which can take most of a minute.
 
-From then on, each transcript from the default engine is read as it's finished, one at a time, behind live
-transcription. **Read the last N hours** reads earlier ones that haven't been. A transmission with less than two words
-of speech (a beep, `[BLANK_AUDIO]`) isn't sent. One that came through static (marked in the feed) is still sent, and
+From then on, each transmission is read once every speech engine has finished it (`stt.engines`; the default first,
+the others queued behind it), one at a time, behind live transcription. Should the others still be at it three minutes
+after the default engine, it's read with what's there. **Read the last N hours** reads earlier ones that haven't been. A transmission where no engine heard two words
+or more (a beep, `[BLANK_AUDIO]`) isn't sent. One that came through static (marked in the feed) is still sent, and
 the model is told so (below).
 
 | Setting | | |
@@ -41,7 +42,13 @@ the model is told so (below).
 The new transmission's transcript, and as context up to three earlier ones on the same channel from the five minutes
 before it, so "the plate is…" after "Car 12, traffic stop on Route 9" reads as one call. Up to five from other channels in
 the same five minutes go with it too, each with its channel and how long before, so a unit dispatched on one channel
-and talking on another can be followed. It's told those are context only: what it reports is what the new one says. Any of them that came through
+and talking on another can be followed. It's told those are context only: what it reports is what the new one says.
+
+The new one's transcript is the default engine's, or, when that heard nothing, the engine's that heard most. After
+it come **other readings** of the same words: each other engine's, when it differs, and another radio's that heard
+the same frequency within five seconds (two radios on one dispatch channel, a scanner and a handheld). The model is
+told to use them together to work out what was said. A copy from another radio is left out of the other channels'
+traffic. Any of them that came through
 static is marked "heard through static", and the model is told to report from those only what reads clearly: speech
 recognition writes words into hiss.
 
