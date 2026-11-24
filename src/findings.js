@@ -28,6 +28,8 @@ const TIMEOUT_MS = 120_000;          // a model loading onto the card for the fi
 const QUEUE_MAX = 5000;
 const SWEEP_MS = 60 * 60 * 1000;
 const LISTS = ['addresses', 'roads', 'plates', 'vehicles', 'people', 'units'];
+/** Who is talking, as the model tells it: the Map colours roads by it. */
+export const SERVICES = ['police', 'fire', 'ems', 'works', 'amateur', 'other'];
 
 const fail = (message, status = 400) => Object.assign(new Error(message), { status });
 
@@ -37,9 +39,10 @@ export const SCHEMA = {
   properties: {
     summary: { type: 'string' },
     incident: { type: 'string' },
+    service: { type: 'string', enum: SERVICES },
     ...Object.fromEntries(LISTS.map((k) => [k, { type: 'array', items: { type: 'string' } }])),
   },
-  required: ['summary', 'incident', ...LISTS],
+  required: ['summary', 'incident', 'service', ...LISTS],
 };
 
 const SYSTEM = `You read transcripts of radio traffic (police, fire, EMS, public works, amateur radio), made by speech
@@ -47,6 +50,8 @@ recognition, which mishears words. Report only what the NEW transmission says; e
 channel are given only so you can follow the conversation. Answer with JSON:
 - summary: one short sentence on what the new transmission says, or "" if it says nothing of substance
 - incident: the kind of call in a few words ("motor vehicle crash", "structure fire"), or ""
+- service: who is talking: "police", "fire", "ems", "works" (public works, highway, utilities, transit), "amateur"
+  (ham radio), or "other". The channel's name helps: "Holden PD" is police, "Paxton FD" fire
 - addresses: street addresses, intersections and named places, written as an address is ("412 Elm St",
   "Main St and Route 9", "Walmart on Route 20")
 - roads: the names of the roads those mention, each once ("Elm Street", "Route 9")
@@ -99,10 +104,22 @@ export function matchTerm(term, text, found) {
  * @param {unknown} raw - What it sent, parsed.
  * @returns {object} The answer.
  */
+/** A service as the model wrote it, held to SERVICES: "Law" is police, "public works" works, "ham" amateur. */
+export function serviceOf(v) {
+  const s = String(v ?? '').toLowerCase();
+  if (SERVICES.includes(s)) return s;
+  if (/police|law|sheriff|\bpd\b|trooper/.test(s)) return 'police';
+  if (/fire|\bfd\b/.test(s)) return 'fire';
+  if (/ems|medic|ambulance|rescue/.test(s)) return 'ems';
+  if (/works|highway|dpw|utilit|transit|water|road/.test(s)) return 'works';
+  if (/amateur|\bham\b|repeater/.test(s)) return 'amateur';
+  return 'other';
+}
+
 export function tidy(raw) {
   const o = raw && typeof raw === 'object' ? raw : {};
   const str = (v, max = 300) => (typeof v === 'string' ? v.trim().slice(0, max) : '');
-  const out = { summary: str(o.summary), incident: str(o.incident, 80) };
+  const out = { summary: str(o.summary), incident: str(o.incident, 80), service: serviceOf(o.service) };
   for (const k of LISTS) {
     const seen = new Set();
     out[k] = (Array.isArray(o[k]) ? o[k] : [])
@@ -579,6 +596,8 @@ export class Findings {
     };
     for (const r of rows) {
       const found = JSON.parse(r.result);
+      // Newest first, so a place takes the service of its latest mention; findings from before there was one: other
+      const service = serviceOf(found.service);
       const at = this.roads.where(r.channel_name);
       const located = new Map();
       const find = (s) => {
@@ -590,7 +609,7 @@ export class Findings {
       const road = (m) => {
         if (!m) return;
         any = true;
-        note(`road:${m.ids[0]}`, { kind: 'road', name: m.name, level: m.level, lines: m.lines, anywhere: Boolean(m.all) }, r, m.said);
+        note(`road:${m.ids[0]}`, { kind: 'road', name: m.name, level: m.level, lines: m.lines, anywhere: Boolean(m.all), service }, r, m.said);
       };
       for (const s of found.roads ?? []) road(find(s));
       for (const a of found.addresses ?? []) {
@@ -598,11 +617,11 @@ export class Findings {
         parts.forEach(road);
         const [p, q] = parts;
         const corner = p && q && p.ids[0] !== q.ids[0] ? this.roads.corner(p, q) : null;
-        if (corner) note(`corner:${corner.join(',')}`, { kind: 'corner', name: `${p.name} and ${q.name}`, level: 'exact', point: corner }, r, a);
+        if (corner) note(`corner:${corner.join(',')}`, { kind: 'corner', name: `${p.name} and ${q.name}`, level: 'exact', point: corner, service }, r, a);
       }
       if (!any) continue;
       out.transmissions[r.id] = {
-        startedAt: r.started_at, channel: r.channel_name, summary: found.summary, incident: found.incident,
+        startedAt: r.started_at, channel: r.channel_name, summary: found.summary, incident: found.incident, service,
         text: text.get(r.id, this.primary ?? '')?.text ?? '',
       };
     }
@@ -610,9 +629,9 @@ export class Findings {
       out.features.features.push({
         type: 'Feature',
         geometry: p.kind === 'road' ? { type: 'MultiLineString', coordinates: p.lines } : { type: 'Point', coordinates: p.point },
-        properties: { key, kind: p.kind, level: p.level, count: p.ids.length, last: p.last },
+        properties: { key, kind: p.kind, level: p.level, count: p.ids.length, last: p.last, service: p.service },
       });
-      out.places[key] = { kind: p.kind, name: p.name, level: p.level, said: [...p.said], ids: p.ids, last: p.last, anywhere: p.anywhere ?? false };
+      out.places[key] = { kind: p.kind, name: p.name, level: p.level, said: [...p.said], ids: p.ids, last: p.last, anywhere: p.anywhere ?? false, service: p.service };
     }
     return out;
   }

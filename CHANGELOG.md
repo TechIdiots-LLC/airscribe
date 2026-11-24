@@ -8,6 +8,7 @@
 - Findings shows what was sent to the model with each transmission, and the model's instructions
 - Findings tells the model when a transmission came through static, and marks those in the list
 - The Map has a Findings tab: what was found in the hours chosen, each able to frame the roads it mentions; Roads on the map moved there
+- Findings asks the model which service is talking (police, fire, EMS, public works, amateur); roads on the map are drawn in that service's colour, fading with age
 
 ### 🐞 Bug fixes
 - _...Add new stuff here..._

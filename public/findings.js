@@ -268,8 +268,9 @@ function resultRow(r) {
   return el('li', {},
     el('div', { className: 'radio-head' },
       el('span', { className: 'meta' }, `${new Date(r.startedAt).toLocaleString()} · ${r.channel ?? 'channel unknown'}`),
+      servicePill(r.found.service),
       r.found.incident ? el('span', { className: 'pill' }, r.found.incident) : '',
-      r.static ? el('span', { className: 'pill', title: 'A weak signal: the transcript, and what was found in it, may be wrong' }, 'static') : '',
+      r.static ? el('span', { className: 'pill tag-static', title: 'A weak signal: the transcript, and what was found in it, may be wrong' }, 'static') : '',
       ...r.hits.map((h) => el('span', { className: 'pill' }, `watch: ${h.term}`))),
     r.found.summary ? el('div', {}, el('strong', {}, r.found.summary)) : '',
     el('div', { className: 'meta' }, `“${r.text}”`),
@@ -340,8 +341,16 @@ function roadNote(text) {
   $('map-roads-note').hidden = !text;
 }
 
-/** The colour of a road by how long ago it was last mentioned, in hours. */
-const RECENT = ['interpolate', ['linear'], ['get', 'age'], 0, '#ff2d2d', 6, '#ff8c1a', 48, '#e8c200'];
+/** The colour of a road by the service that last mentioned it; how long ago is its fading (withAges). */
+export const SERVICE_COLOURS = {
+  police: '#3a7bff', fire: '#ff3b30', ems: '#f5c400', works: '#ff8c1a', amateur: '#b26bff', other: '#9aa0a6',
+};
+export const SERVICE_NAMES = {
+  police: 'Police', fire: 'Fire', ems: 'EMS', works: 'Public works', amateur: 'Amateur', other: 'Other',
+};
+const RECENT = ['match', ['get', 'service'], ...Object.entries(SERVICE_COLOURS).flat(), SERVICE_COLOURS.other];
+// Newest at full strength, the oldest in the hours chosen faint
+const FADE = ['get', 'fade'];
 
 function addLayers() {
   const m = mapCtx?.map;
@@ -354,21 +363,31 @@ function addLayers() {
   const width = sized(1);
   m.addLayer({ id: 'fd-roads-glow', type: 'line', source: SRC, filter: road,
     layout: { 'line-cap': 'round', 'line-join': 'round' },
-    paint: { 'line-color': RECENT, 'line-opacity': 0.3, 'line-blur': 4, 'line-width': sized(2.5) } });
+    paint: { 'line-color': RECENT, 'line-opacity': ['*', 0.3, FADE], 'line-blur': 4, 'line-width': sized(2.5) } });
   m.addLayer({ id: 'fd-roads-line', type: 'line', source: SRC, filter: ['all', road, ['!=', ['get', 'level'], 'fuzzy']],
-    layout: { 'line-cap': 'round', 'line-join': 'round' }, paint: { 'line-color': RECENT, 'line-width': width } });
+    layout: { 'line-cap': 'round', 'line-join': 'round' }, paint: { 'line-color': RECENT, 'line-opacity': FADE, 'line-width': width } });
   m.addLayer({ id: 'fd-roads-maybe', type: 'line', source: SRC, filter: ['all', road, ['==', ['get', 'level'], 'fuzzy']],
-    layout: { 'line-join': 'round' }, paint: { 'line-color': RECENT, 'line-width': width, 'line-dasharray': [1.5, 1.2] } });
+    layout: { 'line-join': 'round' }, paint: { 'line-color': RECENT, 'line-opacity': FADE, 'line-width': width, 'line-dasharray': [1.5, 1.2] } });
   m.addLayer({ id: 'fd-roads-corner', type: 'circle', source: SRC, filter: ['==', ['get', 'kind'], 'corner'],
-    paint: { 'circle-radius': 7, 'circle-color': RECENT, 'circle-stroke-color': '#fff', 'circle-stroke-width': 2 } });
+    paint: { 'circle-radius': 7, 'circle-color': RECENT, 'circle-opacity': FADE, 'circle-stroke-color': '#fff', 'circle-stroke-width': 2,
+      'circle-stroke-opacity': FADE } });
 }
 
-/** The features, each with how many hours ago it was last mentioned, for its colour. */
+/** The features, each faded by how far back in the hours chosen it was last mentioned: 1 now, 0.35 at the start. */
 function withAges(fc) {
   const now = Date.now();
+  const span = Number($('map-roads-hours').value) * 3600_000;
   return { type: 'FeatureCollection', features: (fc?.features ?? []).map((f) => ({
-    ...f, properties: { ...f.properties, age: (now - f.properties.last) / 3600_000 } })) };
+    ...f, properties: { ...f.properties, fade: 1 - 0.65 * Math.min(1, Math.max(0, (now - f.properties.last) / span)) } })) };
 }
+
+/** A small coloured pill naming a service. */
+const servicePill = (s) => (s ? el('span', { className: 'pill fd-service', style: `--svc: ${SERVICE_COLOURS[s] ?? SERVICE_COLOURS.other}` },
+  SERVICE_NAMES[s] ?? s) : '');
+
+// The key to the colours, on the Map's Findings tab
+$('map-fd-legend').replaceChildren(...Object.keys(SERVICE_COLOURS).map((s) => el('span', { className: 'fd-swatch' },
+  el('i', { style: `background: ${SERVICE_COLOURS[s]}` }), SERVICE_NAMES[s])));
 
 async function loadRoads() {
   const m = mapCtx?.map;
@@ -460,8 +479,9 @@ async function loadMapList() {
   $('map-fd-list').replaceChildren(...(rows.length ? rows.map((r) => el('li', {},
     el('div', { className: 'radio-head' },
       el('span', { className: 'meta' }, `${new Date(r.startedAt).toLocaleTimeString()} · ${r.channel ?? 'channel unknown'}`),
+      servicePill(r.found.service),
       r.found.incident ? el('span', { className: 'pill' }, r.found.incident) : '',
-      r.static ? el('span', { className: 'pill', title: 'A weak signal: the transcript may be wrong' }, 'static') : '',
+      r.static ? el('span', { className: 'pill tag-static', title: 'A weak signal: the transcript may be wrong' }, 'static') : '',
       ...r.hits.map((h) => el('span', { className: 'pill' }, `watch: ${h.term}`)),
       roadsReady && (r.found.roads?.length || r.found.addresses?.length)
         ? el('button', { className: 'link', onclick: () => frame(r.id) }, 'Show') : ''),

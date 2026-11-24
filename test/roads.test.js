@@ -108,7 +108,7 @@ test('Findings gives the model the roads near the channel, and maps what it ment
   const { Findings } = await import('../src/findings.js');
   await roads.importStream(seq(TOWN));
   const prompts = [];
-  const answer = { summary: 'Smoke at Elm and Main', incident: 'structure fire', addresses: ['Elm St and Main St'],
+  const answer = { summary: 'Smoke at Elm and Main', incident: 'structure fire', service: 'fire', addresses: ['Elm St and Main St'],
     roads: ['Elm Street', 'Pleasant Street', 'Nowhere Lane'], plates: [], vehicles: [], people: [], units: [] };
   const findings = new Findings({ store, roads, primary: 'base', fetch: async (url, o) => {
     prompts.push(JSON.parse(o.body).messages[1].content);
@@ -128,6 +128,8 @@ test('Findings gives the model the roads near the channel, and maps what it ment
   assert.deepEqual(byName['Elm Street'].ids, [id]);
   assert.equal(byName['Elm Street and Main Street'].kind, 'corner');
   assert.equal(m.transmissions[id].summary, 'Smoke at Elm and Main');
+  assert.equal(byName['Elm Street'].service, 'fire', 'a road takes the service that mentioned it');
+  assert.ok(m.features.features.every((f) => f.properties.service === 'fire'));
   const corner = m.features.features.find((f) => f.properties.kind === 'corner');
   assert.deepEqual(corner.geometry.coordinates, [-71.85, 42.351]);
   assert.equal(m.features.features.find((f) => m.places[f.properties.key].name === 'Elm Street').geometry.coordinates.length, 2);

@@ -51,6 +51,7 @@ the new one says, to leave out what isn't said rather than guess, and to answer 
 | --- | --- |
 | `summary` | One short sentence, or empty when nothing of substance was said |
 | `incident` | The kind of call: "motor vehicle crash", "structure fire" |
+| `service` | Who is talking: `police`, `fire`, `ems`, `works` (public works, highway, utilities, transit), `amateur` or `other`. The channel's name helps it ("Holden PD") |
 | `addresses` | Addresses, intersections and named places: "412 Elm St", "Main St and Route 9" |
 | `roads` | The roads those mention, each once: "Elm Street", "Route 9" |
 | `plates` | Letters and digits only; a phonetic alphabet read out ("Adam Boy Charlie 1 2 3") becomes letters: "ABC123" |
@@ -124,8 +125,9 @@ With the roads around the channels in **Admin → Findings → Roads**, Findings
   that. Only names close to words in the transmission are sent, at most 25, never the whole list. The channel's name
   goes with them.
 - **The roads mentioned light up on the Map.** On the Map's **Findings** tab, a signed-in user ticks **Roads on the map** and chooses how
-  far back; the tab lists what was found in that time, and **Show** frames the roads one mentions. Each road a finding names is drawn where it runs near the transmission's channel, redder
-  the more recent and wider the more it's been mentioned. A road whose name was only *like* one there (misheard,
+  far back; the tab lists what was found in that time, and **Show** frames the roads one mentions. Each road a finding names is drawn where it runs near the transmission's channel, in the colour
+  of the service that last mentioned it (police blue, fire red, EMS yellow, public works orange, amateur purple, other
+  grey), fading the longer ago within the hours chosen, and wider the more it's been mentioned. A road whose name was only *like* one there (misheard,
   maybe) is dashed. Where an address names two roads that meet ("Main St and Route 9"), the corner gets a dot.
   Clicking one lists what was said about it, with the clip. **On the map** beside a finding goes there.
 

@@ -419,3 +419,7 @@ dialog.twostep-dlg::backdrop { background: rgba(0, 0, 0, .5); }
 .fd-sent summary { cursor: pointer; }
 .fd-sent pre { font: 12px ui-monospace, monospace; white-space: pre-wrap; word-break: break-word; margin: 6px 0;
   padding: 8px; border: 1px solid var(--line); border-radius: 6px; }
+.fd-service { border-color: var(--svc); color: var(--svc); }
+.fd-legend { display: flex; flex-wrap: wrap; gap: 4px 12px; margin: 4px 0; font-size: 12px; color: var(--muted); }
+.fd-swatch { display: inline-flex; align-items: center; gap: 5px; }
+.fd-swatch i { width: 14px; height: 4px; border-radius: 2px; display: inline-block; }

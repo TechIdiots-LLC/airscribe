@@ -28,6 +28,9 @@ test('a reply is held to the shape, whatever the model sent', () => {
   assert.deepEqual(t.plates, ['ABC123'], 'too short, a repeat and too long are dropped');
   assert.deepEqual(t.people, []);
   assert.deepEqual(t.roads, ['Elm St'], 'one of each');
+  assert.equal(t.service, 'other', 'no service said: other');
+  assert.deepEqual(['Police', 'Law Dispatch', 'public works', 'Ham', 'EMS', 'fire'].map((s) => tidy({ service: s }).service),
+    ['police', 'police', 'works', 'amateur', 'ems', 'fire']);
   for (const k of ['addresses', 'vehicles', 'units']) assert.deepEqual(t[k], []);
 });
 
