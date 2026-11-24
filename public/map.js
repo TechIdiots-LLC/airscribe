@@ -62,6 +62,13 @@ const radioNames = new Map();   // radio mac -> the name it was given
 const pulsed = new Set();  // transmissions already pulsed for, so each pulses once
 
 const isPlaced = (c) => c.lat !== null && c.lon !== null;
+// Channels this browser keeps off the map: every one, or some by name
+const CH_SHOW_KEY = 'airscribe.map.channels';
+const CH_HIDDEN_KEY = 'airscribe.map.channelsHidden';
+const hiddenChannels = new Set((() => {
+  try { return JSON.parse(recall(CH_HIDDEN_KEY, '[]')); } catch { return []; }
+})());
+const isShown = (c) => isPlaced(c) && $('map-ch-show').checked && !hiddenChannels.has(c.name);
 const mhz = (hz) => (hz ? `${(hz / 1e6).toFixed(4)} MHz` : '');
 
 document.addEventListener('airscribe:signed-in', (e) => { role = e.detail?.role ?? null; });
@@ -301,7 +308,9 @@ function regroup() {
   const before = new Map(groups.map((g) => [g.key, g]));
   groupOf.clear();
   groups = [];
-  for (const members of cluster(channels.filter(isPlaced), map.getZoom())) {
+  // A hidden channel neither shows nor groups with those that do
+  for (const m of markers.values()) if (!isShown(m.channel)) m.element.hidden = true;
+  for (const members of cluster(channels.filter(isShown), map.getZoom())) {
     if (members.length === 1) {
       const m = markers.get(members[0].name);
       if (m) m.element.hidden = false;
@@ -604,7 +613,14 @@ function goTo(c) {
 // ---- The Channels tab: placing them -----------------------------------------
 
 function renderSide(placed) {
+  const all = $('map-ch-show').checked;
+  $('map-ch-all').hidden = !(all && placed.some((c) => hiddenChannels.has(c.name)));
   $('map-placed').replaceChildren(...(placed.length ? placed.map((c) => el('li', {},
+    el('input', {
+      type: 'checkbox', checked: !hiddenChannels.has(c.name), disabled: !all,
+      title: 'Show it on the map', ariaLabel: `Show ${c.name} on the map`,
+      onchange: (e) => showChannel(c.name, e.target.checked),
+    }),
     el('button', { className: 'link', onclick: () => goTo(c) }, c.name),
     el('span', { className: 'meta' }, ` ${mhz(c.hz)}`)))
     : [el('li', { className: 'meta' }, 'None yet.')]));
@@ -624,6 +640,30 @@ function renderSide(placed) {
   $('map-find-all').hidden = !(role === 'admin' && unplaced.some(findable));
   $('map-find-all').classList.toggle('active', Boolean(finding?.all));
 }
+
+/** Keep one channel on the map in this browser, or off it. */
+function showChannel(name, on) {
+  if (on) hiddenChannels.delete(name);
+  else hiddenChannels.add(name);
+  remember(CH_HIDDEN_KEY, JSON.stringify([...hiddenChannels]));
+  if (!on) popup?.remove();
+  regroup();
+  renderSide(channels.filter(isPlaced));
+}
+
+$('map-ch-show').checked = recall(CH_SHOW_KEY, '1') === '1';
+$('map-ch-show').onchange = () => {
+  remember(CH_SHOW_KEY, $('map-ch-show').checked ? '1' : '0');
+  if (!$('map-ch-show').checked) popup?.remove();
+  regroup();
+  renderSide(channels.filter(isPlaced));
+};
+$('map-ch-all').onclick = () => {
+  hiddenChannels.clear();
+  remember(CH_HIDDEN_KEY, '[]');
+  regroup();
+  renderSide(channels.filter(isPlaced));
+};
 
 $('map-find-admin').onclick = () => showView('admin');
 $('map-find-all').onclick = () => findAll();

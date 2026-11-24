@@ -12,6 +12,7 @@
 - Findings gives the model the other channels' last five minutes as context, as well as the same channel's, and the same channel's last five rather than three
 - Findings waits for every speech engine and gives the model each one's reading, and another radio's copy of the same transmission (same frequency, within 5 s); a clip only another engine heard words in is read too; callsign channels are amateur
 - Admin → Findings sets what goes to the model with each transmission: how far back, how many from this channel and from others, when another radio's copy is the same call, and how long to wait for the other speech engines
+- Map → Channels can hide every channel, or each one by itself, from the map (remembered in this browser); a hidden channel no longer groups with those near it
 
 ### 🐞 Bug fixes
 - _...Add new stuff here..._
