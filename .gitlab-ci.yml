@@ -94,10 +94,11 @@ stages:
     DOCKER_TLS_CERTDIR: /certs
   timeout: 1h
   before_script:
-    # Retried: a mirror blip makes apk report the packages as missing
+    # Retried: a mirror blip makes apk report the packages as missing.
+    # --upgrade zstd-libs: the image's older libzstd breaks a newer zstd binary.
     - |
       n=0
-      until apk add --no-cache bash coreutils curl zstd; do
+      until apk add --no-cache --upgrade bash coreutils curl zstd zstd-libs; do
         n=$((n + 1)); [ "$n" -ge 5 ] && exit 1
         echo "apk add failed; retry $n of 4 in 15 s"; sleep 15
       done
