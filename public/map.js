@@ -1217,16 +1217,22 @@ $('map-tx-more').onclick = async () => {
   $('map-tx-more').disabled = false;
 };
 
-/** @param {'tx' | 'ch'} name - Transmissions or Channels. @returns {void} */
+/** @param {'tx' | 'ch' | 'st' | 'fd'} name - Transmissions, Channels, Stations or Findings. @returns {void} */
 function showTab(name) {
-  for (const b of document.querySelectorAll('#map-side [data-tab]')) b.classList.toggle('active', b.dataset.tab === name);
-  $('map-tab-tx').hidden = name !== 'tx';
-  $('map-tab-ch').hidden = name !== 'ch';
-  $('map-tab-st').hidden = name !== 'st';
+  for (const b of document.querySelectorAll('#map-side [data-tab]')) {
+    b.classList.toggle('active', b.dataset.tab === name);
+    $(`map-tab-${b.dataset.tab}`).hidden = b.dataset.tab !== name;
+  }
   remember(TAB_KEY, name);
+  document.dispatchEvent(new CustomEvent('airscribe:map-tab', { detail: name }));
 }
 for (const b of document.querySelectorAll('#map-side [data-tab]')) b.onclick = () => showTab(b.dataset.tab);
-showTab(['ch', 'st'].includes(recall(TAB_KEY, 'tx')) ? recall(TAB_KEY, 'tx') : 'tx');
+showTab(['ch', 'st', 'fd'].includes(recall(TAB_KEY, 'tx')) ? recall(TAB_KEY, 'tx') : 'tx');
+// Findings' tab is only for the signed-in: back to Transmissions should it be hidden
+document.addEventListener('airscribe:signed-in', (e) => {
+  $('map-fd-tab').hidden = !e.detail?.role;
+  if (!e.detail?.role && recall(TAB_KEY, 'tx') === 'fd') showTab('tx');
+});
 
 // ---- Stations: positions the radios' own modems decoded ----------------------------
 // APRS stations, objects and the location these radios share with each other,

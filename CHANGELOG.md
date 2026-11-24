@@ -7,6 +7,7 @@
 - Findings has its own tab, which viewers see too (never the public view); its settings and the watch list stay with admins
 - Findings shows what was sent to the model with each transmission, and the model's instructions
 - Findings tells the model when a transmission came through static, and marks those in the list
+- The Map has a Findings tab: what was found in the hours chosen, each able to frame the roads it mentions; Roads on the map moved there
 
 ### 🐞 Bug fixes
 - _...Add new stuff here..._

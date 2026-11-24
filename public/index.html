@@ -175,6 +175,7 @@
         <button data-tab="tx" class="active">Transmissions</button>
         <button data-tab="ch">Channels</button>
         <button data-tab="st">Stations</button>
+        <button data-tab="fd" id="map-fd-tab" hidden>Findings</button>
       </nav>
       <span class="spacer"></span>
       <select id="map-style" title="Base map"></select>
@@ -188,21 +189,7 @@
           <input type="checkbox" id="map-hide-silent"> Hide no speech</label>
         <label class="toggle" title="Show what a channel says on the map, at the channel, for a few seconds">
           <input type="checkbox" id="map-words" checked> Words on the map</label>
-        <span id="map-roads-wrap" hidden>
-          <label class="toggle" title="Roads Findings heard mentioned, lit on the map: signed-in users only">
-            <input type="checkbox" id="map-roads"> Roads mentioned</label>
-          <select id="map-roads-hours" title="How far back">
-            <option value="0.25">Last 15 minutes</option>
-            <option value="0.5">Last 30 minutes</option>
-            <option value="1">Last hour</option>
-            <option value="6">Last 6 hours</option>
-            <option value="24" selected>Last day</option>
-            <option value="168">Last week</option>
-            <option value="720">Last 30 days</option>
-          </select>
-        </span>
       </div>
-      <p id="map-roads-note" class="meta" hidden></p>
       <div id="map-focus" class="focus" hidden>
         <span id="map-focus-names"></span>
         <button id="map-focus-clear" class="link">Show all</button>
@@ -240,6 +227,25 @@
       <p class="meta">Stations whose positions the radios' own modems decoded: APRS on the frequency a radio is
         listening to (144.390 MHz in the US), and the location these radios share with each other. Newest first.</p>
       <ul id="map-st-list" class="map-list"></ul>
+    </div>
+    <div id="map-tab-fd" class="map-tab" hidden>
+      <div class="row wrap">
+        <label class="toggle" title="Light the roads these mention, near their channels">
+          <input type="checkbox" id="map-roads"> Roads on the map</label>
+        <select id="map-roads-hours" title="How far back">
+          <option value="0.25">Last 15 minutes</option>
+          <option value="0.5">Last 30 minutes</option>
+          <option value="1">Last hour</option>
+          <option value="6">Last 6 hours</option>
+          <option value="24" selected>Last day</option>
+          <option value="168">Last week</option>
+          <option value="720">Last 30 days</option>
+        </select>
+      </div>
+      <p id="map-roads-note" class="meta" hidden></p>
+      <p class="meta">What the language model picked out of each transmission, newest first. <strong>Show</strong> frames
+        the roads one mentions. Speech recognition mishears radio: play the clip before acting on anything.</p>
+      <ul id="map-fd-list" class="map-tx"></ul>
     </div>
   </aside>
 </section>

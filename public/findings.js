@@ -317,7 +317,8 @@ document.addEventListener('airscribe:signed-in', (e) => {
 // ---- Roads mentioned, on the Map --------------------------------------------------
 // Each road a finding mentions, near its channel, lit: redder the more recent, dashed where the name was only
 // like one there (misheard, maybe); a dot where an address names a corner. Clicking one lists what was said
-// about it. Admins only, as the rest of Findings is.
+// about it. And the Map's Findings tab: what was found in the same hours, each able to frame its roads. For the
+// signed-in, as the rest of Findings is.
 
 const SRC = 'fd-roads';
 const LAYERS = ['fd-roads-line', 'fd-roads-maybe', 'fd-roads-corner'];
@@ -333,10 +334,6 @@ const recall = (k, d) => { try { return localStorage.getItem(k) ?? d; } catch { 
 const keep = (k, v) => { try { localStorage.setItem(k, v); } catch { /* storage blocked */ } };
 $('map-roads').checked = recall(ROADS_KEY, '0') === '1';
 $('map-roads-hours').value = recall(ROADS_HOURS_KEY, '24');
-
-document.addEventListener('airscribe:signed-in', (e) => {
-  $('map-roads-wrap').hidden = !e.detail?.role;
-});
 
 function roadNote(text) {
   $('map-roads-note').textContent = text ?? '';
@@ -375,7 +372,8 @@ function withAges(fc) {
 
 async function loadRoads() {
   const m = mapCtx?.map;
-  if (!m || $('map-roads-wrap').hidden) return;
+  if (!m || $('map-fd-tab').hidden) return;
+  if (!$('map-tab-fd').hidden) loadMapList().catch((e) => roadNote(e.message));
   if (!$('map-roads').checked) {
     mentioned = null;
     roadPopup?.remove();
@@ -453,6 +451,35 @@ document.addEventListener('airscribe:map', (e) => {
   loadRoads();
 });
 
+/** The Map's Findings tab: what was found in the hours chosen, newest first. */
+async function loadMapList() {
+  const since = Date.now() - Number($('map-roads-hours').value) * 3600_000;
+  const [rows, status] = await Promise.all([
+    api(`/findings/results?${new URLSearchParams({ since: String(Math.round(since)), limit: '100' })}`), api('/findings')]);
+  roadsReady = status.roads;
+  $('map-fd-list').replaceChildren(...(rows.length ? rows.map((r) => el('li', {},
+    el('div', { className: 'radio-head' },
+      el('span', { className: 'meta' }, `${new Date(r.startedAt).toLocaleTimeString()} · ${r.channel ?? 'channel unknown'}`),
+      r.found.incident ? el('span', { className: 'pill' }, r.found.incident) : '',
+      r.static ? el('span', { className: 'pill', title: 'A weak signal: the transcript may be wrong' }, 'static') : '',
+      ...r.hits.map((h) => el('span', { className: 'pill' }, `watch: ${h.term}`)),
+      roadsReady && (r.found.roads?.length || r.found.addresses?.length)
+        ? el('button', { className: 'link', onclick: () => frame(r.id) }, 'Show') : ''),
+    r.found.summary ? el('div', {}, el('strong', {}, r.found.summary)) : '',
+    foundList(r.found, new Set(r.hits.map((h) => h.value))),
+    el('div', { className: 'meta tx-text' }, `“${r.text}”`),
+    el('audio', { controls: true, preload: 'none', src: withToken(`/api/transmissions/${r.id}/audio`) })))
+    : [el('li', { className: 'meta' }, 'Nothing found in that time.')]));
+}
+
+/** On the Map already: light the roads, and frame those one transmission mentions. */
+function frame(id) {
+  focusId = id;
+  $('map-roads').checked = true;
+  keep(ROADS_KEY, '1');
+  loadRoads();
+}
+
 /** From a finding: the Map, with the roads it mentions framed. */
 function showOnMap(id) {
   focusId = id;
@@ -470,10 +497,14 @@ $('map-roads-hours').onchange = () => {
   keep(ROADS_HOURS_KEY, $('map-roads-hours').value);
   loadRoads();
 };
-// Kept up to date while it's showing: findings aren't on the event stream, which viewers share
+// Kept up to date while it's showing: findings aren't on the event stream
 setInterval(() => {
-  if ($('map-roads').checked && !document.getElementById('mapview').hidden) loadRoads();
+  if (document.getElementById('mapview').hidden || document.hidden) return;
+  if ($('map-roads').checked || !$('map-tab-fd').hidden) loadRoads();
 }, 30_000);
+document.addEventListener('airscribe:map-tab', (e) => {
+  if (e.detail === 'fd' && mapCtx) loadRoads();
+});
 
 // Loaded when Admin or the Findings tab is opened (views.js switches the page), and the roads when the Map is
 document.addEventListener('airscribe:view', (e) => {

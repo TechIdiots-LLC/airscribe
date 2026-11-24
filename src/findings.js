@@ -519,14 +519,16 @@ export class Findings {
 
   /**
    * Recent findings, newest first, with their transmission and matches.
-   * @param {{q?: string, hits?: boolean, before?: number, limit?: number}} o - A search, only matches, paging.
+   * @param {{q?: string, hits?: boolean, before?: number, since?: number, limit?: number}} o - A search, only
+   *   matches, paging, and how far back.
    * @returns {object[]} Rows.
    */
-  results({ q, hits, before, limit } = {}) {
+  results({ q, hits, before, since, limit } = {}) {
     const n = Math.min(Math.max(Number(limit) || 50, 1), 200);
     const where = ['f.status = \'done\''];
     const args = [];
     if (before) (where.push('t.started_at < ?'), args.push(Number(before)));
+    if (since) (where.push('t.started_at >= ?'), args.push(Number(since)));
     if (hits) where.push('EXISTS (SELECT 1 FROM finding_hits h WHERE h.transmission_id = t.id)');
     const search = String(q ?? '').trim();
     if (search) {

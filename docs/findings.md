@@ -123,8 +123,8 @@ With the roads around the channels in **Admin → Findings → Roads**, Findings
   transcript, with Pleasant Street a mile from the channel, is given to the model as Pleasant Street, and it writes
   that. Only names close to words in the transmission are sent, at most 25, never the whole list. The channel's name
   goes with them.
-- **The roads mentioned light up on the Map.** A signed-in user ticks **Roads mentioned** (beside the list's other filters)
-  and chooses how far back. Each road a finding names is drawn where it runs near the transmission's channel, redder
+- **The roads mentioned light up on the Map.** On the Map's **Findings** tab, a signed-in user ticks **Roads on the map** and chooses how
+  far back; the tab lists what was found in that time, and **Show** frames the roads one mentions. Each road a finding names is drawn where it runs near the transmission's channel, redder
   the more recent and wider the more it's been mentioned. A road whose name was only *like* one there (misheard,
   maybe) is dashed. Where an address names two roads that meet ("Main St and Route 9"), the corner gets a dot.
   Clicking one lists what was said about it, with the clip. **On the map** beside a finding goes there.
