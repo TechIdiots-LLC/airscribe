@@ -23,7 +23,7 @@ const KEYS = {
 };
 const DEFAULTS = { api: 'ollama', model: 'qwen3:8b', keepDays: 30 };
 const CONTEXT_MS = 5 * 60 * 1000;    // the channel's earlier traffic given as context
-const CONTEXT_COUNT = 3;
+const CONTEXT_COUNT = 5;
 const OTHERS_COUNT = 5;              // and the other channels' in the same minutes
 const SAME_CALL_MS = 5000;           // another radio on the same frequency this close: the same transmission
 const LATE_MS = 3 * 60 * 1000;       // read with the default engine alone if the others haven't finished by then
