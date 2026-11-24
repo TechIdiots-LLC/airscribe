@@ -221,6 +221,8 @@ function placeRadio(mac, pos) {
 
 /** A group names this many channels, or one fewer and "+N more". */
 const GROUP_NAMES = 4;
+/** The most of a name drawn beside its dot (the rest shows on hover, or on the air): what grouping allows for. */
+const LABEL_MAX = 110;
 /** The furthest a group's click zooms in to part its channels. */
 const SPLIT_ZOOM = 19;
 let groups = [];               // the markers standing for several channels now
@@ -240,7 +242,7 @@ const widths = new Map();
 function labelWidth(name) {
   if (!widths.has(name)) {
     measure.font = '600 12px system-ui, sans-serif';
-    widths.set(name, measure.measureText(name).width);
+    widths.set(name, Math.min(LABEL_MAX, measure.measureText(name).width));
   }
   return widths.get(name);
 }

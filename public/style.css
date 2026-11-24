@@ -207,7 +207,10 @@ table.slots td.heard { font-variant-numeric: tabular-nums; cursor: help; }
 .ch-marker .dot { position: absolute; inset: 0; border-radius: 50%; background: var(--accent);
   border: 2px solid #fff; box-shadow: 0 0 3px rgba(0, 0, 0, .7); }
 .ch-marker .label { position: absolute; left: 18px; top: -3px; white-space: nowrap; font: 600 12px system-ui, sans-serif;
-  color: #fff; text-shadow: 0 0 3px #000, 0 0 3px #000, 0 0 2px #000; pointer-events: none; }
+  color: #fff; text-shadow: 0 0 3px #000, 0 0 3px #000, 0 0 2px #000; pointer-events: none;
+  max-width: 110px; overflow: hidden; text-overflow: ellipsis; }
+/* A long name in full while it's pointed at or on the air (map.js LABEL_MAX is the width grouping allows for) */
+.ch-marker:hover .label, .ch-marker.live .label, .ch-marker.hl .label { max-width: none; z-index: 3; }
 .ch-marker .ring { position: absolute; inset: -2px; border-radius: 50%; border: 3px solid var(--accent); opacity: 0; }
 .ch-marker.pulse .ring { animation: ripple 2.4s ease-out 1; }
 .ch-marker.live .dot { background: var(--warn); box-shadow: 0 0 12px 4px var(--warn); animation: onair 0.9s ease-in-out infinite alternate; }
@@ -243,6 +246,7 @@ table.slots td.heard { font-variant-numeric: tabular-nums; cursor: help; }
    one speaking isn't hidden for as long as it speaks (the list has the words
    too); what's pointed at or playing over everything; a popup over that */
 .ch-marker, .ch-group, .radio-marker { z-index: 2; }
+.ch-marker:hover { z-index: 3; }
 .ch-marker.saying, .ch-group.saying { z-index: 1; }
 .ch-marker.hl, .ch-group.hl, .ch-marker.playing, .ch-group.playing { z-index: 4; }
 #mapview .maplibregl-popup { z-index: 5; }

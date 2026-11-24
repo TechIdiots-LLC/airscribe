@@ -14,6 +14,7 @@
 
 ### 🐞 Bug fixes
 - _...Add new stuff here..._
+- The Map groups channels less eagerly: a long name is cut short beside its dot (in full on hover or on the air), and only what's drawn keeps channels apart
 
 ## 0.2.0
 ### ✨ Features and improvements
