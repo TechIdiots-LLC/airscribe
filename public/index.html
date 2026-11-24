@@ -100,6 +100,7 @@
     <button data-view="insights">Insights</button>
     <button data-view="mapview">Map</button>
     <button data-view="packets">Packets</button>
+    <button id="findings-toggle" data-view="findings" hidden>Findings</button>
     <button id="admin-toggle" data-view="admin" hidden>Admin</button>
   </nav>
   <span class="spacer"></span>
@@ -455,7 +456,14 @@
       <input type="file" id="fd-roads-file" accept=".geojson,.geojsonseq,.geojsonl,.json,.jsonl,.ndjson" hidden>
       <button id="fd-roads-clear" class="link">Delete roads</button>
     </div>
-    <h4>Watch for</h4>
+    <p class="meta">What it finds, and the watch list, are on the <button class="link" data-view="findings">Findings</button> tab.</p>
+  </div>
+</section>
+<section id="findings" hidden>
+  <div class="row"><h2>Findings</h2><button id="fd-tab-refresh">Refresh</button></div>
+  <p class="meta" id="fd-tab-status" role="status"></p>
+  <div class="panel">
+    <h3>Watch for</h3>
     <p class="meta">A plate, a street, a name, a phrase. Each is looked for in the transcript and in what the model
       found: “Elm St” finds “412 Elm Street”, and “ABC 123” finds a plate read out as “Adam Boy Charlie one two
       three”. A match is kept here and posted to the webhook.</p>
@@ -465,7 +473,11 @@
       <label>Note <input id="fd-note" maxlength="200" size="18" placeholder="why"></label>
       <button id="fd-watch-add">Add</button>
     </div>
-    <h4>Found</h4>
+  </div>
+  <div class="panel">
+    <h3>Found</h3>
+    <p class="meta">Speech recognition mishears radio, and a model can turn a misheard word into a confident wrong one:
+      play the clip before acting on anything.</p>
     <div class="row wrap">
       <label>Search <input id="fd-q" size="18" spellcheck="false" placeholder="a plate, a road, a word"></label>
       <label class="toggle"><input type="checkbox" id="fd-hits"> only watch matches</label>

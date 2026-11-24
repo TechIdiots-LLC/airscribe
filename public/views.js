@@ -1,6 +1,6 @@
 // Which page is showing: the feed, Insights, the Map, Packets, Admin or one's account,
 // one at a time. A module of its own so every script shares the one switch.
-const VIEWS = ['main', 'insights', 'mapview', 'packets', 'admin', 'account'];
+const VIEWS = ['main', 'insights', 'mapview', 'packets', 'findings', 'admin', 'account'];
 
 /**
  * Show one view and hide the others. Pages that load on demand listen for

@@ -1,5 +1,6 @@
-// Admin → Findings: what a language model reads in the transcripts (docs/findings.md), and the roads it heard
-// mentioned, lit on the Map. Shown only to an admin; the server enforces that regardless.
+// Findings: what a language model reads in the transcripts (docs/findings.md). Its tab holds the watch list and
+// what was found; Admin → Findings its server and roads; the Map the roads mentioned. Shown only to an admin; the
+// server enforces that regardless.
 import { showView } from './views.js';
 
 const $ = (id) => document.getElementById(id);
@@ -27,9 +28,20 @@ async function api(path, opts = {}) {
   return body;
 }
 
-function say(text, error = false) {
-  $('fd-status').textContent = text;
-  $('fd-status').className = error ? 'tx-text error' : 'meta';
+function sayIn(id, text, error) {
+  $(id).textContent = text;
+  $(id).className = error ? 'tx-text error' : 'meta';
+}
+/** Admin → Findings' status line. */
+const say = (text, error = false) => sayIn('fd-status', text, error);
+/** The Findings tab's. */
+const tabSay = (text, error = false) => sayIn('fd-tab-status', text, error);
+
+/** On or off, how much is kept, the last error: for either status line. */
+function stateOf(s) {
+  const state = s.ready ? `On: ${s.counts.findings} transmissions read, ${s.counts.hits} watch matches kept` +
+      `${s.queued ? `, ${s.queued} waiting` : ''}.` : s.enabled ? 'On, but it needs a server address and a model.' : 'Off.';
+  return [s.lastError ? `${state} Last error: ${s.lastError.error}` : state, Boolean(s.lastError)];
 }
 
 const LABELS = {
@@ -56,9 +68,7 @@ function render(s) {
   $('fd-key').placeholder = s.apiKey ? 'saved' : 'if the server wants one';
   $('fd-webhook').value = s.webhook ?? '';
   $('fd-keep').value = s.keepDays;
-  const state = s.ready ? `On: ${s.counts.findings} transmissions read, ${s.counts.hits} watch matches kept` +
-      `${s.queued ? `, ${s.queued} waiting` : ''}.` : s.enabled ? 'On, but it needs a server address and a model.' : 'Off.';
-  say(s.lastError ? `${state} Last error: ${s.lastError.error}` : state, Boolean(s.lastError));
+  say(...stateOf(s));
   roadsReady = Boolean(s.roads?.ways);
   renderRoads(s.roads);
 }
@@ -136,12 +146,25 @@ $('fd-roads-clear').onclick = async () => {
   }
 };
 
+/** Admin → Findings: the settings and roads. */
 async function load() {
   try {
     render(await api('/admin/findings'));
-    await Promise.all([loadWatches(), loadResults()]);
   } catch (e) {
     say(e.message, true);
+  }
+}
+
+/** The Findings tab: its status, the watch list and what was found. */
+async function loadTab() {
+  try {
+    const s = await api('/admin/findings');
+    roadsReady = Boolean(s.roads?.ways);
+    const [text, error] = stateOf(s);
+    tabSay(s.enabled ? text : `${text} Turn it on, and give it a model server, in Admin → Findings.`, error);
+    await Promise.all([loadWatches(), loadResults()]);
+  } catch (e) {
+    tabSay(e.message, true);
   }
 }
 
@@ -210,7 +233,7 @@ async function loadWatches() {
             await api(`/admin/findings/watches/${w.id}`, { method: 'DELETE' });
             await loadWatches();
           } catch (e) {
-            say(e.message, true);
+            tabSay(e.message, true);
           }
         },
       }, 'Remove')))) : [el('li', { className: 'meta' }, 'Nothing watched for yet.')]));
@@ -223,13 +246,14 @@ $('fd-watch-add').onclick = async () => {
     $('fd-note').value = '';
     await loadWatches();
   } catch (e) {
-    say(e.message, true);
+    tabSay(e.message, true);
   }
 };
 
 // ---- What was found -------------------------------------------------------------
 
 let oldest = null;   // paging: the start of the last row shown
+let paged = false;   // More was pressed: don't reload the list from under the reader
 
 function resultRow(r) {
   const marked = new Set(r.hits.map((h) => h.value));
@@ -256,17 +280,27 @@ async function loadResults(more = false) {
   if (more) $('fd-results').append(...items);
   else $('fd-results').replaceChildren(...(items.length ? items : [el('li', { className: 'meta' }, 'Nothing found yet.')]));
   if (rows.length) oldest = rows.at(-1).startedAt;
+  paged = more;
   $('fd-more').hidden = rows.length < 50;
 }
 
 let searchTimer = null;
 $('fd-q').oninput = () => {
   clearTimeout(searchTimer);
-  searchTimer = setTimeout(() => loadResults().catch((e) => say(e.message, true)), 300);
+  searchTimer = setTimeout(() => loadResults().catch((e) => tabSay(e.message, true)), 300);
 };
-$('fd-hits').onchange = () => loadResults().catch((e) => say(e.message, true));
-$('fd-more').onclick = () => loadResults(true).catch((e) => say(e.message, true));
+$('fd-hits').onchange = () => loadResults().catch((e) => tabSay(e.message, true));
+$('fd-more').onclick = () => loadResults(true).catch((e) => tabSay(e.message, true));
 $('fd-refresh').onclick = load;
+$('fd-tab-refresh').onclick = loadTab;
+// Kept up to date while it's showing, as the Map's roads are: findings aren't on the event stream, which viewers share
+setInterval(() => {
+  if (!$('findings').hidden && !paged && !document.hidden) loadTab();
+}, 30_000);
+
+document.addEventListener('airscribe:signed-in', (e) => {
+  $('findings-toggle').hidden = e.detail?.role !== 'admin';
+});
 
 // ---- Roads mentioned, on the Map --------------------------------------------------
 // Each road a finding mentions, near its channel, lit: redder the more recent, dashed where the name was only
@@ -384,7 +418,7 @@ function onRoadClick(e) {
           el('div', { className: 'meta' }, `“${t.text}”`),
           el('audio', { controls: true, preload: 'none', src: withToken(`/api/transmissions/${id}/audio`) }));
       })),
-      p.ids.length > 8 ? el('div', { className: 'meta' }, `and ${p.ids.length - 8} more, in Admin → Findings`) : '');
+      p.ids.length > 8 ? el('div', { className: 'meta' }, `and ${p.ids.length - 8} more, on the Findings tab`) : '');
   }), el('div', { className: 'credit' }, 'Roads © OpenStreetMap contributors'));
   roadPopup?.remove();
   roadPopup = new mapCtx.maplibregl.Popup({ offset: 8, maxWidth: '360px' }).setLngLat(e.lngLat).setDOMContent(body).addTo(m);
@@ -429,8 +463,9 @@ setInterval(() => {
   if ($('map-roads').checked && !document.getElementById('mapview').hidden) loadRoads();
 }, 30_000);
 
-// Loaded when Admin is opened (views.js switches the page), and the roads when the Map is
+// Loaded when Admin or the Findings tab is opened (views.js switches the page), and the roads when the Map is
 document.addEventListener('airscribe:view', (e) => {
   if (e.detail === 'admin') load();
+  if (e.detail === 'findings') loadTab();
   if (e.detail === 'mapview' && mapCtx) loadRoads();
 });
