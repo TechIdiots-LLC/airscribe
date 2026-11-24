@@ -5,6 +5,7 @@
  * named is found by that name, which is the database's own; by its frequency; or by its talkgroup.
  */
 import { similarity } from './radioreference.js';
+import { fromListing, standardInput } from './channels.js';
 
 const NATIONWIDE_DEG = 6;   // a group whose rectangles span more than this has no place of its own
 const NEAR_KM = 150;        // a frequency's listings further than this from home are someone else's
@@ -101,12 +102,13 @@ export function parseHpd(text) {
         if (last && r.every(Number.isFinite)) last.rects.push(r);
         break;
       }
-      case 'C-Freq': rows.push(['freq', num(rest[2]), rest[0] ?? '', `c:${ids.CGroupId}`]); last = null; break;
+      // Name, Avoid, Frequency, Modulation, AudioOption (TONE=C100.0, NAC=…), FuncTagId (the service)
+      case 'C-Freq': rows.push(['freq', num(rest[2]), rest[0] ?? '', `c:${ids.CGroupId}`, rest[3] ?? '', rest[4] ?? '', num(rest[5])]); last = null; break;
       case 'TGID': rows.push(['tgid', num(rest[2]), rest[0] ?? '', `t:${ids.TGroupId}`]); last = null; break;
       default: break;
     }
   }
-  for (const [kind, value, name, gkey] of rows) {
+  for (const [kind, value, name, gkey, mode = '', audio = '', func = NaN] of rows) {
     const g = groups.get(gkey);
     const sys = g && systems.get(g.system);
     if (!g || !Number.isFinite(value) || !name) continue;
@@ -115,6 +117,7 @@ export function parseHpd(text) {
       kind, hz: kind === 'freq' ? value : null, tgid: kind === 'tgid' ? value : null, name, key: nameKey(name),
       group: g.name, system: sys?.name ?? '', trunk: sys?.trunk ?? null, stateId: sys?.stateId ?? null,
       countyId: sys?.countyId ?? null, lat: p?.lat ?? null, lon: p?.lon ?? null, rangeMi: p?.rangeMi ?? null,
+      mode: mode || null, audio: audio || null, func: Number.isFinite(func) ? func : null,
     });
   }
   for (const s of sites) {
@@ -144,6 +147,11 @@ export class Uniden {
       CREATE INDEX IF NOT EXISTS uniden_sites_trunk ON uniden_sites(trunk);
       CREATE TABLE IF NOT EXISTS uniden_areas (
         kind TEXT NOT NULL, id INTEGER NOT NULL, state_id INTEGER, name TEXT, code TEXT, PRIMARY KEY (kind, id));`);
+    // A frequency's mode, tone and service: kept since the amateur list, so a database imported before has none
+    const cols = new Set(this.db.prepare('PRAGMA table_info(uniden_entries)').all().map((c) => c.name));
+    for (const [c, type] of [['mode', 'TEXT'], ['audio', 'TEXT'], ['func', 'INTEGER']]) {
+      if (!cols.has(c)) this.db.exec(`ALTER TABLE uniden_entries ADD COLUMN ${c} ${type}`);
+    }
   }
 
   /** @returns {number} How many frequencies and talkgroups are kept. */
@@ -184,11 +192,11 @@ export class Uniden {
         this.db.prepare('DELETE FROM uniden_entries WHERE file = ?').run(file);
         this.db.prepare('DELETE FROM uniden_sites WHERE file = ?').run(file);
         const ins = this.db.prepare(`INSERT INTO uniden_entries (file, kind, hz, tgid, name, key, grp, system, trunk,
-                                       state_id, county_id, lat, lon, range_mi)
-                                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
+                                       state_id, county_id, lat, lon, range_mi, mode, audio, func)
+                                       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
         for (const e of got.entries) {
           ins.run(file, e.kind, e.hz, e.tgid, e.name, e.key, e.group, e.system, e.trunk, e.stateId, e.countyId,
-            e.lat, e.lon, e.rangeMi);
+            e.lat, e.lon, e.rangeMi, e.mode, e.audio, e.func);
         }
         const site = this.db.prepare(`INSERT INTO uniden_sites (file, trunk, name, lat, lon, range_mi)
                                         VALUES (?, ?, ?, ?, ?, ?)`);
@@ -208,6 +216,61 @@ export class Uniden {
     this.store.setSetting('uniden.date', null);
     this.store.setSetting('uniden.importedAt', null);
     return this.stats();
+  }
+
+  /**
+   * The 2 m and 70 cm frequencies the database lists near home, for a ham radio: each with what the radio would be
+   * written with, or why it can't be. The database gives what a repeater sends, its mode and its tone, not its
+   * input: a repeater's is taken from the band plan (standardInput), to check.
+   * @param {{lat: number, lon: number}|null} home - Where the radios are.
+   * @param {{miles?: number}} [o] - How far out.
+   * @returns {{date: string|null, reimport: boolean, home: object|null, stations: object[]}} Nearest first; reimport
+   *   when the database was imported before modes and tones were kept.
+   */
+  amateur(home, { miles = 30 } = {}) {
+    const mi = Math.min(Math.max(Number(miles) || 30, 1), 300);
+    const rows = this.db.prepare(`
+      SELECT e.rowid AS id, e.*, s.code AS state_code, c.name AS county FROM uniden_entries e
+        LEFT JOIN uniden_areas s ON s.kind = 'state' AND s.id = e.state_id
+        LEFT JOIN uniden_areas c ON c.kind = 'county' AND c.id = e.county_id
+       WHERE e.kind = 'freq' AND e.lat IS NOT NULL AND (e.hz BETWEEN 144000000 AND 148000000 OR e.hz BETWEEN 420000000 AND 450000000)
+       LIMIT 20000`).all();
+    const best = new Map();   // one listing for each frequency and tone: the nearest
+    for (const r of rows) {
+      const dist = home ? km(home, r) : null;
+      // Inside a group's area is near, however far its middle
+      const off = dist === null ? 0 : Math.max(0, dist - (r.range_mi ?? 0) * 1.609344);
+      if (off > mi * 1.609344) continue;
+      const tone = /^TONE=C(\d{2,3}\.\d)$/i.exec(r.audio ?? '')?.[1] ?? /^TONE=(D\d{3})N?$/i.exec(r.audio ?? '')?.[1] ?? '';
+      const key = `${r.hz}|${tone}`;
+      if (best.has(key) && (best.get(key).dist ?? 0) <= (dist ?? 0)) continue;
+      best.set(key, { r, dist, tone });
+    }
+    const amateurish = /amateur|\bham\b|\bares\b|races|skywarn|repeater|arrl|radio club|\b[akwn][a-z]?\d[a-z]{1,3}\b/i;
+    const stations = [...best.values()].sort((a, b) => (a.dist ?? 0) - (b.dist ?? 0) || a.r.hz - b.r.hz).slice(0, 300).map(({ r, dist, tone }) => {
+      const raw = String(r.mode ?? '').toUpperCase();
+      const digital = /^(NAC|COLORCODE|RAN|DCODE|UNITID)=/i.test(r.audio ?? '') || /P25|DMR|NXDN|DSTAR|D-STAR|YSF|FUSION|DIGITAL/.test(raw);
+      // AUTO (or none): the scanner works it out; amateur FM is taken as wide
+      const audio = String(r.audio ?? '').toUpperCase();
+      const mode = digital
+        ? (raw && raw !== 'AUTO' ? raw : audio.startsWith('NAC') ? 'P25' : audio.startsWith('COLORCODE') ? 'DMR' : audio.startsWith('RAN') ? 'NXDN' : 'Digital')
+        : !raw || raw === 'AUTO' ? 'FM' : raw;
+      const input = standardInput(r.hz);
+      const s = fromListing({ fid: r.id, out: r.hz / 1e6, in: input ? input / 1e6 : 0, tone, alpha: r.name, descr: r.grp }, mode);
+      return {
+        key: `uniden:${r.hz}:${tone}`, mhz: r.hz / 1e6, name: r.name, group: r.grp, system: r.system,
+        where: [r.state_code, r.county ? `${r.county} County` : r.system].filter(Boolean).join(' › '),
+        km: dist === null ? null : Math.round(dist * 10) / 10, lat: r.lat, lon: r.lon,
+        mode: r.mode ?? '', tone, amateur: amateurish.test(`${r.name} ${r.grp} ${r.system}`),
+        input: input ? input / 1e6 : null, modeGuessed: !digital && (!raw || raw === 'AUTO'),
+        ok: s.ok, why: s.why, toneNote: s.toneNote, channel: s.channel,
+      };
+    });
+    return {
+      date: this.store.setting('uniden.date') ?? null,
+      reimport: Boolean(this.count()) && !this.db.prepare('SELECT 1 FROM uniden_entries WHERE mode IS NOT NULL LIMIT 1').get(),
+      home, miles: mi, stations,
+    };
   }
 
   /**

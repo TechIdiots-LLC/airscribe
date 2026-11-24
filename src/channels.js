@@ -29,6 +29,22 @@ export const receiveBand = (hz) => within(hz, RECEIVE_BANDS);
 /** @returns {boolean} Whether a frequency is in a ham band the radio transmits in. */
 export const isHam = (hz) => Boolean(within(hz, HAM_BANDS));
 
+/**
+ * A repeater's input by the US band plan, for a listing that gives only what it sends (Uniden's database): 2 m
+ * 145.1–145.5 and 146.61–146.97 MHz down 600 kHz, 147.0–147.39 up 600 kHz; 70 cm 442–445 MHz up 5 MHz, 447–450 down
+ * 5 MHz. Anything else is taken as simplex. Some areas pair them the other way: it's a guess to check.
+ * @param {number} hz - What it sends on.
+ * @returns {number|null} Its input, or null for simplex.
+ */
+export function standardInput(hz) {
+  const m = hz / 1e6;
+  const shift = (m >= 145.1 && m <= 145.5) || (m >= 146.61 && m <= 146.97) ? -0.6e6
+    : m >= 147 && m <= 147.39 ? 0.6e6
+      : m >= 442 && m < 445 ? 5e6
+        : m >= 447 && m < 450 ? -5e6 : 0;
+  return shift ? Math.round(hz + shift) : null;
+}
+
 const fail = (message) => Object.assign(new Error(message), { status: 400 });
 
 /**

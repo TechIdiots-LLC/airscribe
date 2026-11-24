@@ -27,6 +27,7 @@ radio**:
 - **Add channels…:** **Stations near me** (RadioReference's listings for the
   county, see
   [radioreference.md](radioreference.md#stations-near-me-writing-listings-to-a-radio))
+  **Ham, from Uniden's database** ([below](#ham-from-unidens-database)),
   or **By hand**. Each goes into the first free slot, receive-only unless it's
   in a ham band, and a name already in the region gets a number at the end.
 
@@ -37,6 +38,41 @@ channel writes only the fields that changed, over the channel's record as the
 radio has it, so the rest of it (bits AirScribe doesn't model included) is
 kept: turning scan off changes one bit. A change that didn't take stays in the
 list, to write again.
+
+## Ham, from Uniden's database
+
+For a radio kept to the amateur bands. With Uniden's database imported (Admin →
+Uniden's database, the SDS150's HPDB), **Add channels… → Ham, from Uniden's
+database** lists the 2 m (144–148 MHz) and 70 cm (420–450 MHz) frequencies it
+has within 15, 30, 60 or 100 miles of home, nearest first: the name, its group
+and county, the tone, the mode, and what it would be written with. A repeater
+listed in several counties is listed once, at its nearest.
+
+- **What's written.** The database gives what a repeater sends, its mode and
+  tone, not its input. A repeater is written to transmit on the US band plan's
+  usual offset (2 m: 145.1–145.5 and 146.61–146.97 MHz down 600 kHz,
+  147.0–147.39 up 600 kHz; 70 cm: 442–445 MHz up 5 MHz, 447–450 down 5 MHz)
+  with the listed tone as its transmit tone, and no receive tone, so it's heard
+  whatever it sends. Anything else is simplex. Some areas pair repeaters the
+  other way: check a repeater's offset against a repeater directory before
+  transmitting through it.
+- **What can't be.** Digital ones (P25, DMR, NXDN) can't be ticked. One whose
+  mode isn't listed (AUTO) is written as FM, and says so.
+- **What's there already.** A frequency on the region already, or in the list
+  to write, is greyed out, with the channel it's on.
+- **Filling a region.** Tick the ones you want, or **Fill the region with the
+  nearest**, which ticks the nearest that can be written, as the filter shows
+  them, until the region is full (30 a region on a UV-Pro, as the radio says).
+  **Named as amateur only** keeps those with a callsign, a club, ARES, SKYWARN
+  or a repeater in their name. Then **Write to radio**, which backs the region
+  up first; **Put them on the map** places each at its group's place.
+- **Home** is RadioReference's ZIP code, or else the middle of the channels
+  placed on the map; without either, every one is listed, in frequency order.
+- A database imported before this was added has no modes or tones: import it
+  again.
+
+How much of the amateur bands the database has depends on the county: it's
+RadioReference's data, which lists some areas' repeaters and not others'.
 
 ## How each channel came through: static and weak
 
@@ -141,6 +177,7 @@ reason.
 | --- | --- |
 | `GET /api/radios/:mac/channels?region=N` | every slot of a region, read from the radio now (the region it's on without `region`), and `quality`: by channel name, the last week's `count`, `noSpeech`, median `rssi` and `snrDb`, and `tags` |
 | `PUT /api/radios/:mac/channels` | `{region, channels, label}`: reads the region, backs it up, then writes the channels. Each is a new channel (`{id, name, rx_hz, tx_hz, mod, bandwidth, rx_tone, tx_tone, scan, power, tx_disable}`, `id` the slot from 0), an empty slot (`{id, rx_hz: 0}`), or a change to some of a channel's fields (`{id, set: {scan: false}}`). A write that changes nothing keeps no backup. A new channel may carry `lat` and `lon`, to put it on the map |
+| `GET /api/uniden/amateur?miles=` | the 2 m and 70 cm frequencies in Uniden's database near home, nearest first, each with the `channel` it would be written as, or `ok: false` and `why` |
 | `GET /api/radios/:mac/backups` | the radio's backups, newest first |
 | `POST /api/radios/:mac/backups` | `{region, label}`: back a region up |
 | `GET /api/radios/:mac/backups/:id` | one backup, every slot |

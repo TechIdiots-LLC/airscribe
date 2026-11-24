@@ -125,3 +125,46 @@ test('Find, through the API: Uniden’s database, imported by an admin', { skip:
     server.close();
   }
 });
+
+const HAM = [T('TargetModel', 'BCDx36HP'), T('FormatVersion', '1.00'),
+  T('Conventional', 'CountyId=1213', 'StateId=25', 'Worcester', 'Off', '', 'Conventional'),
+  T('C-Group', 'CGroupId=5', 'CountyId=1213', 'Amateur Radio', 'Off', '42.300000', '-71.800000', '10.0', 'Circle', 'Off', 'Global'),
+  T('C-Freq', 'CFreqId=51', 'CGroupId=5', 'W1BIM Paxton', 'Off', '146970000', 'FM', 'TONE=C114.8', '13'),
+  T('C-Freq', 'CFreqId=52', 'CGroupId=5', 'Simplex Calling', 'Off', '146520000', 'NFM', '', '13'),
+  T('C-Freq', 'CFreqId=53', 'CGroupId=5', 'Holden 70cm', 'Off', '449925000', 'FM', 'TONE=D023', '13'),
+  T('C-Freq', 'CFreqId=54', 'CGroupId=5', 'Club DMR', 'Off', '442500000', 'AUTO', 'ColorCode=1', '13'),
+  T('C-Freq', 'CFreqId=55', 'CGroupId=5', 'Wachusett', 'Off', '147150000', 'AUTO', 'TONE=C100.0', '13'),
+  T('C-Group', 'CGroupId=6', 'CountyId=1213', 'Statewide Amateur', 'Off', '42.400000', '-72.300000', '5.0', 'Circle', 'Off', 'Global'),
+  T('C-Freq', 'CFreqId=61', 'CGroupId=6', 'W1BIM again', 'Off', '146970000', 'FM', 'TONE=C114.8', '13'),
+  T('C-Freq', 'CFreqId=62', 'CGroupId=1', 'Holden FD Dispatch', 'Off', '154385000', 'NFM', 'TONE=C100.0', '3'),
+  T('C-Group', 'CGroupId=7', 'CountyId=9', 'Far Ham', 'Off', '34.000000', '-118.000000', '5.0', 'Circle', 'Off', 'Global'),
+  T('C-Freq', 'CFreqId=71', 'CGroupId=7', 'Far Repeater', 'Off', '146940000', 'FM', '', '13'),
+].join('\r\n');
+
+test('the 2 m and 70 cm frequencies near home, as a ham radio would be written', { skip: !sqlite }, async () => {
+  const [e] = parseHpd(HAM).entries;
+  assert.deepEqual([e.mode, e.audio, e.func], ['FM', 'TONE=C114.8', 13], 'mode, tone and service are kept');
+  const { Store } = await import('../src/store.js');
+  const { Uniden } = await import('../src/uniden.js');
+  const u = new Uniden({ store: new Store(':memory:', 'base') });
+  u.importFile('hpdb.cfg', CFG);
+  u.importFile('s_000025.hpd', HAM);
+  const got = u.amateur(HOME, { miles: 30 });
+  assert.equal(got.reimport, false);
+  const by = Object.fromEntries(got.stations.map((s) => [s.name, s]));
+  assert.deepEqual(Object.keys(by).sort(), ['Club DMR', 'Holden 70cm', 'Simplex Calling', 'W1BIM Paxton', 'Wachusett'],
+    'not the fire channel, not the far one, and one listing for a repeater listed twice: the nearest');
+  assert.deepEqual(
+    [by['W1BIM Paxton'].channel.rx_hz, by['W1BIM Paxton'].channel.tx_hz, by['W1BIM Paxton'].channel.tx_tone,
+      by['W1BIM Paxton'].channel.rx_tone, by['W1BIM Paxton'].channel.tx_disable, by['W1BIM Paxton'].amateur],
+    [146970000, 146370000, '114.8', '', false, true], 'a repeater: the band plan’s input, its tone to key it');
+  assert.equal(by['Simplex Calling'].channel.tx_hz, 146520000, 'simplex');
+  assert.equal(by['Simplex Calling'].channel.bandwidth, 'narrow');
+  assert.deepEqual([by['Holden 70cm'].channel.tx_hz, by['Holden 70cm'].channel.tx_tone], [444925000, 'D023']);
+  assert.deepEqual([by['Club DMR'].ok, by['Club DMR'].why], [false, 'DMR is digital or data, and the radio plays FM and AM']);
+  assert.deepEqual([by.Wachusett.modeGuessed, by.Wachusett.channel.mod, by.Wachusett.channel.tx_hz], [true, 'FM', 147750000]);
+  assert.deepEqual(got.stations.map((s) => s.km).every((k, i, a) => !i || a[i - 1] <= k), true, 'nearest first');
+  const far = u.amateur(HOME, { miles: 3000 });
+  assert.deepEqual([far.miles, far.stations.length], [300, 5], 'at most 300 miles out: never a coast away');
+  assert.equal(u.amateur(null).stations.length, 6, 'home unknown: every one, unsorted by distance');
+});

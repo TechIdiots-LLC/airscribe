@@ -253,3 +253,9 @@ test('each radio keeps its newest 50 backups', { skip: !sqlite }, async () => {
   assert.equal(store.placeChannelIfUnplaced('Rutland FD', 42.37, -71.95), true);
   assert.equal(store.placeChannelIfUnplaced('Rutland FD', 1, 1), false, 'a place already set is kept');
 });
+
+test('a repeater’s input by the band plan, when a listing gives only its output', async () => {
+  const { standardInput } = await import('../src/channels.js');
+  assert.deepEqual([146.97e6, 146.52e6, 147.15e6, 145.29e6, 444.4e6, 449.925e6, 446e6, 441e6].map(standardInput),
+    [146.37e6, null, 147.75e6, 144.69e6, 449.4e6, 444.925e6, null, null]);
+});

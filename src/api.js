@@ -855,6 +855,8 @@ export function createApp({ manager, store, sidecar, config, dataDir, updates, c
       if (!local && !out.rr) throw refuse(out.rrError ?? 'nothing to look it up by', 400);
       return out;
     }));
+    // A ham radio's channels from Uniden's database: the 2 m and 70 cm frequencies near home
+    if (uniden) api.get('/uniden/amateur', admin, answer(async (req) => uniden.amateur(await home(), { miles: req.query.miles })));
   }
 
   // Uniden's database, imported a file at a time from the scanner's SD card (BCDx36HP/HPDB)
