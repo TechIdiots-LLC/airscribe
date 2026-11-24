@@ -44,6 +44,10 @@ The page shows what's published, how far behind it is, and **Sign in**. Where
 nothing is published it's the sign-in page alone, and `/#signin` always goes
 straight there.
 
+Each page of the console has its own address (`/#/map`, `/#/findings`,
+`/#/admin`, ...), so a reload stays on it, Back returns to the last one, and a
+saved link opens on it once you're signed in, if your account can open that page.
+
 Behind a reverse proxy (HAProxy, nginx, Caddy) with a certificate:
 
 ```json

@@ -2,6 +2,7 @@
 
 ## master
 ### ✨ Features and improvements
+- Each page has its own address (`#/map`, `#/admin`, ...): a reload stays on the page, and Back and Forward move between pages
 - _...Add new stuff here..._
 
 ### 🐞 Bug fixes

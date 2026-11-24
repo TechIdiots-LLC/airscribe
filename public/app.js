@@ -1,4 +1,4 @@
-import { showView } from './views.js';
+import { offered, showView, viewFromHash } from './views.js';
 import { showSecondStep, passkeySignIn, passkeysSupported } from './twostep.js';
 import { showPublic, hidePublic, publicShowing } from './publicview.js';
 
@@ -976,6 +976,8 @@ document.addEventListener('airscribe:view', (e) => {
 
 /** @returns {Promise<void>} Asks who we are, then loads everything or asks to sign in. */
 async function boot() {
+  // A reload stays on the page it was on (#/admin, #/map, ...)
+  const start = viewFromHash();
   const invite = inviteToken();
   if (invite) return showJoin(invite);
   const note = signinNote();
@@ -1023,14 +1025,18 @@ async function boot() {
   }
   $('logout').hidden = !session?.guarded;
   twoStepNotice(session);
-  showView('main');
+  showView('main', 'none');
   listen();
   document.dispatchEvent(new CustomEvent('airscribe:signed-in', { detail: session }));
   // Back from linking an outside account: the account page says how it went
   if (note) dropHash();
   if (note?.where === 'account' && session?.user) {
-    showView('account');
+    showView('account', 'replace');
     document.dispatchEvent(new CustomEvent('airscribe:account-note', { detail: note }));
+  } else if (start && start !== 'main') {
+    // Only where this sign-in may go (Admin for an admin, ...); otherwise the feed, and the address says so
+    if (offered(start)) showView(start, 'replace');
+    else dropHash();
   }
 }
 

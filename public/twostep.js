@@ -217,7 +217,7 @@ export function askCheck(kind) {
     if (!d.open) d.showModal();
     const ok = await done;
     // Admin's pages wanted it, and it wasn't given: back to the feed rather than a page of refusals
-    if (!ok && admin) showView('main');
+    if (!ok && admin) showView('main', 'replace');
     document.dispatchEvent(new CustomEvent('airscribe:two-step', { detail: { ok, kind } }));
     return ok;
   })().finally(() => { asking = null; });
