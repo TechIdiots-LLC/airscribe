@@ -95,7 +95,8 @@ test('a transcript is read with its channel’s last minutes, and watches catch 
     assert.equal(model[0].headers.Authorization, 'Bearer k');
     const user = model[0].body.messages[1].content;
     assert.match(user, /Earlier on this channel:\n- Car 12 go ahead/);
-    assert.doesNotMatch(user, /another channel/, 'only this channel’s traffic is context');
+    assert.match(user, /Meanwhile on other channels:\n- \[Paxton FD, under a minute before\] Unrelated traffic on another channel/);
+    assert.doesNotMatch(user.split('Earlier on this channel')[1], /another channel/, 'kept apart from this channel’s');
     assert.doesNotMatch(user, /static/, 'a clear signal isn’t called static');
 
     const [r] = findings.results({});

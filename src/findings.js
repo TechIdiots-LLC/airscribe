@@ -24,6 +24,7 @@ const KEYS = {
 const DEFAULTS = { api: 'ollama', model: 'qwen3:8b', keepDays: 30 };
 const CONTEXT_MS = 5 * 60 * 1000;    // the channel's earlier traffic given as context
 const CONTEXT_COUNT = 3;
+const OTHERS_COUNT = 5;              // and the other channels' in the same minutes
 const TIMEOUT_MS = 120_000;          // a model loading onto the card for the first call takes a while
 const QUEUE_MAX = 5000;
 const SWEEP_MS = 60 * 60 * 1000;
@@ -47,7 +48,9 @@ export const SCHEMA = {
 
 const SYSTEM = `You read transcripts of radio traffic (police, fire, EMS, public works, amateur radio), made by speech
 recognition, which mishears words. Report only what the NEW transmission says; earlier transmissions on the same
-channel are given only so you can follow the conversation. Answer with JSON:
+channel, and on other channels in the same minutes, are given only so you can follow what's going on (a unit sent on
+one channel and talking on another, a call that moves from dispatch to a fireground). Never report what only those
+say. Answer with JSON:
 - summary: one short sentence on what the new transmission says, or "" if it says nothing of substance
 - incident: the kind of call in a few words ("motor vehicle crash", "structure fire"), or ""
 - service: who is talking: "police", "fire", "ems", "works" (public works, highway, utilities, transit), "amateur"
@@ -312,15 +315,18 @@ export class Findings {
    * What the model is told about one transmission, besides the instructions (SYSTEM).
    * @param {string} text - The new transmission's transcript.
    * @param {(string|{text: string, static?: boolean})[]} [context] - The channel's transcripts just before it.
-   * @param {{channel?: string|null, roads?: string[], static?: boolean}} [about] - The channel's name, roads near
-   *   it that sound like something said, and whether the new one came through static.
+   * @param {{channel?: string|null, roads?: string[], static?: boolean, others?: object[]}} [about] - The channel's
+   *   name, roads near it that sound like something said, whether the new one came through static, and other
+   *   channels' transmissions just before ({channel, ago, text, static}).
    * @returns {string} The user message.
    */
-  message(text, context = [], { channel = null, roads = [], static: noisy = false } = {}) {
+  message(text, context = [], { channel = null, roads = [], static: noisy = false, others = [] } = {}) {
     const said = (c) => (typeof c === 'string' ? c : `${c.static ? '(heard through static) ' : ''}${c.text}`);
+    const where = (c) => `[${c.channel ?? 'channel unknown'}, ${c.ago < 60_000 ? 'under a minute' : `${Math.round(c.ago / 60_000)} min`} before] `;
     return [
       channel ? `Channel: ${channel}\n` : '',
       roads.length ? `Roads near this channel with names like words said:\n${roads.join('; ')}\n` : '',
+      others.length ? `Meanwhile on other channels:\n${others.map((c) => `- ${where(c)}${said(c)}`).join('\n')}\n` : '',
       context.length ? `Earlier on this channel:\n${context.map((c) => `- ${said(c)}`).join('\n')}\n` : '',
       `New transmission${noisy ? ', heard through static (weak signal: the transcript may be wrong)' : ''}:\n${text}`,
     ].filter(Boolean).join('\n');
@@ -442,6 +448,15 @@ export class Findings {
        ORDER BY t.started_at DESC LIMIT ?`)
       .all(this.primary, this.primary, t.channel_name, t.started_at, t.started_at - CONTEXT_MS, CONTEXT_COUNT)
       .map((r) => ({ text: spoken(r.text), static: isStatic(r.snr_db) })).filter((c) => c.text).reverse();
+    // Other channels in the same minutes, with something said
+    const others = this.db.prepare(`
+      SELECT x.text, t.snr_db, t.channel_name, t.started_at FROM transmissions t
+        JOIN transcripts x ON x.transmission_id = t.id AND x.status = 'done' AND (? IS NULL OR x.engine = ?)
+       WHERE t.channel_name IS NOT ? AND t.data = 0 AND t.started_at < ? AND t.started_at >= ?
+       ORDER BY t.started_at DESC LIMIT ?`)
+      .all(this.primary, this.primary, t.channel_name, t.started_at, t.started_at - CONTEXT_MS, OTHERS_COUNT * 3)
+      .map((r) => ({ channel: r.channel_name, ago: t.started_at - r.started_at, text: spoken(r.text), static: isStatic(r.snr_db) }))
+      .filter((c) => c.text.split(' ').length >= 2).slice(0, OTHERS_COUNT).reverse();
     let found = null;
     let error = null;
     let sent = null;
@@ -449,7 +464,7 @@ export class Findings {
       const said = [...context.map((c) => c.text), text].join(' ');
       const roads = this.roads?.hint(said, this.roads.where(t.channel_name)) ?? [];
       // Static is said, not skipped: the model is told to trust it less
-      sent = this.message(text, context, { channel: t.channel_name, roads, static: isStatic(t.snr_db) });
+      sent = this.message(text, context, { channel: t.channel_name, roads, static: isStatic(t.snr_db), others });
       found = await this.send(sent);
       this.lastError = null;
     } catch (e) {

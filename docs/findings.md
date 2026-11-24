@@ -39,7 +39,9 @@ the model is told so (below).
 ## What the model is asked
 
 The new transmission's transcript, and as context up to three earlier ones on the same channel from the five minutes
-before it, so "the plate is…" after "Car 12, traffic stop on Route 9" reads as one call. Any of them that came through
+before it, so "the plate is…" after "Car 12, traffic stop on Route 9" reads as one call. Up to five from other channels in
+the same five minutes go with it too, each with its channel and how long before, so a unit dispatched on one channel
+and talking on another can be followed. It's told those are context only: what it reports is what the new one says. Any of them that came through
 static is marked "heard through static", and the model is told to report from those only what reads clearly: speech
 recognition writes words into hiss.
 
