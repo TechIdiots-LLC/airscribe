@@ -5,6 +5,7 @@
 - _...Add new stuff here..._
 
 ### 🐞 Bug fixes
+- Findings: new findings show at the top of the open Findings tab within a few seconds, not after leaving and coming back
 - _...Add new stuff here..._
 
 ## 0.4.0

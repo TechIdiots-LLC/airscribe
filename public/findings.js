@@ -191,14 +191,15 @@ function copiesOf(r, clips) {
 }
 
 /** The Findings tab: its status, the model's instructions, the watch list and what was found. */
-async function loadTab() {
+async function loadTab({ list = true } = {}) {
   try {
     const s = await api('/findings');
+    if (list) listFrom = s.latestAt + 1;
     roadsReady = s.roads;
     const [text, error] = stateOf(s);
     tabSay(s.enabled ? text : `${text}${isAdmin ? ' Turn it on, and give it a model server, in Admin → Findings.' : ''}`, error);
     $('fd-instructions').replaceChildren(sentBox('The instructions the model is given, with every transmission', s.instructions));
-    await Promise.all([loadWatches(), loadResults()]);
+    await Promise.all([loadWatches(), list ? loadResults() : null]);
   } catch (e) {
     tabSay(e.message, true);
   }
@@ -292,10 +293,11 @@ $('fd-watch-add').onclick = async () => {
 
 let oldest = null;   // paging: the start of the last row shown
 let paged = false;   // More was pressed: don't reload the list from under the reader
+let listFrom = null; // findings made from here on are put at the top as they come
 
 function resultRow(r) {
   const marked = new Set(r.hits.map((h) => h.value));
-  return el('li', {},
+  const li = el('li', {},
     el('div', { className: 'radio-head' },
       el('span', { className: 'meta' }, `${new Date(r.startedAt).toLocaleString()} · ${r.channel ?? 'channel unknown'}`),
       servicePill(r.found.service),
@@ -311,12 +313,23 @@ function resultRow(r) {
     r.sent ? sentBox('Sent to the model', r.sent, r.usage) : '',
     roadsReady && (r.found.roads?.length || r.found.addresses?.length)
       ? el('div', {}, el('button', { className: 'link', onclick: () => showOnMap(r.id) }, 'On the map')) : '');
+  li.dataset.id = String(r.id);
+  return li;
 }
 
-async function loadResults(more = false) {
+/** The list's search and "watch matches only", as query parameters. */
+function filters() {
   const params = new URLSearchParams({ limit: '50' });
   if ($('fd-q').value.trim()) params.set('q', $('fd-q').value.trim());
   if ($('fd-hits').checked) params.set('hits', '1');
+  return params;
+}
+
+/** A clip in the list is playing: rebuilding it would stop it. */
+const listPlaying = () => [...$('fd-results').querySelectorAll('audio')].some((a) => !a.paused);
+
+async function loadResults(more = false) {
+  const params = filters();
   if (more && oldest) params.set('before', String(oldest));
   const rows = await api(`/findings/results?${params}`);
   const items = rows.map(resultRow);
@@ -336,10 +349,26 @@ $('fd-hits').onchange = () => loadResults().catch((e) => tabSay(e.message, true)
 $('fd-more').onclick = () => loadResults(true).catch((e) => tabSay(e.message, true));
 $('fd-refresh').onclick = load;
 $('fd-tab-refresh').onclick = loadTab;
-// Kept up to date while it's showing, as the Map's roads are: findings aren't on the event stream
+// Kept up to date while it's showing, as the Map's roads are: findings aren't on the event stream. New ones go on
+// top every few seconds (paged or not); the whole list is redone now and then for corrections to older ones.
 setInterval(() => {
-  if (!$('findings').hidden && !paged && !document.hidden) loadTab();
+  if (!$('findings').hidden && !document.hidden) loadTab({ list: !paged && !listPlaying() });
 }, 30_000);
+
+async function pollResults() {
+  if (listFrom === null || $('findings').hidden || document.hidden) return;
+  const params = filters();
+  params.set('after', String(listFrom));
+  const list = $('fd-results');
+  for (const r of await api(`/findings/results?${params}`)) {
+    listFrom = Math.max(listFrom, r.madeAt + 1);
+    // Read again: moved to the top; and no "Nothing found yet."
+    list.querySelector(`:scope > li[data-id="${r.id}"]`)?.remove();
+    list.querySelector(':scope > li.meta')?.remove();
+    list.prepend(resultRow(r));
+  }
+}
+setInterval(() => pollResults().catch(() => {}), 5000);
 
 document.addEventListener('airscribe:signed-in', (e) => {
   isAdmin = e.detail?.role === 'admin';

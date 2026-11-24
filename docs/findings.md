@@ -142,7 +142,9 @@ The **Findings** tab's **Found** lists the transmissions read, newest first: whe
 call, the transcript, what was found (watched values marked), and the clip. **Search** looks in what was found and in
 the transcripts (a plate however it's spaced); **only watch matches** narrows it to those. **Delete all findings**
 empties it; the watch list stays. A call another radio also heard says so (**also heard**), with what that radio heard
-and its clip; a search finds it by those words too.
+and its clip; a search finds it by those words too. While the tab is open, a new finding goes on top within about five
+seconds, even after **More**. The whole list is reloaded every 30 seconds, so corrections to older rows show, except after
+**More** or while one of its clips is playing.
 
 **Speak new findings** (beside **Refresh**, and **Speak new** on the Map's Findings tab) has this browser read out
 each finding made from then on: its channel and summary, a plate letter by letter, "through static" when it was.
