@@ -339,6 +339,8 @@ export class Findings {
         findings: this.db.prepare('SELECT count(*) AS n FROM findings').get().n,
         hits: this.db.prepare('SELECT count(*) AS n FROM finding_hits').get().n,
       },
+      // When the last was made: where speaking new ones starts from
+      latestAt: this.db.prepare("SELECT max(created_at) AS n FROM findings WHERE status = 'done'").get().n ?? 0,
       instructions: SYSTEM,
     };
   }
@@ -732,14 +734,16 @@ export class Findings {
 
   /**
    * Recent findings, newest first, with their transmission and matches.
-   * @param {{q?: string, hits?: boolean, before?: number, since?: number, limit?: number}} o - A search, only
-   *   matches, paging, and how far back.
+   * @param {{q?: string, hits?: boolean, before?: number, since?: number, after?: number, limit?: number}} o - A
+   *   search, only matches, paging, how far back; or those made at or after `after` (ms), oldest made first.
    * @returns {object[]} Rows.
    */
-  results({ q, hits, before, since, limit } = {}) {
+  results({ q, hits, before, since, after, limit } = {}) {
     const n = Math.min(Math.max(Number(limit) || 50, 1), 200);
     const where = ['f.status = \'done\''];
     const args = [];
+    const made = after !== undefined && after !== '' && Number.isFinite(Number(after));
+    if (made) (where.push('f.created_at >= ?'), args.push(Number(after)));
     if (before) (where.push('t.started_at < ?'), args.push(Number(before)));
     if (since) (where.push('t.started_at >= ?'), args.push(Number(since)));
     if (hits) where.push('EXISTS (SELECT 1 FROM finding_hits h WHERE h.transmission_id = t.id)');
@@ -752,7 +756,7 @@ export class Findings {
     const rows = this.db.prepare(`
       SELECT t.id, t.started_at, t.channel_name, t.duration_ms, t.snr_db, f.model, f.result, f.sent, f.usage, f.created_at
         FROM findings f JOIN transmissions t ON t.id = f.transmission_id
-       WHERE ${where.join(' AND ')} ORDER BY t.started_at DESC LIMIT ?`).all(...args, n);
+       WHERE ${where.join(' AND ')} ORDER BY ${made ? 'f.created_at' : 't.started_at DESC'} LIMIT ?`).all(...args, n);
     const text = this.db.prepare(`SELECT text FROM transcripts WHERE transmission_id = ? AND status = 'done'
                                    ORDER BY (engine = ?) DESC LIMIT 1`);
     const hitsOf = this.db.prepare('SELECT term, field, value FROM finding_hits WHERE transmission_id = ?');
@@ -767,7 +771,7 @@ export class Findings {
       id: r.id, startedAt: r.started_at, channel: r.channel_name, durationMs: r.duration_ms, model: r.model,
       text: text.get(r.id, this.primary ?? '')?.text ?? '',
       found: JSON.parse(r.result), hits: hitsOf.all(r.id), sent: r.sent ?? null, static: isStatic(r.snr_db),
-      usage: r.usage ? JSON.parse(r.usage) : null, correctedBy: by.all(r.id), corrects: of.all(r.id),
+      usage: r.usage ? JSON.parse(r.usage) : null, correctedBy: by.all(r.id), corrects: of.all(r.id), madeAt: r.created_at,
     }));
   }
 

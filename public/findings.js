@@ -556,3 +556,138 @@ document.addEventListener('airscribe:view', (e) => {
   if (e.detail === 'findings') loadTab();
   if (e.detail === 'mapview' && mapCtx) loadRoads();
 });
+
+// ---- Speak new findings ---------------------------------------------------------
+// Each finding made while it's on, its channel and summary read out by the browser's own speech, one after another,
+// after any clip that's playing (the feed's Play new waits for it in turn). Findings aren't on the event stream, so
+// it asks for new ones every few seconds. For the signed-in, in this browser.
+
+const SPEAK_KEY = 'airscribe.findings.speak';
+const VOICE_KEY = 'airscribe.findings.voice';
+const SPEAK_MS = 5000;
+const speech = window.speechSynthesis ?? null;
+const speakQueue = [];
+const spoken = new Set();   // transmissions already read out, so one read again isn't said twice
+let speakFrom = null;       // findings made from then on are said
+let speakTimer = null;
+let speakBusy = false;
+let signedIn = false;
+
+const speakBoxes = () => [...document.querySelectorAll('.fd-speak')];
+const speaking = () => signedIn && Boolean(speech) && $('fd-speak').checked;
+
+function speakState(text = '') {
+  const waiting = speakQueue.length;
+  const s = text || (!speaking() ? '' : waiting ? `(${waiting} waiting)` : speech.speaking ? '(speaking)' : '');
+  for (const e of document.querySelectorAll('.fd-speak-state')) e.textContent = s;
+}
+
+/** What's said: the channel and the summary; nothing for a finding with nothing in it. */
+function utterance(r) {
+  const summary = String(r.found?.summary ?? '').trim();
+  if (!summary) return '';
+  // A plate is said letter by letter
+  const plates = (r.found.plates ?? []).filter(Boolean);
+  let s = summary;
+  for (const p of plates) s = s.replaceAll(p, p.split('').join(' '));
+  return `${r.channel ?? 'Unknown channel'}${r.static ? ', through static' : ''}: ${s}`;
+}
+
+function sayNext() {
+  if (!speaking() || speech.speaking || speakBusy) return;
+  // A clip playing, by hand or the feed's: after it
+  if ([...document.querySelectorAll('audio')].some((a) => !a.paused && !a.ended)) {
+    setTimeout(sayNext, 500);
+    return;
+  }
+  const text = speakQueue.shift();
+  if (!text) return speakState();
+  const u = new SpeechSynthesisUtterance(text);
+  const voice = speech.getVoices().find((v) => v.voiceURI === $('fd-voice').value);
+  if (voice) u.voice = voice;
+  speakBusy = true;
+  u.onend = u.onerror = (e) => {
+    speakBusy = false;
+    if (e.error === 'not-allowed') {
+      // The browser wants a click on the page before it speaks
+      setSpeak(false);
+      speakState('(blocked by the browser: tick it again)');
+      return;
+    }
+    speakState();
+    setTimeout(sayNext, 300);
+  };
+  speech.speak(u);
+  speakState();
+}
+
+async function pollSpoken() {
+  if (!speaking()) return;
+  try {
+    if (speakFrom === null) speakFrom = (await api('/findings')).latestAt + 1;
+    const rows = await api(`/findings/results?${new URLSearchParams({ after: String(speakFrom), limit: '50' })}`);
+    for (const r of rows) {
+      speakFrom = Math.max(speakFrom, r.madeAt);
+      if (spoken.has(r.id)) continue;
+      spoken.add(r.id);
+      const text = utterance(r);
+      if (text) speakQueue.push(text);
+    }
+    // Away a while: the latest few, not a backlog
+    speakQueue.splice(0, Math.max(0, speakQueue.length - 5));
+    speakState();
+    sayNext();
+  } catch {
+    // Tried again at the next tick
+  }
+}
+
+function setSpeak(on) {
+  for (const b of speakBoxes()) b.checked = on;
+  keep(SPEAK_KEY, on ? '1' : '0');
+  clearInterval(speakTimer);
+  speakTimer = null;
+  speakQueue.length = 0;
+  if (!on) {
+    speech?.cancel();
+    speakBusy = false;
+    speakState();
+    return;
+  }
+  if (!signedIn) return;
+  // From now: what was found before isn't read out
+  speakFrom = null;
+  speakTimer = setInterval(pollSpoken, SPEAK_MS);
+  pollSpoken();
+  speakState();
+}
+
+function listVoices() {
+  const want = recall(VOICE_KEY, '');
+  const lang = (navigator.language || 'en').slice(0, 2);
+  const voices = (speech?.getVoices() ?? []).filter((v) => v.lang.startsWith(lang));
+  $('fd-voice').replaceChildren(el('option', { value: '' }, 'Browser’s voice'),
+    ...voices.map((v) => el('option', { value: v.voiceURI }, `${v.name}${v.localService ? '' : ' (online)'}`)));
+  $('fd-voice').value = voices.some((v) => v.voiceURI === want) ? want : '';
+}
+
+if (speech) {
+  listVoices();
+  speech.addEventListener?.('voiceschanged', listVoices);
+  for (const b of speakBoxes()) {
+    b.onchange = () => {
+      setSpeak(b.checked);
+      // Said at once, from the click: browsers let a page speak after that
+      if (b.checked) speech.speak(new SpeechSynthesisUtterance('Speaking new findings'));
+    };
+  }
+  $('fd-voice').onchange = () => keep(VOICE_KEY, $('fd-voice').value);
+} else {
+  for (const b of speakBoxes()) (b.disabled = true, b.parentElement.title = 'This browser can’t speak');
+  $('fd-voice').hidden = true;
+}
+
+document.addEventListener('airscribe:signed-in', (e) => {
+  signedIn = Boolean(e.detail?.role);
+  setSpeak(signedIn && Boolean(speech) && recall(SPEAK_KEY, '0') === '1');
+});

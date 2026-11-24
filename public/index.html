@@ -246,6 +246,8 @@
           <option value="168">Last week</option>
           <option value="720">Last 30 days</option>
         </select>
+        <label class="toggle" title="Read out each new finding's summary, with its channel, in this browser; after a clip that's playing">
+          <input type="checkbox" id="map-fd-speak" class="fd-speak"> Speak new <span class="fd-speak-state meta"></span></label>
       </div>
       <p id="map-roads-note" class="meta" hidden></p>
       <div id="map-fd-legend" class="fd-legend" title="Each road in the colour of the service that last mentioned it, fainter the longer ago"></div>
@@ -482,7 +484,12 @@
   </div>
 </section>
 <section id="findings" hidden>
-  <div class="row"><h2>Findings</h2><button id="fd-tab-refresh">Refresh</button></div>
+  <div class="row wrap"><h2>Findings</h2><button id="fd-tab-refresh">Refresh</button>
+    <span class="spacer"></span>
+    <label class="toggle" title="Read out each new finding's summary, with its channel, in this browser; after a clip that's playing">
+      <input type="checkbox" id="fd-speak" class="fd-speak"> Speak new findings <span class="fd-speak-state meta"></span></label>
+    <select id="fd-voice" title="The voice, from those this browser has"><option value="">Browser’s voice</option></select>
+  </div>
   <p class="meta" id="fd-tab-status" role="status"></p>
   <div id="fd-instructions"></div>
   <div class="panel">

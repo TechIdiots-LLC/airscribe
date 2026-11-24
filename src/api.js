@@ -891,7 +891,8 @@ export function createApp({ manager, store, sidecar, config, dataDir, updates, c
   if (findings) {
     api.get('/findings', answer(() => findings.status()));
     api.get('/findings/results', answer((req) => findings.results({
-      q: req.query.q, hits: req.query.hits === '1', before: req.query.before, since: req.query.since, limit: req.query.limit,
+      q: req.query.q, hits: req.query.hits === '1', before: req.query.before, since: req.query.since, after: req.query.after,
+      limit: req.query.limit,
     })));
     api.get('/findings/watches', answer(() => findings.watches()));
     api.get('/findings/map', answer((req) => findings.map({ hours: req.query.hours ?? 24, also: req.query.also })));

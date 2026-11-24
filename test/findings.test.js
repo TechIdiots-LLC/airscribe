@@ -278,6 +278,15 @@ test('earlier findings go with each transmission, and a later one can correct th
   answers.push({ summary: 'x' });
   await findings.read(say('car twelve clear', clock, 'Holden PD'));
   assert.doesNotMatch(calls[4].messages[1].content, /Earlier findings/);
+
+  // Those made from a moment on, in the order made: what Speak new findings reads out
+  assert.equal(findings.status().latestAt, clock);
+  clock += 1000;
+  answers.push({ summary: 'y' });
+  const later = say('engine two clear', clock - 5 * 60_000, 'Holden FD');
+  await findings.read(later);
+  const made = findings.results({ after: findings.status().latestAt });
+  assert.deepEqual(made.map((r) => [r.id, r.madeAt]), [[later, clock]], 'by when it was made, not when it was heard');
 });
 
 test('a clip heard through static is still read, and the model is told so', { skip: !sqlite }, async () => {

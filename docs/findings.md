@@ -137,12 +137,21 @@ call, the transcript, what was found (watched values marked), and the clip. **Se
 the transcripts (a plate however it's spaced); **only watch matches** narrows it to those. **Delete all findings**
 empties it; the watch list stays.
 
+**Speak new findings** (beside **Refresh**, and **Speak new** on the Map's Findings tab) has this browser read out
+each finding made from then on: its channel and summary, a plate letter by letter, "through static" when it was.
+They're said one after another, after any clip that's playing, and the feed's **Play new** waits while one is said.
+Findings aren't on the event stream, so the page asks for new ones every five seconds; after a while away, only the
+latest five are said. The voice is the browser's (the list beside it has the others it offers), and a browser may
+want a click on the page first: ticking the box is one; after a reload it may say "blocked by the browser: tick it
+again". It's remembered in this browser. Nothing is sent anywhere to be spoken, unless the voice chosen is marked
+"online", which some browsers send to their maker's servers.
+
 The same, for scripts. Reading takes any signed-in user's token or session; the rest, an admin's:
 
 | | |
 | --- | --- |
-| `GET /api/findings` | on or off, how many are kept, the model's instructions |
-| `GET /api/findings/results` | `?q=&hits=1&before=&limit=`: findings, newest first, each with what was `sent`, whether it was `static`, the `usage` (tokens, time), and its corrections (`correctedBy`, `corrects`) |
+| `GET /api/findings` | on or off, how many are kept, when the last was made (`latestAt`), the model's instructions |
+| `GET /api/findings/results` | `?q=&hits=1&before=&since=&limit=`: findings, newest first; or `?after=` (ms): those made since then, in the order made (`madeAt`). Each with what was `sent`, whether it was `static`, the `usage` (tokens, time), and its corrections (`correctedBy`, `corrects`) |
 | `GET /api/findings/watches` | the watch list |
 | `GET /api/findings/map` | `?hours=&also=`: the roads mentioned, as GeoJSON with what was said about each |
 | `GET /api/admin/findings` | the settings (never the key), how many are kept, the biggest prompt of the last day, the last error |

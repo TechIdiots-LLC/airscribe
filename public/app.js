@@ -610,8 +610,8 @@ function queuePlay(id) {
 /** @returns {void} Play the next waiting transmission, if nothing else is playing. */
 function playNext() {
   if (playingId !== null || playWait) return;
-  // Someone is listening to a clip by hand, here or beside the Map: wait for them to finish
-  if ([...document.querySelectorAll('audio')].some((a) => !a.paused && !a.ended)) {
+  // Someone is listening to a clip by hand, here or beside the Map, or a finding is being spoken: wait for them to finish
+  if ([...document.querySelectorAll('audio')].some((a) => !a.paused && !a.ended) || window.speechSynthesis?.speaking) {
     playWait = setTimeout(() => { playWait = null; playNext(); }, 500);
     return;
   }
