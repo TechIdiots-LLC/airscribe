@@ -152,8 +152,9 @@ export function parseReply(content) {
   return JSON.parse(s.slice(a, b + 1));
 }
 
+/** Words said: runs of letters or digits, so "24-7-9-5" is four. */
+const count = (text) => (String(text ?? '').match(/[\p{L}\p{N}]+/gu) ?? []).length;
 /** A transcript with the model's annotations ("(static)", "[BLANK_AUDIO]") taken out. */
-const count = (text) => String(text ?? '').split(' ').filter(Boolean).length;
 const spoken = (text) => String(text ?? '').replace(/\([^)]*\)|\[[^\]]*\]|\*[^*]*\*/g, ' ').replace(/\s+/g, ' ').trim();
 
 export class Findings {
