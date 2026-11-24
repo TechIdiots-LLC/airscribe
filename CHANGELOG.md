@@ -7,6 +7,11 @@
 ### 🐞 Bug fixes
 - _...Add new stuff here..._
 
+## 0.4.0
+### ✨ Features and improvements
+
+### 🐞 Bug fixes
+
 ## 0.3.0
 ### ✨ Features and improvements
 - Map → Roads mentioned can show the last 15 or 30 minutes
