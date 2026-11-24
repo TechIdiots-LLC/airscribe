@@ -3,6 +3,7 @@
 ## master
 ### ✨ Features and improvements
 - _...Add new stuff here..._
+- Map → Roads mentioned can show the last 15 or 30 minutes
 
 ### 🐞 Bug fixes
 - _...Add new stuff here..._
