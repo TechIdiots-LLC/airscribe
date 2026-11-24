@@ -22,11 +22,14 @@ const KEYS = {
   apiKey: 'findings.apiKey', webhook: 'findings.webhook', keepDays: 'findings.keepDays',
 };
 const DEFAULTS = { api: 'ollama', model: 'qwen3:8b', keepDays: 30 };
-const CONTEXT_MS = 5 * 60 * 1000;    // the channel's earlier traffic given as context
-const CONTEXT_COUNT = 5;
-const OTHERS_COUNT = 5;              // and the other channels' in the same minutes
-const SAME_CALL_MS = 5000;           // another radio on the same frequency this close: the same transmission
-const LATE_MS = 3 * 60 * 1000;       // read with the default engine alone if the others haven't finished by then
+/** What the model is given with each transmission, set on the Admin page: whole numbers, capped so the prompt stays small. */
+export const CONTEXT = {
+  contextMinutes: { def: 5, min: 1, max: 30, what: 'look back 1 to 30 minutes' },
+  contextCount: { def: 5, min: 0, max: 20, what: 'give 0 to 20 of the channel’s earlier transmissions' },
+  othersCount: { def: 5, min: 0, max: 20, what: 'give 0 to 20 of the other channels’ transmissions' },
+  sameCallSeconds: { def: 5, min: 0, max: 30, what: 'count another radio as the same call within 0 to 30 seconds' },
+  waitMinutes: { def: 3, min: 0, max: 30, what: 'wait 0 to 30 minutes for the other speech engines' },
+};
 const TIMEOUT_MS = 120_000;          // a model loading onto the card for the first call takes a while
 const QUEUE_MAX = 5000;
 const SWEEP_MS = 60 * 60 * 1000;
@@ -204,6 +207,9 @@ export class Findings {
     this.onTranscribed = ({ id, engine }) => {
       if (!this.engines.length) return this.add(id);
       if (!this.engines.includes(engine)) return;
+      const wait = this.number('waitMinutes') * 60_000;
+      // Not waiting: the default engine's transcript alone
+      if (!wait) return engine === this.primary ? this.add(id) : undefined;
       const marks = this.engines.map(() => '?').join(',');
       const { n } = this.db.prepare(`SELECT count(DISTINCT engine) AS n FROM transcripts
                                        WHERE transmission_id = ? AND engine IN (${marks}) AND status IN ('done', 'error')`)
@@ -217,7 +223,7 @@ export class Findings {
         const t = setTimeout(() => {
           this.late.delete(id);
           if (!this.db.prepare('SELECT 1 FROM findings WHERE transmission_id = ?').get(id)) this.add(id);
-        }, LATE_MS);
+        }, wait);
         t.unref?.();
         this.late.set(id, t);
       }
@@ -246,6 +252,12 @@ export class Findings {
     return this.store.setting(KEYS[name]) ?? DEFAULTS[name] ?? '';
   }
 
+  /** One of CONTEXT's numbers, as saved or its default. */
+  number(name) {
+    const v = this.store.setting(`findings.${name}`);
+    return v == null || !Number.isFinite(Number(v)) ? CONTEXT[name].def : Number(v);
+  }
+
   /** @returns {boolean} Whether it's on and has somewhere to send. */
   enabled() {
     return this.get('enabled') === '1' && Boolean(this.get('url') && this.get('model'));
@@ -261,6 +273,7 @@ export class Findings {
       apiKey: Boolean(this.store.setting(KEYS.apiKey)),
       webhook: this.get('webhook'),
       keepDays: Number(this.get('keepDays')),
+      ...Object.fromEntries(Object.keys(CONTEXT).map((k) => [k, this.number(k)])),
       ready: this.enabled(),
       queued: this.queue.length,
       lastError: this.lastError,
@@ -293,10 +306,17 @@ export class Findings {
 
   /**
    * Save the Admin page's form. An API key left blank keeps the saved one.
-   * @param {object} body - enabled, api, url, model, apiKey, webhook, keepDays; or forgetKey.
+   * @param {object} body - enabled, api, url, model, apiKey, webhook, keepDays, CONTEXT's numbers; or forgetKey.
    * @returns {object} settings().
    */
-  save({ enabled, api, url, model, apiKey, webhook, keepDays, forgetKey } = {}) {
+  save({ enabled, api, url, model, apiKey, webhook, keepDays, forgetKey, ...rest } = {}) {
+    const numbers = {};
+    for (const [k, c] of Object.entries(CONTEXT)) {
+      if (rest[k] === undefined || rest[k] === '') continue;
+      const n = Number(rest[k]);
+      if (!Number.isInteger(n) || n < c.min || n > c.max) throw fail(c.what);
+      numbers[k] = n;
+    }
     const http = (v, what) => {
       const s = String(v ?? '').trim();
       if (s && !/^https?:\/\/[^\s]+$/i.test(s)) throw fail(`the ${what} is an http:// or https:// address`);
@@ -323,6 +343,7 @@ export class Findings {
     if (apiKey) this.store.setSetting(KEYS.apiKey, String(apiKey).slice(0, 500));
     if (forgetKey === true) this.store.setSetting(KEYS.apiKey, null);
     if (on !== undefined) this.store.setSetting(KEYS.enabled, on ? '1' : null);
+    for (const [k, n] of Object.entries(numbers)) this.store.setSetting(`findings.${k}`, n);
     if (!this.enabled()) this.queue = [];
     return this.settings();
   }
@@ -486,10 +507,11 @@ export class Findings {
     const text = heard[0].text;
     const same = (a, b) => words(a) === words(b);
     // The same transmission from another radio on the frequency: another reading, not other traffic
-    const copies = t.channel_hz ? this.db.prepare(`
+    const sameCall = this.number('sameCallSeconds') * 1000;
+    const copies = t.channel_hz && sameCall ? this.db.prepare(`
       SELECT id, channel_name FROM transmissions
        WHERE channel_hz = ? AND mac IS NOT ? AND id != ? AND abs(started_at - ?) <= ?`)
-      .all(t.channel_hz, t.mac, id, t.started_at, SAME_CALL_MS) : [];
+      .all(t.channel_hz, t.mac, id, t.started_at, sameCall) : [];
     const readings = [
       ...heard.slice(1).map((r) => ({ text: r.text })),
       ...copies.flatMap((c) => this.readings(c.id).slice(0, 1).map((r) => ({ channel: c.channel_name, text: r.text }))),
@@ -497,14 +519,15 @@ export class Findings {
     const before = (where, args, n) => this.db.prepare(`
       SELECT id, channel_name, started_at, snr_db FROM transmissions
        WHERE ${where} AND data = 0 AND started_at < ? AND started_at >= ? ORDER BY started_at DESC LIMIT ?`)
-      .all(...args, t.started_at, t.started_at - CONTEXT_MS, n)
+      .all(...args, t.started_at, t.started_at - this.number('contextMinutes') * 60_000, n)
       .map((r) => ({ ...r, text: this.readings(r.id)[0]?.text ?? '' })).filter((r) => r.text);
-    const context = before('channel_name IS ?', [t.channel_name], CONTEXT_COUNT)
+    const othersCount = this.number('othersCount');
+    const context = before('channel_name IS ?', [t.channel_name], this.number('contextCount'))
       .map((r) => ({ text: r.text, static: isStatic(r.snr_db) })).reverse();
     // Other channels in the same minutes, with something said, the copies of this one aside
     const skip = new Set(copies.map((c) => c.id));
-    const others = before('channel_name IS NOT ?', [t.channel_name], OTHERS_COUNT * 3)
-      .filter((r) => !skip.has(r.id)).slice(0, OTHERS_COUNT)
+    const others = before('channel_name IS NOT ?', [t.channel_name], othersCount * 3)
+      .filter((r) => !skip.has(r.id)).slice(0, othersCount)
       .map((r) => ({ channel: r.channel_name, ago: t.started_at - r.started_at, text: r.text, static: isStatic(r.snr_db) }))
       .reverse();
     let found = null;

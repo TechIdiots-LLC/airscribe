@@ -24,7 +24,7 @@ same GPU) is the obvious one; any Ollama, or any server with OpenAI's chat compl
 
 From then on, each transmission is read once every speech engine has finished it (`stt.engines`; the default first,
 the others queued behind it), one at a time, behind live transcription. Should the others still be at it three minutes
-after the default engine, it's read with what's there. **Read the last N hours** reads earlier ones that haven't been. A transmission where no engine heard two words
+(**Wait for other engines**) after the default engine, it's read with what's there. **Read the last N hours** reads earlier ones that haven't been. A transmission where no engine heard two words
 or more (a beep, `[BLANK_AUDIO]`) isn't sent. One that came through static (marked in the feed) is still sent, and
 the model is told so (below).
 
@@ -36,10 +36,15 @@ the model is told so (below).
 | API key | none | Sent as `Authorization: Bearer`. Kept on this server and never shown again. |
 | Webhook | none | Posted to for each watch match (below). |
 | Keep for | 30 days | Findings and matches older than this are deleted, hourly. So are those of a deleted transmission. |
+| Look back | 5 min | How far back the earlier transmissions given with each one go (1–30). |
+| This channel's last | 5 | How many of the same channel's (0–20; 0 gives none). |
+| Other channels' last | 5 | How many of the other channels' (0–20; 0 gives none). |
+| Same call within | 5 s | Another radio on the same frequency this close heard the same transmission (0–30; 0 never counts one). |
+| Wait for other engines | 3 min | How long to wait for the other speech engines before reading with the default one's alone (0–30; 0 reads the default engine's alone, as soon as it's done). |
 
 ## What the model is asked
 
-The new transmission's transcript, and as context up to five earlier ones on the same channel from the five minutes
+The new transmission's transcript, and as context (numbers as set above) up to five earlier ones on the same channel from the five minutes
 before it, so "the plate is…" after "Car 12, traffic stop on Route 9" reads as one call. Up to five from other channels in
 the same five minutes go with it too, each with its channel and how long before, so a unit dispatched on one channel
 and talking on another can be followed. It's told those are context only: what it reports is what the new one says.
@@ -118,7 +123,7 @@ The same, for scripts. Reading takes any signed-in user's token or session; the 
 | `GET /api/findings/watches` | the watch list |
 | `GET /api/findings/map` | `?hours=&also=`: the roads mentioned, as GeoJSON with what was said about each |
 | `GET /api/admin/findings` | the settings (never the key), how many are kept, the last error |
-| `PUT /api/admin/findings` | change them: `enabled`, `api`, `url`, `model`, `apiKey`, `webhook`, `keepDays`; `forgetKey` |
+| `PUT /api/admin/findings` | change them: `enabled`, `api`, `url`, `model`, `apiKey`, `webhook`, `keepDays`, `contextMinutes`, `contextCount`, `othersCount`, `sameCallSeconds`, `waitMinutes`; `forgetKey` |
 | `POST /api/admin/findings/test` | `{text?}`: one through the model |
 | `POST /api/admin/findings/backfill` | `{hours}`: read the transmissions of the last `hours` |
 | `GET /api/admin/findings/results` | `?q=&hits=1&before=&limit=`: findings, newest first |

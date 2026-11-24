@@ -59,6 +59,8 @@ function foundList(found, marked = new Set()) {
 
 // ---- Settings -------------------------------------------------------------------
 
+const CONTEXT = ['contextMinutes', 'contextCount', 'othersCount', 'sameCallSeconds', 'waitMinutes'];
+
 function render(s) {
   $('fd-enabled').checked = s.enabled;
   $('fd-api').value = s.api;
@@ -68,6 +70,7 @@ function render(s) {
   $('fd-key').placeholder = s.apiKey ? 'saved' : 'if the server wants one';
   $('fd-webhook').value = s.webhook ?? '';
   $('fd-keep').value = s.keepDays;
+  for (const k of CONTEXT) $(`fd-${k}`).value = s[k] ?? '';
   say(...stateOf(s));
   roadsReady = Boolean(s.roads?.ways);
   renderRoads(s.roads);
@@ -183,6 +186,7 @@ $('fd-save').onclick = async () => {
         enabled: $('fd-enabled').checked, api: $('fd-api').value, url: $('fd-url').value,
         model: $('fd-model').value, apiKey: $('fd-key').value, webhook: $('fd-webhook').value,
         keepDays: $('fd-keep').value,
+        ...Object.fromEntries(CONTEXT.map((k) => [k, $(`fd-${k}`).value])),
       },
     }));
   } catch (e) {

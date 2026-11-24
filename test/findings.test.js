@@ -166,6 +166,55 @@ test('read once every engine is done, with the other engines and radios as other
   }
 });
 
+test('what goes with each transmission is set on the Admin page', { skip: !sqlite }, async () => {
+  const { Store } = await import('../src/store.js');
+  const { Findings } = await import('../src/findings.js');
+  const store = new Store(':memory:', 'base');
+  const manager = new EventEmitter();
+  const calls = [];
+  const fetch = async (url, opts) => {
+    calls.push(JSON.parse(opts.body));
+    return Response.json({ message: { content: '{"summary":"x"}' } });
+  };
+  const findings = new Findings({ store, manager, primary: 'base', engines: ['ov'], fetch });
+  const s = findings.save({ enabled: true, url: 'http://llm.invalid:11434' });
+  assert.deepEqual([s.contextMinutes, s.contextCount, s.othersCount, s.sameCallSeconds, s.waitMinutes], [5, 5, 5, 5, 3]);
+  assert.throws(() => findings.save({ contextCount: 21 }), /0 to 20/);
+  assert.throws(() => findings.save({ contextMinutes: 0 }), /1 to 30 minutes/);
+  assert.throws(() => findings.save({ waitMinutes: 1.5 }), /0 to 30 minutes/);
+  findings.save({ contextMinutes: 2, contextCount: 1, othersCount: 0, sameCallSeconds: 0, waitMinutes: 0 });
+  findings.start();
+  try {
+    const at = Date.now();
+    const tx = (mac, channelName, text, offset) => {
+      const id = store.addTransmission({ mac, startedAt: at + offset, durationMs: 4000, audioFile: `${mac}${offset}.wav`,
+        channelName, channelHz: 453875000 });
+      store.saveTranscript(id, 'base', { status: 'done', text });
+      return id;
+    };
+    tx('AA', 'Fire', 'too long ago to give', -3 * 60_000);
+    tx('AA', 'Fire', 'engine two respond', -90_000);
+    tx('AA', 'Fire', 'engine two en route', -60_000);
+    tx('AA', 'Police', 'car twelve on scene', -30_000);
+    tx('BB', 'Other radio', 'engine two on scene now', 1000);
+    const id = tx('AA', 'Fire', 'engine two on scene', 0);
+    // Not waiting for the other engine
+    manager.emit('transcribed', { id, engine: 'base', status: 'done' });
+    await findings.drain();
+    assert.equal(calls.length, 1);
+    manager.emit('transcribed', { id, engine: 'ov', status: 'done' });
+    await findings.drain();
+    assert.equal(calls.length, 1, 'read once');
+    const user = calls[0].messages[1].content;
+    assert.match(user, /Earlier on this channel:\n- engine two en route\n\n/, 'the last one, in two minutes');
+    assert.doesNotMatch(user, /respond|too long ago/);
+    assert.doesNotMatch(user, /Meanwhile on other channels/);
+    assert.doesNotMatch(user, /another radio/);
+  } finally {
+    findings.stop();
+  }
+});
+
 test('a clip heard through static is still read, and the model is told so', { skip: !sqlite }, async () => {
   const { store, findings, calls, say, clock } = await setUp({ answer: { summary: 'Engine 2 to Main' } });
   findings.save({ enabled: true, url: 'http://llm.invalid:11434' });
