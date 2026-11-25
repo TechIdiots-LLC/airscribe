@@ -207,3 +207,8 @@ export function plausible(plate, cued) {
   if (!/^[A-Z0-9]{2,8}$/.test(plate) || CALLSIGN.test(plate.toLowerCase())) return false;
   return cued || (plate.length >= 5 && /\d/.test(plate) && /[A-Z]/.test(plate));
 }
+
+/** How many words of a phonetic alphabet some text says. */
+export function phonetic(text) {
+  return numerals(text).filter((w) => w in LETTERS).length;
+}

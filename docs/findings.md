@@ -173,18 +173,28 @@ Hearing the same clip with the same engine gives the same words, so a clip is he
 expect*: whisper-server takes a prompt, which it reads as what was said just before the clip and leans towards. It's
 sent when:
 
-- the model answers `again`: `plate` (one only partly heard), `number` (a house or unit number unclear) or `road` (a
-  road's or place's name that doesn't sound right);
-- "plate" or "reg" was said with no plate after it, or the readings spell different plates.
+- the model answers `again`, and the transmission has that kind of thing in it:
+  - `plate` (one only partly heard): "reg" or "plate" said, a plate read out, or two words of the phonetic alphabet;
+  - `number` (a house number unclear): digits with a road's kind a few words on ("42 Cutler Street");
+  - `road` (a name that doesn't sound right): a road's kind said ("Street", "Road");
+  - for both of those, roads near the channel to tell it.
+- "plate" or "reg" was said with no plate after it, or the readings give two versions of one plate equally often.
 
-What it's told depends on why, and is kept to plain radio talk ("Copy. En route. Received."), so it keeps to that
-style rather than writing fuller sentences than were said. For a plate it's given the phonetic alphabet and the
-digits; for a road or a number, the roads near the channel that sound like something said, and nothing at all when
-there are none, since it would only hear the same again. It's never told what the model thought was said.
+The check on the model's answer is there because of real traffic. Asked "is anything misheard?", qwen3:14b said "plate"
+for "Thank you" and "Raising funds". Of 650 transmissions read, 478 were heard again, and the replies seldom helped.
+
+What it's told depends on why, and is only the words that might be misheard. For a plate that's the phonetic
+alphabet; for a road or a number, the roads near the channel that sound like something said. Whisper reads a prompt
+as what was said just before, and writes its words into a mumble. A lead-in of "Copy. En route. Received." turned
+"Receive 11" into "Received", and a road list turned "stand by for the following" into "Boulevard, Whitaker". It's
+never told what the model thought was said.
 
 The new transcript is kept beside the first, as `<engine>+again1`, and the transmission is read again with it as
 another reading, which the model is told was heard with words to expect: a clip told "Beachwood Drive" may hear
-Beachwood Drive in noise, so it's weighed as a hint, not as proof. The finding shows **heard again: plate** (or
+Beachwood Drive in noise, so it's weighed as a hint, not as proof. What was found is still checked against the first
+hearings (see [What was said](#what-was-said)). The clip heard again can settle between them, but a road, name or
+number only it heard is left out. One exception: a plate it finishes ("plate Adam Boy Charlie one", then ABC123) is
+kept. The finding shows **heard again: plate** (or
 number, road).
 
 Set on Admin → Findings: **Hear again up to** 0 to 2 times (1 by default; 0 never), **with** an engine that takes a

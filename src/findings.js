@@ -16,8 +16,8 @@
 
 import { isStatic } from './quality.js';
 import { heardValue, onlyHeard, said as heardIn } from './heard.js';
-import { cuedIn, platesIn, plausible, readPlates, variant } from './plates.js';
-import { addressRoads, words } from './roads.js';
+import { cuedIn, numerals, phonetic, platesIn, plausible, readPlates, variant } from './plates.js';
+import { TYPES, addressRoads, words } from './roads.js';
 import { nameKey } from './uniden.js';
 
 const KEYS = {
@@ -249,17 +249,38 @@ const PHONETIC = 'Alpha Bravo Charlie Delta Echo Foxtrot Golf Hotel India Juliet
   'Quebec Romeo Sierra Tango Uniform Victor Whiskey X-ray Yankee Zulu';
 
 /**
- * What whisper is told before a clip it hears again. It takes a prompt as what was said just before, not as an
- * instruction: so plain radio talk, to keep it to that style, and only the words that might be misheard: the
- * alphabet for a plate, the roads near that sound like something said for a road or a number.
+ * What whisper is told before a clip it hears again. It takes a prompt as what was said just before, and writes
+ * those words into noise or a word it can't make out ("Receive 11" became "Received", a mumble "Boulevard,
+ * Whitaker"): so only the words that might be misheard, the alphabet for a plate, the roads near that sound like
+ * something said for a road or a number.
  * @param {string} why - 'plate', 'number' or 'road'.
  * @param {string[]} roads - Roads near the channel that sound like something said.
  * @returns {string} The prompt.
  */
 export function againPrompt(why, roads = []) {
-  const lead = 'Copy. En route. Received.';
-  if (why === 'plate') return `${lead} Plate ${PHONETIC}, 1 2 3 4 5 6 7 8 9 0.`;
-  return `${lead} ${roads.slice(0, 12).join(', ')}.`;
+  if (why === 'plate') return `${PHONETIC}.`;
+  return `${roads.slice(0, 12).join(', ')}.`;
+}
+
+/**
+ * Whether a transmission has what the model wants heard again: something read out like a plate, a number, a road.
+ * The model asked for a plate on "Thank you" three times in four; heard again, the clip came back with the words
+ * it was told.
+ * @param {string} why - 'plate', 'number' or 'road'.
+ * @param {string[]} texts - Its readings.
+ * @param {string[]} near - Roads near its channel that sound like something said.
+ * @returns {boolean}
+ */
+export function worthHearing(why, texts, near) {
+  if (why === 'plate') {
+    return texts.some((s) => cuedIn(s) || readPlates(s).plates.length || phonetic(s) >= 2);
+  }
+  // Heard again with the roads near: with none, it would hear the same
+  if (!near.length) return false;
+  const said = texts.map((s) => numerals(s));
+  // A house number: digits with a road's kind a few words on ("42 Cutler Street")
+  if (why === 'number') return said.some((t) => t.some((w, i) => /\d/.test(w) && t.slice(i + 1, i + 5).some((x) => TYPES.has(x))));
+  return why === 'road' && said.some((t) => t.some((w) => TYPES.has(w)));
 }
 
 /**
@@ -281,7 +302,9 @@ function withPlates(found, plates, { cued, amateur = false }) {
   return {
     ...found,
     plates: [...out, ...plates.filter((p) => !out.includes(p))].slice(0, 20),
-    unheard: [...(found.unheard ?? []), ...not.map((value) => ({ field: 'plates', value, why: 'plate' }))],
+    // A plate read out isn't "not said", though the first hearings, checked against, didn't finish it
+    unheard: [...(found.unheard ?? []).filter((u) => u.field !== 'plates' || !plates.includes(u.value)),
+      ...not.map((value) => ({ field: 'plates', value, why: 'plate' }))],
   };
 }
 
@@ -721,6 +744,9 @@ export class Findings {
       .map((r) => ({ channel: r.channel_name, ago: t.started_at - r.started_at, text: r.text, static: isStatic(r.snr_db) }))
       .reverse();
     const texts = [text, ...readings.map((r) => r.text)];
+    // What was found is checked against the first hearings: one told which words to expect can settle between
+    // them, but what only it heard ("Boulevard" in a mumble, a road it was told) was most often the prompt's words
+    const firsts = [text, ...readings.filter((r) => !r.again).map((r) => r.text)];
     const findings = this.earlier(t, skip, texts);
     let found = null;
     let error = null;
@@ -734,14 +760,18 @@ export class Findings {
       const ch = this.channelService(t.channel_name);
       // A ham spells a callsign the way dispatch spells a plate: there, only one after "reg" or "plate"
       const amateur = ch?.service === 'amateur';
-      const plates = platesIn(texts, { cuedOnly: amateur });
+      // A plate heard again counts when it finishes one begun ("plate Adam Boy Charlie one" then ABC123)
+      const begun = platesIn(firsts, { cuedOnly: amateur });
+      const open = firsts.some((s) => readPlates(s).unclear);
+      const plates = platesIn(texts, { cuedOnly: amateur })
+        .filter((p) => begun.includes(p) || open || begun.some((q) => variant(p, q)));
       sent = this.message(text, context, {
         channel: t.channel_name, service: ch?.service, roads, static: isStatic(t.snr_db), others, readings, findings, plates,
       });
       ({ found, usage } = await this.send(sent));
       // Only what this transmission said: a road the model put right counts if it's one near that sounds like it
-      near = this.roads?.hint(texts.join(' '), this.roads.where(t.channel_name)) ?? [];
-      found = withPlates(onlyHeard(found, heardIn(texts, near)), plates, { cued: texts.some(cuedIn), amateur });
+      near = this.roads?.hint(firsts.join(' '), this.roads.where(t.channel_name)) ?? [];
+      found = withPlates(onlyHeard(found, heardIn(firsts, near)), plates, { cued: firsts.some(cuedIn), amateur });
       // The channel's service over a guess: phonetic letters read as a ham, or "other" on a dispatch channel. A
       // service the model names on a channel of another (police on a fire channel) can be right, so it stays
       if (ch && (ch.service === 'amateur' || ['amateur', 'other'].includes(found.service))) found.service = ch.service;
@@ -765,7 +795,7 @@ export class Findings {
     // Watches see the transcript even when the model failed
     await this.watch(t, text, found);
     if (found?.corrections.length) await this.correct(id, found.corrections, new Set(findings.map((f) => f.id)));
-    if (found) this.hearAgain(id, found, texts, near);
+    if (found) this.hearAgain(id, found, firsts, near);
   }
 
   /**
@@ -828,11 +858,12 @@ export class Findings {
   hearAgain(id, found, texts, near) {
     const engine = this.againWith();
     if (!engine || !this.manager?.hearAgain) return null;
-    const read = texts.map(readPlates);
-    const spelt = new Set(read.flatMap((r) => r.plates.map((p) => p.plate)));
-    const why = found.again || (read.some((r) => r.unclear) || spelt.size > 1 ? 'plate' : '');
-    // A road or number is heard again with the roads near that sound like it: with none, it would hear the same
-    if (!why || (why !== 'plate' && !near.length)) return null;
+    // "Plate" said with none after it, or two readings of one plate as often as each other (ABC1, ABC123)
+    const plates = platesIn(texts);
+    const unsure = texts.some((s) => readPlates(s).unclear) || plates.some((p) => plates.some((q) => variant(p, q)));
+    const asked = found.again && worthHearing(found.again, texts, near) ? found.again : '';
+    const why = asked || (unsure ? 'plate' : '');
+    if (!why) return null;
     const done =this.db.prepare('SELECT engine FROM transcripts WHERE transmission_id = ?').all(id)
       .filter((r) => AGAIN.test(r.engine)).length;
     if (done >= this.number('againTimes')) return null;

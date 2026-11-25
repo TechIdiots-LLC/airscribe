@@ -471,7 +471,7 @@ test('a plate the model says is misheard is heard again, told the alphabet, and 
     await findings.read(id);
     assert.equal(asked.length, 1);
     assert.equal(asked[0].as, 'base+again1');
-    assert.match(asked[0].prompt, /^Copy\. En route\. Received\. Plate Alpha Bravo .* Zulu, 1 2 3/);
+    assert.match(asked[0].prompt, /^Alpha Bravo .* Zulu\.$/, 'the alphabet only: whisper writes a prompt’s words into a mumble');
     assert.equal(findings.results({})[0].heardAgain, 'plate');
 
     // Heard again: read again with it, and not sent a second time
@@ -484,12 +484,27 @@ test('a plate the model says is misheard is heard again, told the alphabet, and 
 
     // A road with no roads near to tell it: hearing it again would hear the same
     findings.save({ againTimes: 2 });
+    // Asked for where nothing like a plate was said: not heard again
+    await findings.read(say('thank you very much', clock()));
+    assert.equal(asked.length, 1, 'not for "thank you"');
     assert.equal(findings.hearAgain(id, { again: 'road' }, ['x'], []), null);
     findings.save({ againTimes: 0 });
     assert.equal(findings.hearAgain(id, { again: 'plate' }, ['x'], []), null);
   } finally {
     findings.stop();
   }
+});
+
+test('what only the clip heard again says isn’t kept: it was most often the words it was told', { skip: !sqlite }, async () => {
+  const { store, findings, say, clock } = await setUp({ answer: { summary: 'Stand by', roads: ['Boulevard'], units: ['Car 3'] } });
+  findings.save({ enabled: true, url: 'http://llm.invalid:11434' });
+  const id = say('all units stand by for the following, car 3', clock());
+  store.saveTranscript(id, 'base+again1', { status: 'done', text: 'all units stand by for the following. Boulevard, Whitaker. Car 3' });
+  await findings.read(id);
+  const [r] = findings.results({});
+  assert.deepEqual(r.found.roads, []);
+  assert.deepEqual(r.found.units, ['Car 3']);
+  assert.deepEqual(r.found.unheard.map((u) => u.value), ['Boulevard']);
 });
 
 test('the export holds what was sent, every engine’s transcript and what came of it, never where it was sent', { skip: !sqlite }, async () => {
