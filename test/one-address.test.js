@@ -8,10 +8,10 @@ const sqlite = await import('node:sqlite').then(() => true, () => false);
 
 /** What a visitor who isn't signed in may reach under /api (docs/publishing.md#one-address). */
 const SIGNED_OUT = [
-  /^\/(login|logout|session|register)$/,
+  /^\/(login|logout|session|register|about)$/,
   /^\/invite\//,
   /^\/auth\//,
-  /^\/login\/(two-step|passkey)/,
+  /^\/login\/two-step/,
   /^\/public\//,
 ];
 
@@ -60,7 +60,7 @@ test('signed out, every route but signing in and the public ones answers 401', {
     }
     // And the open ones are few, and named
     const open = all.filter((r) => SIGNED_OUT.some((re) => re.test(r.path))).map((r) => r.path);
-    assert.ok(open.every((p) => /^\/(login|logout|session|register|invite|auth|public)\b/.test(p)), open.join(' '));
+    assert.ok(open.every((p) => /^\/(login|logout|session|register|about|invite|auth|public)\b/.test(p)), open.join(' '));
   } finally { s.close(); }
 });
 
@@ -98,6 +98,18 @@ test('signed in, the same address is the console', { skip: !sqlite }, async () =
     assert.match(cookie, /HttpOnly/i);
     assert.match(cookie, /SameSite=Lax/i);
     assert.equal((await fetch(`${s.base}/api/radios`, { headers: { cookie: cookie.split(';')[0] } })).status, 200);
+
+    // Who runs it, for the footer and the policies: anyone reads it, the version only signed in
+    const out = await (await fetch(`${s.base}/api/about`)).json();
+    assert.deepEqual(out, { operator: '', contact: '' });
+    assert.match((await (await fetch(`${s.base}/api/about`, bearer)).json()).version, /^\d+\.\d+\.\d+/);
+    const put = (body) => fetch(`${s.base}/api/admin/about`, {
+      method: 'PUT', headers: { ...bearer.headers, 'content-type': 'application/json' }, body: JSON.stringify(body),
+    });
+    assert.equal((await put({ operator: 'TechIdiots LLC', contact: 'not an address' })).status, 400);
+    assert.equal((await put({ operator: 'TechIdiots LLC', contact: 'mailto:admin@example.net' })).status, 200);
+    assert.deepEqual(await (await fetch(`${s.base}/api/about`)).json(), { operator: 'TechIdiots LLC', contact: 'admin@example.net' });
+    assert.equal((await fetch(`${s.base}/api/admin/about`, { method: 'PUT' })).status, 401, 'only an admin sets it');
   } finally { s.close(); }
 });
 

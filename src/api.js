@@ -11,6 +11,7 @@ import { checkWrite, resolveWrite } from './channels.js';
 import { judge } from './quality.js';
 import { checkBeacon, checkProfile } from './beacon.js';
 import { creationOptions, requestOptions } from './webauthn.js';
+import { VERSION } from './updates.js';
 
 const PUBLIC = fileURLToPath(new URL('../public', import.meta.url));
 
@@ -167,6 +168,12 @@ export function createApp({ manager, store, sidecar, config, dataDir, updates, c
   api.post('/login', (req, res) => auth.login(req, res));
   api.post('/logout', (req, res) => auth.logout(req, res));
   api.get('/session', (req, res) => auth.session(req, res));
+  // Who runs this server, for the footer, the privacy policy and the terms; the version only for the signed-in
+  const about = (req) => ({
+    operator: store.setting?.('site.operator') || '', contact: store.setting?.('site.contact') || '',
+    ...(auth.who(req) ? { version: updates?.version ?? VERSION } : {}),
+  });
+  api.get('/about', (req, res) => res.json(about(req)));
 
   // Joining with an invite link: also before signing in, as it's how one
   // gets an account to sign in with. A bad invite counts as a wrong try.
@@ -690,6 +697,18 @@ export function createApp({ manager, store, sidecar, config, dataDir, updates, c
     if (!Number.isFinite(seconds) || seconds < 0 || seconds > 60) return res.status(400).json({ error: 'seconds is 0 to 60' });
     await manager.scannerWaterfall(mac, seconds);
     res.status(202).json({ ok: true });
+  }));
+
+  // Admin → This server: who runs it, and how to reach them
+  api.put('/admin/about', auth.requireRole('admin'), answer((req) => {
+    const text = (v, max) => String(v ?? '').trim().slice(0, max);
+    const contact = text(req.body?.contact, 200);
+    if (contact && !/^(mailto:)?[^\s@]+@[^\s@]+\.[^\s@]+$|^https?:\/\/\S+$/i.test(contact)) {
+      throw refuse('the contact is an e-mail address or a web address', 400);
+    }
+    store.setSetting('site.operator', text(req.body?.operator, 100) || null);
+    store.setSetting('site.contact', contact.replace(/^mailto:/i, '') || null);
+    return about(req);
   }));
 
   // ---- A radio's channels: read, written, backed up and put back ----------

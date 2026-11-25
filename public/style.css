@@ -433,7 +433,9 @@ dialog.twostep-dlg::backdrop { background: rgba(0, 0, 0, .5); }
 /* Privacy policy and terms (privacy.html, terms.html), and the links to them */
 main.page-text { display: block; max-width: 760px; padding: 24px 16px 48px; }
 main.page-text h2 { font-size: 17px; margin: 24px 0 6px; }
-main.page-text li { margin: 4px 0; }
+main.page-text a { color: var(--accent); }
+main.page-text ul { list-style: disc; padding-left: 22px; margin: 8px 0; }
+main.page-text li { background: none; border: 0; border-radius: 0; padding: 0; margin: 4px 0; }
 .legal { font-size: 12px; color: var(--muted); text-align: center; margin: 4px 0 0; }
 .legal a { color: var(--muted); }
 
@@ -442,3 +444,10 @@ main.page-text li { margin: 4px 0; }
 #gl-list summary { cursor: pointer; margin: 8px 0; }
 .gl-seen { margin: 4px 0 8px; padding-left: 18px; }
 #gl-text { width: 100%; max-width: 640px; font: 13px/1.4 ui-monospace, monospace; }
+
+/* The footer on every page (about.js) */
+.site-footer { display: flex; flex-wrap: wrap; justify-content: center; gap: 4px 8px; padding: 16px; margin-top: 24px;
+  border-top: 1px solid var(--line); color: var(--muted); font-size: 12px; }
+.site-footer > * + *::before { content: '·'; margin-right: 8px; color: var(--muted); }
+.site-footer a { color: var(--muted); }
+.site-footer a:hover { color: var(--fg); }

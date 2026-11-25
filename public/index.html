@@ -28,7 +28,7 @@
     <button type="submit">Sign in</button>
     <div id="login-providers" class="providers" hidden></div>
     <button type="button" class="link" id="login-back" hidden>Back to the public page</button>
-    <p class="legal"><a href="privacy.html">Privacy</a> · <a href="terms.html">Terms</a></p>
+    <p class="legal">© <span class="ft-year">2026</span> TechIdiots LLC · <a href="privacy.html">Privacy</a> · <a href="terms.html">Terms</a></p>
   </form>
 </div>
 <!-- Signed out: what this node publishes, and Sign in (publicview.js) -->
@@ -45,7 +45,7 @@
       <ul id="public-feed"></ul>
       <p id="public-empty" class="meta" hidden>Nothing published yet.</p>
     </section>
-    <p class="legal"><a href="privacy.html">Privacy</a> · <a href="terms.html">Terms</a></p>
+    <p class="legal">© <span class="ft-year">2026</span> TechIdiots LLC · <a href="privacy.html">Privacy</a> · <a href="terms.html">Terms</a></p>
   </main>
 </div>
 <!-- The second step of signing in, for an account with two-step verification (twostep.js) -->
@@ -355,6 +355,17 @@
     <p class="meta" id="users-status"></p>
   </div>
   <div class="panel">
+    <div class="row"><h3>This server</h3></div>
+    <p class="meta">Who runs it, named in the <a href="privacy.html">privacy policy</a> and <a href="terms.html">terms</a>,
+      and how people reach you about them. Anyone can read these pages, signed in or not.</p>
+    <div class="row wrap">
+      <label>Run by <input id="about-operator" size="24" placeholder="TechIdiots LLC"></label>
+      <label>Contact <input id="about-contact" size="28" spellcheck="false" placeholder="an e-mail or web address"></label>
+      <button id="about-save">Save</button>
+    </div>
+    <p class="meta" id="about-status"></p>
+  </div>
+  <div class="panel">
     <div class="row"><h3>Sign-in providers</h3></div>
     <p class="meta">People can sign in with Google, GitHub, Discord or Facebook once they’ve linked it under their
       account. For each provider: make an OAuth app in its console, give it the redirect URI shown here exactly, and
@@ -622,6 +633,14 @@
     so either can be undone. <strong>Put back</strong> writes every slot of the region as it was.</p>
   <ul id="ch-backups" class="backup-list"></ul>
 </dialog>
+<!-- On every page: the version (signed in), who made AirScribe, and the policies (about.js) -->
+<footer class="site-footer">
+  <span>AirScribe<span id="ft-version"></span></span>
+  <span>© <span class="ft-year">2026</span> TechIdiots LLC</span>
+  <a href="privacy.html">Privacy</a>
+  <a href="terms.html">Terms</a>
+</footer>
+<script src="about.js" type="module"></script>
 <script src="app.js" type="module"></script>
 <script src="insights.js" type="module"></script>
 <script src="map.js" type="module"></script>
