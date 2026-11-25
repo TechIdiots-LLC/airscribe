@@ -5,6 +5,7 @@
 - _...Add new stuff here..._
 
 ### 🐞 Bug fixes
+- Findings asks for a summary of what happened, not the words quoted back ("The speaker says 'Receive one.'"): an acknowledgment or a bare unit number is left empty
 - Findings doesn't give a ham channel the roads near it: a chat about equipment sounded like two dozen roads, and the model reported some
 - Findings hears a clip again far less often, and only with the words that might be misheard. The model's ask counts only when the transmission has that kind of thing: a plate read out, a house number, a road. It ran on 478 of 650 transmissions, mostly "plate" for "thank you"; replayed with the check, it would have run on 112. Whisper is told only the alphabet or the roads near, with no "Copy. En route. Received." first (which turned "Receive 11" into "Received"), and what only the second hearing heard isn't kept, except a plate it finishes
 - Findings reads plates more carefully. A plate said twice ends where its repeat begins (4FYV34, not 4FYV344). A tone ("PL 114.8"), a name spelled out, or a unit said twice isn't read as one, and of an engine's stray reading (H6PTP38 beside 6PTP38) the one more engines read is kept. On ham channels only a plate after "reg" or "plate" counts. A plate the model writes must look like one; units, apartments and callsigns it put in plates are shown as "Left out, not a plate"

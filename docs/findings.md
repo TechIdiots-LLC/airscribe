@@ -51,10 +51,11 @@ before it, so "the plate is…" after "Car 12, traffic stop on Route 9" reads as
 the same five minutes go with it too, each with its channel and how long before, so a unit dispatched on one channel
 and talking on another can be followed. It's told those are context only: what it reports is what the new one says.
 
-The instructions end with four short worked examples, because a small model follows an example more closely than a
+The instructions end with five short worked examples, because a small model follows an example more closely than a
 rule: a reply after a dispatch that keeps the earlier address out, a plate spelled out, a ham's conversation summed up
-with its equipment and band rather than as "a person discusses plans", and an acknowledgement that has nothing to
-report. Amateur summaries may run to two sentences, since there's no call to sum up. They're told radio talk is
+with its equipment and band rather than as "a person discusses plans", an acknowledgement that has nothing to
+report, and a short request summed up rather than quoted back. (qwen3:14b wrote "The speaker says '...'" for one
+summary in eight.) Amateur summaries may run to two sentences, since there's no call to sum up. They're told radio talk is
 short and plain, and not to fill in what a short transmission leaves out.
 
 The new one's transcript is the default engine's, or, when that heard nothing, the engine's that heard most; but only

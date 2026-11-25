@@ -83,7 +83,8 @@ said. Answer with JSON:
 - summary: one short sentence on what the new transmission says, or "" if it says nothing of substance. Be
   specific: say what was said, with its names and numbers (the unit, the place, the radio or antenna and its make
   and model, the band, the net), never only "a person discusses plans". Amateur traffic has no call to sum up:
-  say what they're talking about, in up to two sentences
+  say what they're talking about, in up to two sentences. Say what happened, don't quote the words back ("The
+  speaker says 'Receive one.'"): an acknowledgment, a greeting or a bare unit number is ""
 - incident: the kind of call in a few words ("motor vehicle crash", "structure fire"), or ""
 - service: who is talking: "police", "fire", "ems", "works" (public works, highway, utilities, transit), "amateur"
   (ham radio), or "other". When the channel's service is given with its name, that's who talks on it: answer it
@@ -127,7 +128,9 @@ Examples (fields not shown are [] or ""):
 3. New transmission: "This is N1VZ. I put up a new dipole for 40 meters and the IC-7300 is hearing Europe tonight."
    {"summary": "N1VZ put up a new 40-meter dipole and is hearing Europe on an Icom IC-7300.", "service": "amateur"}
 4. New transmission: "Received, thank you."
-   {"summary": ""}`;
+   {"summary": ""}
+5. New transmission: "No, you can put me in the area."
+   {"summary": "A unit asks to be put in the area."}`;
 
 // ---- Matching -------------------------------------------------------------
 
