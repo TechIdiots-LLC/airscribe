@@ -1,8 +1,8 @@
 # Two-step verification
 
 Tested through the API, and in Chromium with its virtual passkey authenticator
-(setting up a passkey and the authenticator app, signing in on a passkey alone and
-with the second step, Admin's check). Not yet with a real phone or security key.
+(setting up a passkey and the authenticator app, signing in with the second step,
+Admin's check). Not yet with a real phone or security key.
 
 A second step besides the password: a **passkey** (Face ID, Touch ID, Windows
 Hello, an Android phone, a security key) or a 6-digit code from an
@@ -14,7 +14,7 @@ lost. It follows MediaRiffle's and WifiDB's, so the three sign in the same way.
 | Who | Without two-step | With it |
 | --- | --- | --- |
 | Signed out | the public view ([publishing.md](publishing.md)) | — |
-| Viewer | everything, live, read-only | the same; sign-in asks for it once it's set up |
+| Viewer | everything, live, read-only | the same; asked for at sign-in only if they choose that |
 | Admin | everything, read-only, as a viewer | controlling the radios, and Admin |
 
 Two checks, for two kinds of power:
@@ -41,15 +41,19 @@ console shows them where to set it up, and so does Admin.
 
 ## Signing in
 
-1. Username and password, or Google, GitHub, Discord or Facebook
-   ([linked-logins.md](linked-logins.md)).
-2. Where the account has two-step and the browser isn't remembered: a passkey,
-   or an authenticator or recovery code. A half-finished sign-in waits 5
-   minutes.
+Signing in is always a username and password, or Google, GitHub, Discord or
+Facebook ([linked-logins.md](linked-logins.md)). A passkey or code is only ever
+a second step, never a way in on its own, as in tippr.
 
-**Sign in with a passkey** skips both steps at once: the passkey names the
-account, and the fingerprint, face or PIN that unlocks it is the second step.
-It's offered on the HTTPS address only.
+The second step is asked for when something needs it: the first time a session
+controls the radios, and when Admin's 12 hours are up. Reading and listening
+never ask. On a remembered browser the radios don't ask either.
+
+**Your account → Two-step verification → Ask when I sign in too** asks for it at
+sign-in as well, for those who want that: then a passkey, or an authenticator or
+recovery code, right after the password, unless the browser is remembered. A
+half-finished sign-in waits 5 minutes. That step counts for the radios, not for
+Admin. Turning it off needs a check in the last 10 minutes.
 
 The password lockout ([accounts.md](accounts.md#signing-in)) counts wrong
 codes too.

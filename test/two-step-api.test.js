@@ -80,16 +80,15 @@ test('two-step through the API: set up, sign in, Admin’s check apart', { skip:
     assert.equal((await old.call('POST', '/radios/02:00:00:00:00:01/connect')).status, 404);
     assert.equal((await old.call('GET', '/admin/users')).body.twoStep, 'verify', 'a step for the radios isn’t Admin’s check');
 
-    // Signing in again: the password, then a code, and this browser remembered
+    // Signing in again: the password alone; the second step is asked for when the radios need it
     const c = browser(base);
-    const first = await signIn(c);
-    assert.deepEqual([first.body.ok, first.body.twoStep, first.body.methods.authenticator], [false, 'signin', true]);
-    assert.equal((await c.call('GET', '/transmissions')).status, 401, 'not signed in until the second step');
-    assert.equal((await c.call('POST', '/login/two-step', { code: '000000' })).status, 403);
-    const second = await c.call('POST', '/login/two-step', { code: codeAt(secret, now + 1), remember: true });
-    assert.equal(second.body.ok, true);
+    assert.equal((await signIn(c)).body.ok, true, 'signed in on the password');
+    assert.equal((await c.call('GET', '/transmissions')).status, 200);
+    assert.equal((await c.call('POST', '/radios/02:00:00:00:00:01/connect')).body.twoStep, 'step');
+    assert.equal((await c.call('POST', '/two-step/check', { code: '000000' })).status, 403);
+    await c.call('POST', '/two-step/check', { code: codeAt(secret, now + 1), remember: true });
     assert.ok(c.jar.has('airscribe_browser'));
-    assert.equal((await c.call('POST', '/radios/02:00:00:00:00:01/connect')).status, 404, 'the radios, at once');
+    assert.equal((await c.call('POST', '/radios/02:00:00:00:00:01/connect')).status, 404, 'the radios, once asked');
     const admin = await c.call('GET', '/admin/users');
     assert.deepEqual([admin.status, admin.body.twoStep], [403, 'verify'], 'Admin wants a check of its own');
     const s = (await c.call('GET', '/session')).body;
@@ -105,6 +104,18 @@ test('two-step through the API: set up, sign in, Admin’s check apart', { skip:
     assert.equal((await c.call('POST', '/radios/02:00:00:00:00:01/connect')).status, 404);
     assert.equal((await c.call('GET', '/admin/users')).body.twoStep, 'verify');
 
+    // Asked at sign-in too, when the account chooses it; turning that off wants a recent step
+    assert.equal((await c.call('PUT', '/two-step/ask-at-signin', { on: true })).body.askAtSignIn, true);
+    const d = browser(base);
+    const first = await signIn(d);
+    assert.deepEqual([first.body.ok, first.body.twoStep, first.body.methods.authenticator], [false, 'signin', true]);
+    assert.equal((await d.call('GET', '/transmissions')).status, 401, 'not signed in until the second step');
+    assert.equal((await d.call('POST', '/login/two-step', { code: '000000' })).status, 403);
+    assert.equal((await d.call('POST', '/login/two-step', { code: codes[2] })).body.ok, true);
+    assert.equal((await d.call('POST', '/radios/02:00:00:00:00:01/connect')).status, 404, 'the sign-in step counts for the radios');
+    const off = await d.call('PUT', '/two-step/ask-at-signin', { on: false });
+    assert.equal(off.body.askAtSignIn, false, 'the sign-in step was recent');
+
     // A viewer still can't, whatever they set up
     const v = browser(base);
     await v.call('POST', '/login', { username: 'bob', password: 'battery staple' });
@@ -115,7 +126,7 @@ test('two-step through the API: set up, sign in, Admin’s check apart', { skip:
   }
 });
 
-test('passkeys through the API: added on the HTTPS name, then signing in on one alone', { skip: !sqlite }, async () => {
+test('passkeys through the API: added on the HTTPS name, a second step only', { skip: !sqlite }, async () => {
   const { server, base, accounts } = await node();
   try {
     const b = browser(base);
@@ -129,19 +140,17 @@ test('passkeys through the API: added on the HTTPS name, then signing in on one 
     assert.equal(added.body.passkey.name, 'Test key');
     assert.equal(added.body.recoveryCodes.length, 10);
 
-    // On its own: no username, no password
+    // Never on its own: there's no signing in on a passkey without a password or a linked account
     const p = browser(base);
-    const ask = (await p.call('POST', '/login/passkey/options', undefined, HTTPS)).body;
-    assert.equal(ask.userVerification, 'required');
-    const signedIn = await p.call('POST', '/login/passkey', { credential: key.get(ask) }, HTTPS);
-    assert.equal(signedIn.body.user.username, 'alice');
-    assert.equal((await p.call('POST', '/radios/02:00:00:00:00:01/connect')).status, 404, 'a passkey sign-in is stepped');
-    assert.equal((await p.call('GET', '/admin/users')).body.twoStep, 'verify');
+    await p.call('POST', '/login', { username: 'alice', password: 'correct horse' }, HTTPS);
+    assert.equal((await p.call('POST', '/login/passkey/options', undefined, HTTPS)).status, 404, 'no such route');
+    assert.equal((await p.call('GET', '/admin/users')).body.twoStep, 'step', 'not stepped: the radios’ step first');
     const check = (await p.call('POST', '/two-step/check/options', undefined, HTTPS)).body;
     assert.equal((await p.call('POST', '/two-step/check', { credential: key.get(check), admin: true }, HTTPS)).status, 200);
     assert.equal((await p.call('GET', '/admin/users')).status, 200);
 
-    // As a sign-in's second step, and not on another name
+    // As a sign-in's second step, for an account that asked for one, and not on another name
+    accounts.twoStep.setAskAtSignIn(1, true);
     const q = browser(base);
     const first = await q.call('POST', '/login', { username: 'alice', password: 'correct horse' }, HTTPS);
     assert.equal(first.body.methods.passkey, true);

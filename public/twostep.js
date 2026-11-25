@@ -1,5 +1,5 @@
 // Two-step verification in the browser (docs/two-step.md): the second step of
-// signing in, signing in on a passkey alone, the check that controlling radios
+// signing in (for accounts that ask for it there), the check that controlling radios
 // and Admin ask for, and Your account → Two-step verification. As MediaRiffle's.
 import { showView } from './views.js';
 
@@ -154,12 +154,6 @@ export async function showSecondStep(methods, onDone, onBack) {
       onDone();
     }, { remember: true, optionsPath: '/login/two-step/options' }),
     el('button', { type: 'button', className: 'link', onclick: () => { $('login-step').hidden = true; onBack(); } }, 'Back'));
-}
-
-/** Sign in on a passkey alone. @returns {Promise<void>} Once signed in; throws to say why not. */
-export async function passkeySignIn() {
-  const credential = await getPasskey('/login/passkey/options');
-  await api('/login/passkey', { body: { credential } });
 }
 
 // ---- The check that controlling radios and Admin ask for --------------------------
@@ -440,6 +434,17 @@ export async function twoStepPanel() {
           setupWizard(box, s, redraw, { authenticatorOnly: true });
         }),
       }, 'Set up')),
+
+    el('h4', {}, 'When it’s asked for'),
+    el('p', { className: 'meta' }, 'Before controlling the radios (once a sign-in, or once a month on a browser you ' +
+      'tell it to remember) and before opening Admin (every 12 hours).'),
+    el('label', { className: 'row' }, el('input', {
+      type: 'checkbox', checked: s.askAtSignIn,
+      // Turning it off wants a recent step: asked for, then tried again; redrawn either way, so the box tells the truth
+      onchange: withCheck(async () => {
+        try { await api('/two-step/ask-at-signin', { method: 'PUT', body: { on: !s.askAtSignIn } }); } finally { redraw(); }
+      }),
+    }), 'Ask when I sign in too'),
 
     el('h4', {}, 'Recovery codes'),
     el('div', { className: 'row' },

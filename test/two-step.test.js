@@ -46,7 +46,8 @@ test('a passkey answers only the question it was asked, for its own account', { 
   const answer = ask('check', alice.id);
   t.usePasskey(answer, { purpose: 'check', owner: alice.id, userId: alice.id, ...page });
   assert.throws(() => t.usePasskey(answer, { purpose: 'check', owner: alice.id, userId: alice.id, ...page }), /old question/, 'used once');
-  assert.equal(t.usePasskey(ask('signin', null), { purpose: 'signin', ...page }), alice.id, 'on its own, it says whose it is');
+  assert.throws(() => t.usePasskey(ask('signin', null), { purpose: 'signin', ...page }), /second step/,
+    'never on its own: it doesn’t sign in to the account it names');
   assert.throws(() => t.usePasskey(ask('check', alice.id), { purpose: 'check', owner: alice.id, userId: alice.id, ...page, rpId: 'other.example' }),
     /made on air\.example\.net/);
 });

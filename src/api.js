@@ -310,25 +310,6 @@ export function createApp({ manager, store, sidecar, config, dataDir, updates, c
       const user = auth.secondStepDone(req, res, w, { remember: Boolean(req.body?.remember) });
       return { ok: true, role: user.role, user: { id: user.id, username: user.username, role: user.role }, recoveryCodesLeft: left };
     }));
-    // A passkey alone: it names the account, and its fingerprint, face or PIN is the second step
-    api.post('/login/passkey/options', answer((req) => {
-      const { rpId } = auth.pageOf(req);
-      return requestOptions({ rpId, challenge: t.challenge('signin'), userVerification: 'required' });
-    }));
-    api.post('/login/passkey', answer((req, res) => {
-      if (auth.tooMany(req)) throw refuse('too many tries from here: wait a few minutes', 429);
-      let userId;
-      try {
-        userId = t.usePasskey(req.body?.credential, { purpose: 'signin', ...auth.pageOf(req) });
-      } catch (e) {
-        if (e.status === 403) auth.missed(req);
-        throw e;
-      }
-      const user = accounts.user(userId);
-      if (!user || user.disabled) throw refuse('this account is turned off; an admin can turn it back on', 403);
-      auth.startSession(req, res, { userId: user.id, role: user.role, stepped: true });
-      return { ok: true, role: user.role, user: { id: user.id, username: user.username, role: user.role } };
-    }));
   }
 
   // ---- the public surface -------------------------------------------
@@ -450,6 +431,14 @@ export function createApp({ manager, store, sidecar, config, dataDir, updates, c
       if (codes) accounts.markSession(auth.sessionId(req), { step: true, admin: true });
     };
     api.get('/two-step', answer((req) => twoStepView(req)));
+    // Asked at sign-in too, or only before the radios and Admin: turning it off wants a recent step
+    api.put('/two-step/ask-at-signin', withTwoStep((req) => {
+      const on = Boolean(req.body?.on);
+      if (!t.isSetUp(mine(req))) throw refuse('set up two-step verification first', 409);
+      if (!on) mayChange(req);
+      t.setAskAtSignIn(mine(req), on);
+      return twoStepView(req);
+    }));
     api.post('/two-step/password', answer((req) => {
       checkPassword(req, mine(req));
       accounts.markSession(auth.sessionId(req), { password: true });

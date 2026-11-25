@@ -65,7 +65,21 @@ export class TwoStep {
         user_id INTEGER NOT NULL,
         created_at INTEGER NOT NULL,
         expires_at INTEGER NOT NULL);
+      -- Accounts that asked to be asked at sign-in too, not only before the radios and Admin
+      CREATE TABLE IF NOT EXISTS two_step_signin (
+        user_id INTEGER PRIMARY KEY);
     `);
+  }
+
+  /** @returns {boolean} Whether an account asked for its second step at sign-in too. */
+  askAtSignIn(userId) {
+    return Boolean(this.db.prepare('SELECT 1 FROM two_step_signin WHERE user_id = ?').get(userId));
+  }
+
+  /** Ask at sign-in, or don't. */
+  setAskAtSignIn(userId, on) {
+    if (on) this.db.prepare('INSERT OR IGNORE INTO two_step_signin (user_id) VALUES (?)').run(userId);
+    else this.db.prepare('DELETE FROM two_step_signin WHERE user_id = ?').run(userId);
   }
 
   // ---- What's set up ------------------------------------------------------
@@ -99,6 +113,7 @@ export class TwoStep {
       })),
       authenticator: this.hasAuthenticator(userId),
       recoveryCodesLeft: this.codesLeft(userId),
+      askAtSignIn: this.askAtSignIn(userId),
     };
   }
 
@@ -165,18 +180,18 @@ export class TwoStep {
   }
 
   /**
-   * A passkey used, checked. With a userId, it must be that account's; without
-   * one (signing in on a passkey alone), the passkey says whose it is, and it
-   * must have checked a fingerprint, face or PIN.
+   * A passkey used, checked: one of this account's. Only ever a second step,
+   * after a password or a linked sign-in, never a way in on its own.
    * @returns {number} The account it's for.
    */
-  usePasskey(credential, { purpose, owner = null, userId = null, origins, rpId }) {
+  usePasskey(credential, { purpose, owner = null, userId, origins, rpId }) {
+    if (userId === undefined || userId === null) throw fail('a passkey is a second step: sign in first', 400);
     const challenge = this.takeChallenge(credential, purpose, owner);
     const row = this.db.prepare('SELECT * FROM passkeys WHERE id = ?').get(String(credential?.id ?? ''));
-    if (!row || (userId !== null && row.user_id !== userId)) throw fail('that passkey isn’t one of this account’s', 403);
+    if (!row || row.user_id !== userId) throw fail('that passkey isn’t one of this account’s', 403);
     if (row.rp_id !== rpId) throw fail(`that passkey was made on ${row.rp_id}; use it there, or use a code`, 403);
     const used = verifyAssertion(credential, {
-      challenge, origins, rpId, publicKey: row.public_key, alg: row.alg, signCount: row.sign_count, requireUv: userId === null,
+      challenge, origins, rpId, publicKey: row.public_key, alg: row.alg, signCount: row.sign_count, requireUv: false,
     });
     this.db.prepare('UPDATE passkeys SET sign_count = ?, synced = ?, used_at = ? WHERE id = ?')
       .run(used.signCount, used.backedUp ? 1 : 0, this.now(), row.id);
@@ -314,7 +329,7 @@ export class TwoStep {
 
   /** Everything, for Admin → Users → Reset two-step, and a deleted account. */
   reset(userId) {
-    for (const t of ['passkeys', 'authenticators', 'recovery_codes', 'remembered_browsers']) {
+    for (const t of ['passkeys', 'authenticators', 'recovery_codes', 'remembered_browsers', 'two_step_signin']) {
       this.db.prepare(`DELETE FROM ${t} WHERE user_id = ?`).run(userId);
     }
     this.failures.delete(userId);

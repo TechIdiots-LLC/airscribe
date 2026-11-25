@@ -6,6 +6,7 @@
 - _...Add new stuff here..._
 
 ### 🐞 Bug fixes
+- Two-step verification is a second step only: a passkey no longer signs anyone in on its own (Sign in with a passkey is gone), and signing in is a password or a linked account. The passkey or code is asked for when the radios or Admin need it, and at sign-in too only for accounts that tick Your account → Two-step verification → Ask when I sign in too
 - Findings asks for a summary of what happened, not the words quoted back ("The speaker says 'Receive one.'"): an acknowledgment or a bare unit number is left empty
 - Findings doesn't give a ham channel the roads near it: a chat about equipment sounded like two dozen roads, and the model reported some
 - Findings hears a clip again far less often, and only with the words that might be misheard. The model's ask counts only when the transmission has that kind of thing: a plate read out, a house number, a road. It ran on 478 of 650 transmissions, mostly "plate" for "thank you"; replayed with the check, it would have run on 112. Whisper is told only the alphabet or the roads near, with no "Copy. En route. Received." first (which turned "Receive 11" into "Received"), and what only the second hearing heard isn't kept, except a plate it finishes

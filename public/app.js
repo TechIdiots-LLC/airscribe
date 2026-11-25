@@ -1,5 +1,5 @@
 import { offered, showView, viewFromHash } from './views.js';
-import { showSecondStep, passkeySignIn, passkeysSupported } from './twostep.js';
+import { showSecondStep } from './twostep.js';
 import { showPublic, hidePublic, publicShowing } from './publicview.js';
 
 // The token rides on the query string rather than a header, because the event
@@ -762,14 +762,12 @@ function showLogin(session = {}, message = '') {
     el('span', { className: 'meta' }, 'Or sign in with'),
     ...providers.map((p) => el('button', { type: 'button', onclick: () => { location.href = `/api/auth/${p.id}/start`; } }, p.name)),
   ] : []));
-  // A passkey names its account, so it needs no username; only on the HTTPS address
-  $('login-passkey').hidden = !(session.accounts && passkeysSupported());
   $('login-back').hidden = !publicShowing();
   $('login').hidden = false;
   (session.username && !$('login-user').value ? $('login-user') : $('login-pass')).focus();
 }
 
-/** The password was right; the account has two-step, so its second step now. */
+/** The password was right; the account asked for its second step at sign-in, so that now. */
 function secondStep(methods) {
   $('login-pass').value = '';
   $('login').hidden = true;
@@ -779,17 +777,6 @@ function secondStep(methods) {
 $('login-back').onclick = () => {
   $('login-error').textContent = '';
   $('login').hidden = true;
-};
-
-$('login-passkey').onclick = async () => {
-  $('login-error').textContent = '';
-  try {
-    await passkeySignIn();
-    $('login').hidden = true;
-    boot();
-  } catch (e) {
-    $('login-error').textContent = e.name === 'NotAllowedError' || e.name === 'AbortError' ? 'The passkey was cancelled.' : e.message;
-  }
 };
 
 $('login-form').onsubmit = async (event) => {

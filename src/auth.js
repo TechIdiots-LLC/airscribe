@@ -423,9 +423,10 @@ export function createAuth(config, { accounts = null, providers = () => [], publ
   }
 
   /**
-   * An account's first step done (a password, or a linked sign-in): signed in,
-   * or, where it has two-step and this browser isn't remembered, waiting for
-   * the second.
+   * An account's first step done (a password, or a linked sign-in): signed in.
+   * The second step is asked for when something needs it (the radios, Admin),
+   * or here, where the account asked for that and this browser isn't
+   * remembered. A remembered browser starts stepped.
    * @param {import('express').Request} req - The request.
    * @param {import('express').Response} res - The response.
    * @param {{id: number, role: string}} user - The account.
@@ -439,6 +440,10 @@ export function createAuth(config, { accounts = null, providers = () => [], publ
     }
     if (t.remembered(user.id, readCookie(req, BROWSER_COOKIE))) {
       startSession(req, res, { userId: user.id, role: user.role, stepped: true });
+      return { signedIn: true };
+    }
+    if (!t.askAtSignIn(user.id)) {
+      startSession(req, res, { userId: user.id, role: user.role });
       return { signedIn: true };
     }
     const now = Date.now();
