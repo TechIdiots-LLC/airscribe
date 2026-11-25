@@ -5,6 +5,7 @@
 - _...Add new stuff here..._
 
 ### 🐞 Bug fixes
+- Speak new findings no longer says a call twice: a summary much like one said in the last three minutes is skipped (a dispatcher's repeat, or the same call on two channels), and only one AirScribe tab in a browser speaks
 - _...Add new stuff here..._
 
 ## 0.5.0

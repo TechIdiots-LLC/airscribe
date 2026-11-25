@@ -703,17 +703,59 @@ function sayNext() {
   speakState();
 }
 
+// The summaries said in the last few minutes: a dispatcher says a call twice, as two transmissions, and a call
+// sent out on two channels at once is two findings. Both read the same, so the second isn't said.
+const REPEAT_MS = 3 * 60_000;
+const lately = [];   // {words: Set, at}
+const wordsOf = (s) => new Set(String(s ?? '').toLowerCase().match(/[a-z0-9]+/g) ?? []);
+
+/** Whether a summary is much the same as one said in the last few minutes; noted, if not. */
+function repeated(summary) {
+  const now = Date.now();
+  while (lately.length && now - lately[0].at > REPEAT_MS) lately.shift();
+  const w = wordsOf(summary);
+  if (!w.size) return false;
+  const like = (o) => [...w].filter((x) => o.has(x)).length / new Set([...w, ...o]).size >= 0.7;
+  if (lately.some((l) => like(l.words))) return true;
+  lately.push({ words: w, at: now });
+  return false;
+}
+
+// Every AirScribe tab in this browser has the setting, and each would say every finding: the one that holds this
+// (renewed each poll, let go when the tab closes) is the one that speaks
+const SPEAKER_KEY = 'airscribe.findings.speaker';
+const tabId = Math.random().toString(36).slice(2);
+
+/** Whether this tab is the one that speaks, taking the part when no other tab has it. */
+function speaker() {
+  try {
+    const held = JSON.parse(localStorage.getItem(SPEAKER_KEY) ?? 'null');
+    if (held && held.tab !== tabId && Date.now() - held.at < 3 * SPEAK_MS) return false;
+    localStorage.setItem(SPEAKER_KEY, JSON.stringify({ tab: tabId, at: Date.now() }));
+  } catch {
+    // Storage blocked: every tab speaks, as before
+  }
+  return true;
+}
+window.addEventListener('pagehide', () => {
+  try {
+    if (JSON.parse(localStorage.getItem(SPEAKER_KEY) ?? 'null')?.tab === tabId) localStorage.removeItem(SPEAKER_KEY);
+  } catch { /* storage blocked */ }
+});
+
 async function pollSpoken() {
   if (!speaking()) return;
   try {
     if (speakFrom === null) speakFrom = (await api('/findings')).latestAt + 1;
     const rows = await api(`/findings/results?${new URLSearchParams({ after: String(speakFrom), limit: '50' })}`);
+    // Another tab speaking: this one keeps up, so it can take over without a backlog, but says nothing
+    const mine = speaker();
     for (const r of rows) {
       speakFrom = Math.max(speakFrom, r.madeAt);
       if (spoken.has(r.id)) continue;
       spoken.add(r.id);
       const text = utterance(r);
-      if (text) speakQueue.push(text);
+      if (text && !repeated(r.found?.summary) && mine) speakQueue.push(text);
     }
     // Away a while: the latest few, not a backlog
     speakQueue.splice(0, Math.max(0, speakQueue.length - 5));

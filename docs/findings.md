@@ -238,7 +238,10 @@ addresses included, so share it as carefully as the clips.
 
 **Speak new findings** (beside **Refresh**, and **Speak new** on the Map's Findings tab) has this browser read out
 each finding made from then on: its channel and summary, a plate letter by letter, "through static" when it was.
-They're said one after another, after any clip that's playing, and the feed's **Play new** waits while one is said.
+They're said one after another, after any clip that's playing, and the feed's **Play new** waits while one is said. A
+summary much like one said in the last three minutes isn't said again: a dispatcher repeats a call as a second
+transmission, and a call sent out on two channels at once is two findings. With AirScribe open in several tabs, only
+one speaks; another browser is separate, and speaks too if it's ticked there.
 Findings aren't on the event stream, so the page asks for new ones every five seconds; after a while away, only the
 latest five are said. The voice is the browser's (the list beside it has the others it offers), and a browser may
 want a click on the page first: ticking the box is one; after a reload it may say "blocked by the browser: tick it
