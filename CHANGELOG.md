@@ -2,6 +2,13 @@
 
 ## master
 ### ✨ Features and improvements
+- _...Add new stuff here..._
+
+### 🐞 Bug fixes
+- _...Add new stuff here..._
+
+## 0.5.0
+### ✨ Features and improvements
 - Each page has its own address (`#/map`, `#/admin`, ...): a reload stays on the page, and Back and Forward move between pages
 - Findings reads plates spelled out on the radio itself ("Mass Reg 4, Sierra, Sierra, Romeo 33" is 4SSR33), tells the model, and keeps them when the model leaves them out
 - Findings only keeps what the transmission said: an address, name, vehicle or unit the model copied from the transmissions before it is taken out, and shown as "Left out, not said in it"
@@ -12,12 +19,10 @@
 - Admins can export the last hours of findings as JSON, with every engine's transcript, the prompt sent, the answer and what was left out, to share when looking into what the model gets wrong
 - The Findings tab and the Map's Findings tab can show one radio's or one channel's findings; the roads on the map follow the Map's choice
 - Findings gives the model earlier findings only from the same channel, or from another that names a unit, road, address or plate the transmission says, not every channel's
-- _...Add new stuff here..._
 
 ### 🐞 Bug fixes
 - Findings: new findings show at the top of the open Findings tab within a few seconds, not after leaving and coming back
 - NVIDIA's Parakeet TDT runs through sherpa-onnx: set `"family": "nemo-transducer"` (the `parakeet-tdt` model id does it). As `transducer` every clip failed with "'vocab_size' does not exist in the metadata"
-- _...Add new stuff here..._
 
 ## 0.4.0
 ### ✨ Features and improvements
