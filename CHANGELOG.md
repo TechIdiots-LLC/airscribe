@@ -2,6 +2,13 @@
 
 ## master
 ### ✨ Features and improvements
+- _...Add new stuff here..._
+
+### 🐞 Bug fixes
+- _...Add new stuff here..._
+
+## 0.7.0
+### ✨ Features and improvements
 - Findings knows local terms: Admin → Findings → Local terms says what a code or word means here ("Code 4", "Q5", "Section 12"), and a transmission that says one is read with it. Codes said on the air ("Code 5", "Signal 23", "Unit 26", "10-4") and words the model didn't know are collected, and once one has been said a few times the model works out what it likely means from those transmissions. That's a guess, given to the model marked as unconfirmed, until an admin accepts or rejects it. Entries can be kept to some channels, and imported or exported a line each
 - Findings → The day so far: each hour, once it's over and read, the model sums up what happened in it (an item per call or conversation, each opening the findings it came from), and writes the day's overview again, for every radio and for each. Pick a day, a radio or a channel. On by default with Findings; Admin → Findings → Sum up each hour turns it off
 - Findings can have a note: an admin writes what the model got wrong ("the car is grey, not great") under a finding, everyone sees it, and the model is given it with the finding whenever it's listed with a later transmission, and when the transmission is read again
@@ -9,12 +16,10 @@
 - What you choose on the pages (the Map's base map, layers, tab and hours, Roads on the map, Hide silent…) is kept with your account, so it follows you to another browser or to the server's other address (docs/accounts.md#choices-on-the-pages)
 - The Map's Roads on the map (Findings tab) is on by default
 - A privacy policy and terms of use, at /privacy.html and /terms.html, readable signed out and linked from the sign-in page and the public view: what an account, a linked Google (or GitHub, Discord, Facebook) sign-in and cookies keep, for a sign-in provider's consent screen
-- _...Add new stuff here..._
 
 ### 🐞 Bug fixes
 - Findings reads a time dispatch logs ("in route 1447" at 2:47 PM) as a time: the model is told it, and an address or road that's only a time ("Route 1447") is left out, shown as "Left out, a time"
 - Two-step verification is a second step only: a passkey no longer signs anyone in on its own (Sign in with a passkey is gone), and signing in is a password or a linked account. The passkey or code is asked for when the radios or Admin need it, and at sign-in too only for accounts that tick Your account → Two-step verification → Ask when I sign in too
-- _...Add new stuff here..._
 
 ## 0.6.0
 ### ✨ Features and improvements
