@@ -231,6 +231,14 @@ test('a call heard by two radios is read once, the other attached', { skip: !sql
   const e = tx('BB', 'Rutld Reg2', 'engine four clear', 62_000, 460000000);
   await findings.read(e);
   assert.equal(calls.length, 4);
+
+  // Within the seconds set, but after this one ended: the next call on the frequency, not a copy
+  findings.save({ sameCallSeconds: 30 });
+  const f = tx('AA', 'Regional Police Operations', 'thanks a lot', 120_000);
+  tx('BB', 'Rutld Reg2', 'contact kimberly about the dog', 129_000);
+  await findings.read(f);
+  assert.equal(calls.length, 5);
+  assert.doesNotMatch(calls[4].messages[1].content, /kimberly/);
 });
 
 test('what goes with each transmission is set on the Admin page', { skip: !sqlite }, async () => {

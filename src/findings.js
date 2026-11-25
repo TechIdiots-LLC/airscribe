@@ -40,7 +40,8 @@ export const CONTEXT = {
   findingsCount: { def: 5, min: 0, max: 20, what: 'give 0 to 20 earlier findings' },
   againTimes: { def: 1, min: 0, max: 2, what: 'hear a clip again 0 to 2 times' },
 };
-const TIMEOUT_MS = 120_000;          // a model loading onto the card for the first call takes a while
+const OVERLAP_MS = 1000;             // two radios' clips of one call: one can start or end a second off
+const TIMEOUT_MS = 120_000;         // a model loading onto the card for the first call takes a while
 const QUEUE_MAX = 5000;
 const SWEEP_MS = 60 * 60 * 1000;
 const LISTS = ['addresses', 'roads', 'plates', 'vehicles', 'people', 'units'];
@@ -660,7 +661,7 @@ export class Findings {
   }
 
   async read(id) {
-    const t = this.db.prepare('SELECT id, mac, started_at, channel_name, channel_hz, snr_db FROM transmissions WHERE id = ?').get(id);
+    const t = this.db.prepare('SELECT id, mac, started_at, duration_ms, channel_name, channel_hz, snr_db FROM transmissions WHERE id = ?').get(id);
     const heard = t ? this.readings(id) : [];
     // Nothing said by any engine (a beep, static): nothing to read
     if (!heard.length) return;
@@ -670,12 +671,15 @@ export class Findings {
     const unsaid = own && !count(spoken(own.text));
     const text = heard[0].text;
     const same = (a, b) => words(a) === words(b);
-    // The same transmission from another radio on the frequency: another reading, not other traffic
+    // The same transmission from another radio on the frequency: another reading, not other traffic. On the air at
+    // the same time too: on a busy frequency the next call starts within seconds of this one
     const sameCall = this.number('sameCallSeconds') * 1000;
     const copies = t.channel_hz && sameCall ? this.db.prepare(`
       SELECT id, channel_name FROM transmissions
-       WHERE channel_hz = ? AND mac IS NOT ? AND id != ? AND abs(started_at - ?) <= ?`)
-      .all(t.channel_hz, t.mac, id, t.started_at, sameCall) : [];
+       WHERE channel_hz = ? AND mac IS NOT ? AND id != ? AND abs(started_at - ?) <= ?
+         AND started_at < ? AND started_at + duration_ms > ?`)
+      .all(t.channel_hz, t.mac, id, t.started_at, sameCall,
+        t.started_at + (t.duration_ms ?? 0) + OVERLAP_MS, t.started_at - OVERLAP_MS) : [];
     // A copy already read is the finding for both: this one is attached to it
     const first = copies.map((c) => this.db.prepare(`SELECT transmission_id AS id, status, sent FROM findings
                                                       WHERE transmission_id = ? AND status IN ('done', 'error')`).get(c.id))

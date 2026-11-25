@@ -5,6 +5,7 @@
 - _...Add new stuff here..._
 
 ### 🐞 Bug fixes
+- Findings: another radio's transmission counts as the same call only when the two were on the air together. With Same call within set wide, the next call on the frequency became an "other reading", and its names were reported for a "thank you"
 - Speak new findings no longer says a call twice: a summary much like one said in the last three minutes is skipped (a dispatcher's repeat, or the same call on two channels), and only one AirScribe tab in a browser speaks
 - _...Add new stuff here..._
 
