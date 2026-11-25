@@ -9,6 +9,7 @@
 - Findings works out each channel's service (from Uniden's database, its name, or what its findings mostly said), tells the model, and uses it over an answer of amateur or other: a dispatcher reading "Sierra Alpha" is no longer a ham
 - Findings' instructions end with worked examples, and ask for specific summaries: a ham conversation is summed up with the equipment, band or net it's about, in up to two sentences
 - Findings doesn't read a transmission the default engine heard no words in, unless another radio or two other engines did: one engine's words over static were mostly noise, and came back with roads
+- Admins can export the last hours of findings as JSON, with every engine's transcript, the prompt sent, the answer and what was left out, to share when looking into what the model gets wrong
 - The Findings tab and the Map's Findings tab can show one radio's or one channel's findings; the roads on the map follow the Map's choice
 - Findings gives the model earlier findings only from the same channel, or from another that names a unit, road, address or plate the transmission says, not every channel's
 - _...Add new stuff here..._

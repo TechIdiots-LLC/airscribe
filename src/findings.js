@@ -1090,6 +1090,43 @@ export class Findings {
     return out;
   }
 
+  /**
+   * What was sent to the model and what came of it, to share when looking into what it gets wrong: the
+   * instructions, the settings that shape the prompt (not the server's address, its key or the webhook), and each
+   * transmission read, with every engine's transcript, the prompt, the answer as kept and as first found, what was
+   * left out, and its corrections. It holds what was heard on the radio: an admin's, like the settings.
+   * @param {{hours?: number, channel?: string, radio?: string}} o - How far back, and one channel's or radio's.
+   * @returns {object} The export.
+   */
+  exported({ hours = 24, channel, radio } = {}) {
+    const h = Number(hours);
+    if (!Number.isFinite(h) || h <= 0 || h > 24 * 31) throw fail('export the last 1 to 744 hours');
+    const rows = this.db.prepare(`
+      SELECT t.id, t.started_at, t.channel_name, t.mac, t.snr_db, f.status, f.model, f.result, f.original, f.sent, f.usage,
+             f.again, f.error, f.copy_of
+        FROM findings f JOIN transmissions t ON t.id = f.transmission_id
+       WHERE t.started_at >= ? AND (? IS NULL OR t.channel_name = ?) AND (? IS NULL OR t.mac = ?)
+       ORDER BY t.started_at LIMIT 5000`)
+      .all(this.now() - h * 3600_000, channel || null, channel || null, radio || null, radio || null);
+    const scripts = this.db.prepare('SELECT engine, status, text, error FROM transcripts WHERE transmission_id = ? ORDER BY engine');
+    const fixes = this.db.prepare('SELECT by_id AS byId, field, was, now FROM finding_corrections WHERE transmission_id = ? ORDER BY id');
+    const json = (s) => (s ? JSON.parse(s) : null);
+    return {
+      exportedAt: new Date(this.now()).toISOString(), hours: h, channel: channel || null, radio: radio || null,
+      settings: {
+        api: this.get('api'), model: this.get('model'), defaultEngine: this.primary, engines: this.engines,
+        againEngine: this.againWith(), ...Object.fromEntries(Object.keys(CONTEXT).map((k) => [k, this.number(k)])),
+      },
+      instructions: SYSTEM,
+      findings: rows.map((r) => ({
+        id: r.id, startedAt: new Date(r.started_at).toISOString(), channel: r.channel_name, radio: r.mac,
+        static: isStatic(r.snr_db), status: r.status, copyOf: r.copy_of, model: r.model, heardAgain: r.again,
+        transcripts: scripts.all(r.id), sent: r.sent, found: json(r.result), firstFound: json(r.original),
+        usage: json(r.usage), error: r.error, correctedBy: fixes.all(r.id),
+      })),
+    };
+  }
+
   /** Delete every finding and match (the watch list stays). */
   forget() {
     this.queue = [];

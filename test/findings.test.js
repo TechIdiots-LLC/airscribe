@@ -484,6 +484,26 @@ test('a plate the model says is misheard is heard again, told the alphabet, and 
   }
 });
 
+test('the export holds what was sent, every engine’s transcript and what came of it, never where it was sent', { skip: !sqlite }, async () => {
+  const { store, findings, say, clock } = await setUp({ answer: { summary: 'Engine 2 en route', units: ['Engine 2'], addresses: ['20 Elm Street'] } });
+  findings.save({ enabled: true, url: 'http://llm.invalid:11434', apiKey: 'secret', webhook: 'https://hook.invalid/x' });
+  const id = say('Engine 2 en route', clock());
+  store.saveTranscript(id, 'tiny', { status: 'done', text: 'engine to en route' });
+  await findings.read(id);
+  findings.read(say('other channel traffic here', clock(), 'Paxton FD'));
+  await findings.drain();
+  const out = findings.exported({ hours: 1, channel: 'Holden PD' });
+  assert.equal(out.findings.length, 1);
+  const [f] = out.findings;
+  assert.deepEqual(f.transcripts.map((t) => t.engine), ['base', 'tiny']);
+  assert.match(f.sent, /New transmission:\nEngine 2 en route/);
+  assert.deepEqual(f.found.units, ['Engine 2']);
+  assert.deepEqual(f.found.unheard, [{ field: 'addresses', value: '20 Elm Street' }]);
+  assert.equal(out.instructions.length > 100, true);
+  assert.doesNotMatch(JSON.stringify(out), /llm\.invalid|secret|hook\.invalid/);
+  assert.throws(() => findings.exported({ hours: 0 }), /1 to 744 hours/);
+});
+
 test('with the model down, the error is kept and watches still see the transcript', { skip: !sqlite }, async () => {
   const { findings, say, clock, tick } = await setUp({ fail: true });
   findings.save({ enabled: true, url: 'http://llm.invalid:11434', keepDays: 2 });
@@ -565,6 +585,7 @@ test('signed-in users read Findings, only an admin changes it, the public neithe
     assert.equal((await bob('GET', '/admin/findings')).status, 403, 'not its settings');
     assert.equal((await bob('POST', '/admin/findings/watches', { term: 'x' })).status, 403, 'nor the watch list');
     assert.equal((await bob('DELETE', '/admin/findings/roads')).status, 403);
+    assert.equal((await bob('GET', '/admin/findings/export')).status, 403, 'nor the export, which holds what was sent');
     const alice = await as('alice', 'correct horse');
     const s = await alice('PUT', '/admin/findings', { url: 'http://llm.invalid:11434', model: 'qwen3:8b', apiKey: 'secret' });
     assert.equal(s.status, 200);
@@ -576,6 +597,11 @@ test('signed-in users read Findings, only an admin changes it, the public neithe
     assert.equal((await alice('DELETE', `/admin/findings/watches/${w.body.id}`)).status, 200);
     assert.equal((await alice('DELETE', `/admin/findings/watches/${w.body.id}`)).status, 404);
     assert.equal((await alice('POST', '/admin/findings/backfill', { hours: 1 })).status, 400, 'not while it’s off');
+    const ex = await alice('GET', '/admin/findings/export?hours=2');
+    assert.equal(ex.status, 200);
+    assert.match(ex.body.instructions, /radio traffic/);
+    assert.equal(ex.body.settings.apiKey, undefined, 'never the key');
+    assert.equal((await alice('GET', '/admin/findings/export?hours=9999')).status, 400);
 
     // Roads: a file as the body, read as it arrives
     const cookie = (await fetch(`${base}/login`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ username: 'alice', password: 'correct horse' }) })).headers.get('set-cookie').split(';')[0];

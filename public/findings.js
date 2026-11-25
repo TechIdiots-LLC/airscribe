@@ -344,12 +344,20 @@ function picked(params, radio, channel) {
   return params;
 }
 
+/** The export link: the hours given, and the radio and channel chosen. */
+function exportLink() {
+  const p = picked(new URLSearchParams({ hours: $('fd-export-hours').value || '24' }), 'fd-f-radio', 'fd-f-channel');
+  $('fd-export').href = withToken(`/api/admin/findings/export?${p}`);
+}
+$('fd-export-hours').oninput = exportLink;
+
 /** The list's search and "watch matches only", as query parameters. */
 function filters() {
   const params = new URLSearchParams({ limit: '50' });
   if ($('fd-q').value.trim()) params.set('q', $('fd-q').value.trim());
   if ($('fd-hits').checked) params.set('hits', '1');
   picked(params, 'fd-f-radio', 'fd-f-channel');
+  exportLink();
   return params;
 }
 
@@ -404,6 +412,7 @@ document.addEventListener('airscribe:signed-in', (e) => {
   isAdmin = e.detail?.role === 'admin';
   $('findings-toggle').hidden = !e.detail?.role;
   $('fd-watch-form').hidden = !isAdmin;
+  $('fd-export-row').hidden = !isAdmin;
 });
 
 // ---- Roads mentioned, on the Map --------------------------------------------------

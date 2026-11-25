@@ -226,6 +226,16 @@ and its clip; a search finds it by those words too. While the tab is open, a new
 seconds, even after **More**. The whole list is reloaded every 30 seconds, so corrections to older rows show, except after
 **More** or while one of its clips is playing.
 
+### Sharing what it did
+
+To look into what the model gets wrong, an admin can download what it was given and what came of it: **Export the
+last N hours … with what was sent to the model**, under the search on the Findings tab, for the radio and channel
+chosen there. It's one JSON file: the instructions; the settings that shape the prompt (the model, the engines, the
+numbers above, but never the server's address, the API key or the webhook); and each transmission read, oldest first,
+with every engine's transcript (and any heard again), the prompt sent, the answer as kept and as first found, what
+was left out as not said, the tokens and time, and its corrections. It holds what was heard on the radio, names and
+addresses included, so share it as carefully as the clips.
+
 **Speak new findings** (beside **Refresh**, and **Speak new** on the Map's Findings tab) has this browser read out
 each finding made from then on: its channel and summary, a plate letter by letter, "through static" when it was.
 They're said one after another, after any clip that's playing, and the feed's **Play new** waits while one is said.
@@ -246,6 +256,7 @@ The same, for scripts. Reading takes any signed-in user's token or session; the 
 | `GET /api/admin/findings` | the settings (never the key), how many are kept, the biggest prompt of the last day, the last error |
 | `PUT /api/admin/findings` | change them: `enabled`, `api`, `url`, `model`, `apiKey`, `webhook`, `keepDays`, `contextMinutes`, `contextCount`, `othersCount`, `sameCallSeconds`, `waitMinutes`, `findingsCount`, `findingsMinutes`; `forgetKey` |
 | `POST /api/admin/findings/test` | `{text?}`: one through the model |
+| `GET /api/admin/findings/export` | `?hours=&channel=&radio=` (1 to 744 hours, 24 by default): the file above, as an attachment |
 | `POST /api/admin/findings/backfill` | `{hours}`: read the transmissions of the last `hours` |
 | `GET /api/admin/findings/results` | `?q=&hits=1&before=&limit=`: findings, newest first |
 | `GET`, `POST /api/admin/findings/watches`; `DELETE …/watches/:id` | the watch list |

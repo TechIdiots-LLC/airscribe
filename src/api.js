@@ -904,6 +904,16 @@ export function createApp({ manager, store, sidecar, config, dataDir, updates, c
     api.post('/admin/findings/test', admin, answer((req) => findings.test(req.body?.text)));
     api.post('/admin/findings/backfill', admin, answer((req) => findings.backfill(req.body?.hours)));
     api.post('/admin/findings/forget', admin, answer(() => findings.forget()));
+    // What was sent and found, as a file to share (docs/findings.md#sharing-what-it-did)
+    api.get('/admin/findings/export', admin, (req, res) => {
+      try {
+        const out = findings.exported({ hours: req.query.hours ?? 24, channel: req.query.channel, radio: req.query.radio });
+        const stamp = out.exportedAt.slice(0, 16).replace(/[-:T]/g, '');
+        res.type('application/json').attachment(`airscribe-findings-${stamp}.json`).send(`${JSON.stringify(out, null, 1)}\n`);
+      } catch (e) {
+        res.status(e.status ?? 500).json({ error: e.message });
+      }
+    });
     api.get('/admin/findings/results', admin, answer((req) => findings.results({
       q: req.query.q, hits: req.query.hits === '1', before: req.query.before, limit: req.query.limit,
       channel: req.query.channel, radio: req.query.radio,

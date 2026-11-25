@@ -518,6 +518,10 @@
       <select id="fd-f-radio" title="Whose transmissions"><option value="">All radios</option></select>
       <select id="fd-f-channel" title="Which channel"><option value="">All channels</option></select>
     </div>
+    <div class="row wrap" id="fd-export-row" hidden>
+      <label>Export the last <input id="fd-export-hours" type="number" min="1" max="744" step="1" value="24" size="4"> hours</label>
+      <a id="fd-export" class="export" download title="Every transmission read, of the radio and channel chosen: every engine’s transcript, what was sent to the model, its answer, what was left out, and the instructions, as JSON. It holds what was heard: share it with care">with what was sent to the model</a>
+    </div>
     <ul id="fd-results" class="user-list"></ul>
     <div class="row"><button id="fd-more" hidden>More</button></div>
   </div>
