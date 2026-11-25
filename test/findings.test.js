@@ -362,6 +362,20 @@ test('a clip heard through static is still read, and the model is told so', { sk
   assert.equal(findings.results({})[0].static, true);
 });
 
+test('a plate spelled out is given to the model, and kept when it leaves it out', { skip: !sqlite }, async () => {
+  // What qwen3:8b made of it: the letters as a road, the plate dropped
+  const { findings, calls, say, clock } = await setUp({ answer: { summary: 'An Audi A3', vehicles: ['Audi A3'], roads: ['Sierra Street'] } });
+  findings.save({ enabled: true, url: 'http://llm.invalid:11434' });
+  findings.addWatch({ term: '4SSR33' });
+  const id = say("It's going to be an Audi A3, Mass Reg 4, Sierra, Sierra, Romeo 33.", clock());
+  await findings.read(id);
+  assert.match(calls[0].body.messages[1].content, /Plates spelled out in it: 4SSR33$/);
+  assert.match(calls[0].body.messages[0].content, /are letters, not roads or people/);
+  const [r] = findings.results({});
+  assert.deepEqual(r.found.plates, ['4SSR33']);
+  assert.equal(r.hits[0]?.field, 'plates', 'a watch for it matches');
+});
+
 test('with the model down, the error is kept and watches still see the transcript', { skip: !sqlite }, async () => {
   const { findings, say, clock, tick } = await setUp({ fail: true });
   findings.save({ enabled: true, url: 'http://llm.invalid:11434', keepDays: 2 });

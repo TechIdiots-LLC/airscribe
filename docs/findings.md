@@ -94,6 +94,18 @@ the new one says, to leave out what isn't said rather than guess, and to answer 
 
 Whatever comes back is held to that shape: lists of short strings, plates as 2 to 10 letters and digits.
 
+### Plates read out
+
+A small model reads a phonetic alphabet as names: "Mass Reg 4, Sierra, Sierra, Romeo 33" came back as "Sierra
+Street", and the plate was dropped. So AirScribe reads plates out of the transcript itself (`src/plates.js`), in each
+engine's reading, gives them to the model after the transmission ("Plates spelled out in it: 4SSR33"), and adds any
+the model leaves out, so a watch for one always matches.
+
+It reads the ICAO alphabet (Alpha, Bravo…), the older APCO one (Adam, Boy…), letters said as letters, and numbers said
+as words. After "reg", "registration", "plate" or "tag" ("Mass range" too, as it's often misheard) it takes 2 to 8
+letters and digits. With nothing before it, it takes 5 to 8 with at least two spelled letters and a digit
+("Papa Juliet 415"), but not a ham callsign ("November 1 Victor Zulu" is N1VZ), a phone number, or a unit like "5 A1".
+
 ### Corrections
 
 "Correction, one-twelve Main" after a finding of "12 Main St": the model is asked to say when the new transmission

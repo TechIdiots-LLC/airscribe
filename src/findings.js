@@ -15,6 +15,7 @@
  */
 
 import { isStatic } from './quality.js';
+import { readPlates } from './plates.js';
 import { addressRoads, words } from './roads.js';
 
 const KEYS = {
@@ -79,7 +80,8 @@ said. Answer with JSON:
   "Main St and Route 9", "Walmart on Route 20")
 - roads: the names of the roads those mention, each once ("Elm Street", "Route 9")
 - plates: vehicle registration plates, letters and digits only; a spelled-out phonetic alphabet becomes letters
-  ("Adam Boy Charlie 1 2 3" is "ABC123")
+  ("Adam Boy Charlie 1 2 3" is "ABC123"). When plates spelled out in the transmission are listed after it, report
+  them as listed; the words they were spelled with ("Sierra", "Lima") are letters, not roads or people
 - vehicles: vehicles described ("red Honda Civic")
 - people: people named or described; not unit or badge numbers
 - units: unit, car or apparatus names ("Engine 2", "Medic 4", "Car 12")
@@ -179,6 +181,14 @@ export function parseReply(content) {
   if (a < 0 || b < a) throw new Error('the model didn’t answer with JSON');
   return JSON.parse(s.slice(a, b + 1));
 }
+
+/** The plates spelled out in a transmission, in any of its readings. */
+const platesIn = (texts) => [...new Set(texts.flatMap((s) => readPlates(s).plates.map((p) => p.plate)))];
+
+/** An answer with the plates spelled out in the transmission, whether or not the model wrote them. */
+const withPlates = (found, plates) => ({
+  ...found, plates: [...found.plates, ...plates.filter((p) => !found.plates.includes(p))].slice(0, 20),
+});
 
 /** Words said: runs of letters or digits, so "24-7-9-5" is four. */
 const count = (text) => (String(text ?? '').match(/[\p{L}\p{N}]+/gu) ?? []).length;
@@ -415,7 +425,7 @@ export class Findings {
    *   engine's ({text}) or another radio's ({channel, text}).
    * @returns {string} The user message.
    */
-  message(text, context = [], { channel = null, roads = [], static: noisy = false, others = [], readings = [], findings = [] } = {}) {
+  message(text, context = [], { channel = null, roads = [], static: noisy = false, others = [], readings = [], findings = [], plates = [] } = {}) {
     const said = (c) => (typeof c === 'string' ? c : `${c.static ? '(heard through static) ' : ''}${c.text}`);
     const where = (c) => `[${c.channel ?? 'channel unknown'}, ${c.ago < 60_000 ? 'under a minute' : `${Math.round(c.ago / 60_000)} min`} before] `;
     const found = (f) => [f.found.summary, ...LISTS.filter((k) => f.found[k]?.length).map((k) => `${k}: ${f.found[k].join(', ')}`)]
@@ -429,6 +439,7 @@ export class Findings {
       `New transmission${noisy ? ', heard through static (weak signal: the transcript may be wrong)' : ''}:\n${text}`,
       readings.length ? `\nOther readings of the new transmission:\n${readings.map((r) => `- ${r.channel
         ? `another radio on the same frequency (${r.channel})` : 'another speech engine'}: ${r.text}`).join('\n')}` : '',
+      plates.length ? `\nPlates spelled out in it: ${plates.join(', ')}` : '',
     ].filter(Boolean).join('\n');
   }
 
@@ -482,8 +493,11 @@ export class Findings {
     const sample = String(text ?? '').trim().slice(0, 2000) ||
       'Car 12 respond to 412 Elm Street for a two car MVA, plate on the Honda is Adam Boy Charlie 1 2 3.';
     const t0 = this.now();
-    const sent = this.message(sample);
-    const { found, usage } = await this.send(sent);
+    const plates = platesIn([sample]);
+    const sent = this.message(sample, [], { plates });
+    const reply = await this.send(sent);
+    const { usage } = reply;
+    const found = withPlates(reply.found, plates);
     return { model: this.get('model'), ms: this.now() - t0, text: sample, sent, found, usage };
   }
 
@@ -595,9 +609,11 @@ export class Findings {
     try {
       const said = [...context.map((c) => c.text), text].join(' ');
       const roads = this.roads?.hint(said, this.roads.where(t.channel_name)) ?? [];
+      const plates = platesIn([text, ...readings.map((r) => r.text)]);
       // Static is said, not skipped: the model is told to trust it less
-      sent = this.message(text, context, { channel: t.channel_name, roads, static: isStatic(t.snr_db), others, readings, findings });
+      sent = this.message(text, context, { channel: t.channel_name, roads, static: isStatic(t.snr_db), others, readings, findings, plates });
       ({ found, usage } = await this.send(sent));
+      found = withPlates(found, plates);
       this.lastError = null;
     } catch (e) {
       error = e.message;
