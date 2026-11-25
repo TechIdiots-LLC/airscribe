@@ -429,3 +429,10 @@ dialog.twostep-dlg::backdrop { background: rgba(0, 0, 0, .5); }
 .fd-swatch i { width: 14px; height: 4px; border-radius: 2px; display: inline-block; }
 #map-fd-list .pill { white-space: nowrap; }
 #map-fd-list .radio-head { flex-wrap: wrap; row-gap: 4px; }
+
+/* Privacy policy and terms (privacy.html, terms.html), and the links to them */
+main.page-text { display: block; max-width: 760px; padding: 24px 16px 48px; }
+main.page-text h2 { font-size: 17px; margin: 24px 0 6px; }
+main.page-text li { margin: 4px 0; }
+.legal { font-size: 12px; color: var(--muted); text-align: center; margin: 4px 0 0; }
+.legal a { color: var(--muted); }

@@ -48,6 +48,12 @@ blank, it's the address the admin page was opened at, which is right when that's
 the address everyone uses. A provider only sends people back to an address
 registered with it, so a wrong one fails at the provider, with its own error.
 
+**A privacy policy and terms.** Every AirScribe serves both, readable signed
+out, at `https://<this server's address>/privacy.html` and `/terms.html`, linked
+from the sign-in page. Give them to a provider that asks, as Google's
+Branding page does before an app leaves Testing. They're the same on every
+server, and send people to whoever runs it for anything about their data.
+
 Turning a provider off stops sign-ins with it at once; the links stay, and work
 again when it's turned back on. The secrets are kept in AirScribe's database
 with its other settings, and never shown on the page again.

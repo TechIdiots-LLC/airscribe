@@ -2,6 +2,7 @@
 
 ## master
 ### ✨ Features and improvements
+- A privacy policy and terms of use, at /privacy.html and /terms.html, readable signed out and linked from the sign-in page and the public view: what an account, a linked Google (or GitHub, Discord, Facebook) sign-in and cookies keep, for a sign-in provider's consent screen
 - _...Add new stuff here..._
 
 ### 🐞 Bug fixes

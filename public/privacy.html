@@ -1,0 +1,62 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Privacy · AirScribe</title>
+<link rel="stylesheet" href="style.css">
+</head>
+<body>
+<main class="page-text">
+<h1>AirScribe privacy policy</h1>
+<p class="meta">This page is the same on every AirScribe server.</p>
+
+<p>AirScribe records radio traffic picked up by the radios of whoever runs this server, writes it out as text,
+and shows it to the people they give accounts to. It runs on their own computer. It has no advertising, no
+analytics and no tracking, and nothing is sold.</p>
+
+<h2>Your account</h2>
+<ul>
+<li>Your username, your role (viewer or admin), when the account was made and when it last signed in.</li>
+<li>Your password, kept only as a one-way hash (scrypt). Nobody can read it back, the server's owner included.</li>
+<li>If you set up two-step verification: your passkeys' public keys, your authenticator app's secret, your
+  recovery codes as hashes, and browsers you asked to be remembered (for 30 days).</li>
+<li>If you fill in <strong>Amateur radio</strong>: your callsign and beacon text.</li>
+</ul>
+
+<h2>Signing in with Google, GitHub, Discord or Facebook</h2>
+<p>If you link one of these accounts, AirScribe asks it only who you are. From Google that's the basic sign-in
+scopes, <code>openid email profile</code>. It keeps the account's ID, name and e-mail address. These are used for
+one thing: recognising you when you sign in with that account. AirScribe never matches people by e-mail address,
+never sends you e-mail, and never shares any of this. Unlinking the account, or deleting yours, deletes what was
+kept. AirScribe doesn't ask for, and can't reach, your mail, contacts, files or anything else in that account.</p>
+
+<h2>Cookies and addresses</h2>
+<ul>
+<li>Cookies only to keep you signed in (12 hours after you last use it), finish a two-step sign-in, and remember
+  a browser you chose to. No other cookies, and none from anyone else.</li>
+<li>The address you connect from is held in memory for 15 minutes to limit wrong passwords, then forgotten.</li>
+</ul>
+
+<h2>The radio traffic</h2>
+<p>Recordings, transcripts and what's worked out from them (addresses, plates, units mentioned) come from what was
+said over the air, not from you. They're kept on this server for the time its owner sets, then deleted. The
+transcription and the language model run on servers its owner chooses. Some of it can be published to visitors who
+aren't signed in, after a delay, if the owner turns that on.</p>
+
+<h2>Who else sees anything</h2>
+<p>Nothing about you leaves this server, except:</p>
+<ul>
+<li>the sign-in provider, while you sign in with it;</li>
+<li>the map server this AirScribe uses, which sees the map tiles your browser asks for.</li>
+</ul>
+
+<h2>Your data</h2>
+<p>To see, change or delete what's kept about you, ask whoever runs this server (the person who gave you your
+account). An admin can delete an account, and that deletes its sign-ins, linked accounts, two-step and profile.
+You can change your password, unlink accounts and sign out everywhere yourself, under your name in the header.</p>
+
+<p><a href="./">Back to AirScribe</a> · <a href="terms.html">Terms of use</a></p>
+</main>
+</body>
+</html>

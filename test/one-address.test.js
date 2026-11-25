@@ -71,6 +71,13 @@ test('one address: the page, the health check and the public routes, signed out'
     const page = await (await fetch(`${s.base}/`)).text();
     assert.match(page, /id="public-view"/, 'the page carries the public view');
     assert.equal((await fetch(`${s.base}/live.html`)).status, 404, 'the old separate page is gone');
+    // A sign-in provider's consent screen links to these: they're read signed out
+    for (const p of ['privacy.html', 'terms.html']) {
+      const r = await fetch(`${s.base}/${p}`);
+      assert.equal(r.status, 200, p);
+      assert.match(await r.text(), /AirScribe/);
+      assert.match(page, new RegExp(`href="${p}"`), `the page links ${p}`);
+    }
     const session = await (await fetch(`${s.base}/api/session`)).json();
     assert.deepEqual([session.guarded, session.authenticated], [true, false]);
     assert.equal((await (await fetch(`${s.base}/api/public/filters`)).json()).enabled, false, 'nothing published by default');
