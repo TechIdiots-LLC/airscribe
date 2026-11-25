@@ -873,7 +873,7 @@ export class Findings {
    *   search, only matches, paging, how far back; or those made at or after `after` (ms), oldest made first.
    * @returns {object[]} Rows.
    */
-  results({ q, hits, before, since, after, limit } = {}) {
+  results({ q, hits, before, since, after, limit, channel, radio } = {}) {
     const n = Math.min(Math.max(Number(limit) || 50, 1), 200);
     const where = ['f.status = \'done\''];
     const args = [];
@@ -882,6 +882,9 @@ export class Findings {
     if (before) (where.push('t.started_at < ?'), args.push(Number(before)));
     if (since) (where.push('t.started_at >= ?'), args.push(Number(since)));
     if (hits) where.push('EXISTS (SELECT 1 FROM finding_hits h WHERE h.transmission_id = t.id)');
+    // One channel, or one radio's: the Findings tab's and the Map's own choices
+    if (channel) (where.push('t.channel_name = ?'), args.push(String(channel)));
+    if (radio) (where.push('t.mac = ?'), args.push(String(radio)));
     const search = String(q ?? '').trim();
     if (search) {
       // In what was found or in the transcript, or another radio's copy of it; a plate however it was spaced
@@ -923,15 +926,16 @@ export class Findings {
    * @param {{hours?: number, also?: number}} o - How far back, and one transmission to include however old.
    * @returns {object} {ways, features (GeoJSON), places: {key: about}, transmissions: {id: about}}.
    */
-  map({ hours = 24, also } = {}) {
+  map({ hours = 24, also, channel, radio } = {}) {
     const h = Number(hours);
     if (!Number.isFinite(h) || h <= 0 || h > 24 * 3650) throw fail('give a number of hours');
     const out = { ways: this.roads?.stats().ways ?? 0, features: { type: 'FeatureCollection', features: [] }, places: {}, transmissions: {} };
     if (!out.ways) return out;
     const rows = this.db.prepare(`
       SELECT t.id, t.started_at, t.channel_name, f.result FROM findings f JOIN transmissions t ON t.id = f.transmission_id
-       WHERE f.status = 'done' AND (t.started_at >= ? OR t.id = ?) ORDER BY t.started_at DESC LIMIT 500`)
-      .all(this.now() - h * 3600_000, Number(also) || -1);
+       WHERE f.status = 'done' AND (t.started_at >= ? OR t.id = ?) AND (? IS NULL OR t.channel_name = ?)
+         AND (? IS NULL OR t.mac = ?) ORDER BY t.started_at DESC LIMIT 500`)
+      .all(this.now() - h * 3600_000, Number(also) || -1, channel || null, channel || null, radio || null, radio || null);
     const text = this.db.prepare(`SELECT text FROM transcripts WHERE transmission_id = ? AND status = 'done'
                                    ORDER BY (engine = ?) DESC LIMIT 1`);
     const RANK = { exact: 0, base: 1, fuzzy: 2 };

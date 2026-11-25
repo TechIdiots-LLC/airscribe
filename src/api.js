@@ -894,10 +894,10 @@ export function createApp({ manager, store, sidecar, config, dataDir, updates, c
     api.get('/findings', answer(() => findings.status()));
     api.get('/findings/results', answer((req) => findings.results({
       q: req.query.q, hits: req.query.hits === '1', before: req.query.before, since: req.query.since, after: req.query.after,
-      limit: req.query.limit,
+      limit: req.query.limit, channel: req.query.channel, radio: req.query.radio,
     })));
     api.get('/findings/watches', answer(() => findings.watches()));
-    api.get('/findings/map', answer((req) => findings.map({ hours: req.query.hours ?? 24, also: req.query.also })));
+    api.get('/findings/map', answer((req) => findings.map({ hours: req.query.hours ?? 24, also: req.query.also, channel: req.query.channel, radio: req.query.radio })));
     const admin = auth.requireRole('admin');
     api.get('/admin/findings', admin, answer(() => findings.settings()));
     api.put('/admin/findings', admin, answer((req) => findings.save(req.body ?? {})));
@@ -906,12 +906,13 @@ export function createApp({ manager, store, sidecar, config, dataDir, updates, c
     api.post('/admin/findings/forget', admin, answer(() => findings.forget()));
     api.get('/admin/findings/results', admin, answer((req) => findings.results({
       q: req.query.q, hits: req.query.hits === '1', before: req.query.before, limit: req.query.limit,
+      channel: req.query.channel, radio: req.query.radio,
     })));
     api.get('/admin/findings/watches', admin, answer(() => findings.watches()));
     api.post('/admin/findings/watches', admin, answer((req) => findings.addWatch(req.body ?? {})));
     api.delete('/admin/findings/watches/:id', admin, answer((req) => findings.removeWatch(Number(req.params.id))));
     // The roads it mentioned, for the Map; and the roads themselves, from OpenStreetMap (docs/findings.md#roads)
-    api.get('/admin/findings/map', admin, answer((req) => findings.map({ hours: req.query.hours ?? 24, also: req.query.also })));
+    api.get('/admin/findings/map', admin, answer((req) => findings.map({ hours: req.query.hours ?? 24, also: req.query.also, channel: req.query.channel, radio: req.query.radio })));
     if (findings.roads) {
       const roads = findings.roads;
       api.get('/admin/findings/roads', admin, answer(() => roads.stats()));

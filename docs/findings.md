@@ -195,7 +195,8 @@ in a notification. The webhook URL is the only thing that guards an HA webhook, 
 
 The **Findings** tab's **Found** lists the transmissions read, newest first: when, the channel, the summary, the kind of
 call, the transcript, what was found (watched values marked), and the clip. **Search** looks in what was found and in
-the transcripts (a plate however it's spaced); **only watch matches** narrows it to those. **Delete all findings**
+the transcripts (a plate however it's spaced); **only watch matches** narrows it to those, and the radio and channel
+lists to one radio's or one channel's (the Map's Findings tab has its own, which the roads on the map follow too). **Delete all findings**
 empties it; the watch list stays. A call another radio also heard says so (**also heard**), with what that radio heard
 and its clip; a search finds it by those words too. While the tab is open, a new finding goes on top within about five
 seconds, even after **More**. The whole list is reloaded every 30 seconds, so corrections to older rows show, except after
@@ -215,9 +216,9 @@ The same, for scripts. Reading takes any signed-in user's token or session; the 
 | | |
 | --- | --- |
 | `GET /api/findings` | on or off, how many are kept, when the last was made (`latestAt`), the model's instructions |
-| `GET /api/findings/results` | `?q=&hits=1&before=&since=&limit=`: findings, newest first; or `?after=` (ms): those made since then, in the order made (`madeAt`). Each with what was `sent`, whether it was `static`, the `usage` (tokens, time), and its corrections (`correctedBy`, `corrects`) |
+| `GET /api/findings/results` | `?q=&hits=1&before=&since=&limit=&channel=&radio=` (a radio by its address): findings, newest first; or `?after=` (ms): those made since then, in the order made (`madeAt`). Each with what was `sent`, whether it was `static`, the `usage` (tokens, time), and its corrections (`correctedBy`, `corrects`) |
 | `GET /api/findings/watches` | the watch list |
-| `GET /api/findings/map` | `?hours=&also=`: the roads mentioned, as GeoJSON with what was said about each |
+| `GET /api/findings/map` | `?hours=&also=&channel=&radio=`: the roads mentioned, as GeoJSON with what was said about each |
 | `GET /api/admin/findings` | the settings (never the key), how many are kept, the biggest prompt of the last day, the last error |
 | `PUT /api/admin/findings` | change them: `enabled`, `api`, `url`, `model`, `apiKey`, `webhook`, `keepDays`, `contextMinutes`, `contextCount`, `othersCount`, `sameCallSeconds`, `waitMinutes`, `findingsCount`, `findingsMinutes`; `forgetKey` |
 | `POST /api/admin/findings/test` | `{text?}`: one through the model |

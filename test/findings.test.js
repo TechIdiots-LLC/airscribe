@@ -367,6 +367,19 @@ test('another channel’s finding goes with a transmission only when it names a 
   assert.doesNotMatch(user, /stuffing|domestic dispute/, 'calls that share nothing with it');
 });
 
+test('findings can be had for one channel, or one radio', { skip: !sqlite }, async () => {
+  const { store, findings, say, clock } = await setUp({ answer: { summary: 'x' } });
+  findings.save({ enabled: true, url: 'http://llm.invalid:11434' });
+  await findings.read(say('one here', clock() - 2000, 'Holden PD'));
+  await findings.read(say('two here', clock() - 1000, 'Paxton FD'));
+  const other = store.addTransmission({ mac: 'CC:DD', startedAt: clock(), durationMs: 1, audioFile: 'c.wav', channelName: 'Paxton FD' });
+  store.saveTranscript(other, 'base', { status: 'done', text: 'three here' });
+  await findings.read(other);
+  assert.deepEqual(findings.results({ channel: 'Paxton FD' }).map((r) => r.text), ['three here', 'two here']);
+  assert.deepEqual(findings.results({ radio: 'CC:DD' }).map((r) => r.text), ['three here']);
+  assert.deepEqual(findings.results({ radio: 'AA:BB', channel: 'Paxton FD' }).map((r) => r.text), ['two here']);
+});
+
 test('a clip heard through static is still read, and the model is told so', { skip: !sqlite }, async () => {
   const { store, findings, calls, say, clock } = await setUp({ answer: { summary: 'Engine 2 to Main' } });
   findings.save({ enabled: true, url: 'http://llm.invalid:11434' });

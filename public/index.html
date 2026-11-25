@@ -246,6 +246,8 @@
           <option value="168">Last week</option>
           <option value="720">Last 30 days</option>
         </select>
+        <select id="map-fd-radio" title="Whose transmissions, in the list and on the map"><option value="">All radios</option></select>
+        <select id="map-fd-channel" title="Which channel, in the list and on the map"><option value="">All channels</option></select>
         <label class="toggle" title="Read out each new finding's summary, with its channel, in this browser; after a clip that's playing">
           <input type="checkbox" id="map-fd-speak" class="fd-speak"> Speak new <span class="fd-speak-state meta"></span></label>
       </div>
@@ -513,6 +515,8 @@
     <div class="row wrap">
       <label>Search <input id="fd-q" size="18" spellcheck="false" placeholder="a plate, a road, a word"></label>
       <label class="toggle"><input type="checkbox" id="fd-hits"> only watch matches</label>
+      <select id="fd-f-radio" title="Whose transmissions"><option value="">All radios</option></select>
+      <select id="fd-f-channel" title="Which channel"><option value="">All channels</option></select>
     </div>
     <ul id="fd-results" class="user-list"></ul>
     <div class="row"><button id="fd-more" hidden>More</button></div>

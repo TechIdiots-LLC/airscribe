@@ -203,6 +203,7 @@ async function loadTab({ list = true } = {}) {
     const [text, error] = stateOf(s);
     tabSay(s.enabled ? text : `${text}${isAdmin ? ' Turn it on, and give it a model server, in Admin → Findings.' : ''}`, error);
     $('fd-instructions').replaceChildren(sentBox('The instructions the model is given, with every transmission', s.instructions));
+    fillPickers().catch(() => {});
     await Promise.all([loadWatches(), list ? loadResults() : null]);
   } catch (e) {
     tabSay(e.message, true);
@@ -325,11 +326,30 @@ function resultRow(r) {
   return li;
 }
 
+/** The radio and channel pickers, on the Findings tab and the Map's: every radio, and every channel heard. */
+async function fillPickers() {
+  const [radios, channels] = await Promise.all([api('/radios'), api('/channels')]);
+  for (const [r, c] of [['fd-f-radio', 'fd-f-channel'], ['map-fd-radio', 'map-fd-channel']]) {
+    const was = [$(r).value, $(c).value];
+    $(r).replaceChildren(el('option', { value: '' }, 'All radios'), ...radios.map((x) => el('option', { value: x.mac }, x.name ?? x.mac)));
+    $(c).replaceChildren(el('option', { value: '' }, 'All channels'), ...channels.map((x) => el('option', { value: x.name }, x.name)));
+    [$(r).value, $(c).value] = was;
+  }
+}
+
+/** One radio's, or one channel's, as query parameters. */
+function picked(params, radio, channel) {
+  if ($(radio).value) params.set('radio', $(radio).value);
+  if ($(channel).value) params.set('channel', $(channel).value);
+  return params;
+}
+
 /** The list's search and "watch matches only", as query parameters. */
 function filters() {
   const params = new URLSearchParams({ limit: '50' });
   if ($('fd-q').value.trim()) params.set('q', $('fd-q').value.trim());
   if ($('fd-hits').checked) params.set('hits', '1');
+  picked(params, 'fd-f-radio', 'fd-f-channel');
   return params;
 }
 
@@ -354,6 +374,8 @@ $('fd-q').oninput = () => {
   searchTimer = setTimeout(() => loadResults().catch((e) => tabSay(e.message, true)), 300);
 };
 $('fd-hits').onchange = () => loadResults().catch((e) => tabSay(e.message, true));
+$('fd-f-radio').onchange = $('fd-hits').onchange;
+$('fd-f-channel').onchange = $('fd-hits').onchange;
 $('fd-more').onclick = () => loadResults(true).catch((e) => tabSay(e.message, true));
 $('fd-refresh').onclick = load;
 $('fd-tab-refresh').onclick = loadTab;
@@ -469,7 +491,7 @@ async function loadRoads() {
     roadNote(null);
     return;
   }
-  const p = new URLSearchParams({ hours: $('map-roads-hours').value });
+  const p = picked(new URLSearchParams({ hours: $('map-roads-hours').value }), 'map-fd-radio', 'map-fd-channel');
   if (focusId) p.set('also', String(focusId));
   try {
     mentioned = await api(`/findings/map?${p}`);
@@ -543,7 +565,8 @@ document.addEventListener('airscribe:map', (e) => {
 async function loadMapList() {
   const since = Date.now() - Number($('map-roads-hours').value) * 3600_000;
   const [rows, status] = await Promise.all([
-    api(`/findings/results?${new URLSearchParams({ since: String(Math.round(since)), limit: '100' })}`), api('/findings')]);
+    api(`/findings/results?${picked(new URLSearchParams({ since: String(Math.round(since)), limit: '100' }), 'map-fd-radio', 'map-fd-channel')}`),
+    api('/findings')]);
   roadsReady = status.roads;
   $('map-fd-list').replaceChildren(...(rows.length ? rows.map((r) => el('li', {},
     el('div', { className: 'radio-head' },
@@ -584,6 +607,8 @@ $('map-roads').onchange = () => {
   keep(ROADS_KEY, $('map-roads').checked ? '1' : '0');
   loadRoads();
 };
+$('map-fd-radio').onchange = () => loadRoads();
+$('map-fd-channel').onchange = () => loadRoads();
 $('map-roads-hours').onchange = () => {
   keep(ROADS_HOURS_KEY, $('map-roads-hours').value);
   loadRoads();
@@ -594,6 +619,7 @@ setInterval(() => {
   if ($('map-roads').checked || !$('map-tab-fd').hidden) loadRoads();
 }, 30_000);
 document.addEventListener('airscribe:map-tab', (e) => {
+  if (e.detail === 'fd') fillPickers().catch(() => {});
   if (e.detail === 'fd' && mapCtx) loadRoads();
 });
 
