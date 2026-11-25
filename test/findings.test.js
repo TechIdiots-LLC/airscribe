@@ -443,6 +443,25 @@ test('a clip heard through static is still read, and the model is told so', { sk
   assert.equal(findings.results({})[0].static, true);
 });
 
+test('a time said is given to the model as one, and not kept as a road', { skip: !sqlite }, async () => {
+  // What qwen3:14b made of "I'll see you in route fourteen forty seven" at 2:47 PM
+  const answer = { summary: 'A unit in Route 1447' };
+  const { findings, calls, say, clock } = await setUp({ answer });
+  findings.save({ enabled: true, url: 'http://llm.invalid:11434' });
+  const at = clock();
+  const d = new Date(at);
+  const hhmm = `${String(d.getHours()).padStart(2, '0')}${String(d.getMinutes()).padStart(2, '0')}`;
+  answer.addresses = [`Route ${hhmm}`];
+  answer.roads = [`Route ${hhmm}`];
+  const id = say(`I'll see you in route ${hhmm}.`, at);
+  await findings.read(id);
+  assert.match(calls[0].body.messages[1].content, new RegExp(`Times said in it: ${hhmm} \\(\\d+:\\d\\d [AP]M\\)$`));
+  assert.match(calls[0].body.messages[0].content, /never a road, route, address or\nunit/);
+  const [r] = findings.results({});
+  assert.deepEqual([r.found.addresses, r.found.roads], [[], []]);
+  assert.deepEqual(r.found.unheard.map((u) => u.why), ['time', 'time']);
+});
+
 test('a plate spelled out is given to the model, and kept when it leaves it out', { skip: !sqlite }, async () => {
   // What qwen3:8b made of it: the letters as a road, the plate dropped
   const { findings, calls, say, clock } = await setUp({ answer: { summary: 'An Audi A3', vehicles: ['Audi A3'], roads: ['Sierra Street'] } });

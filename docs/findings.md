@@ -168,6 +168,20 @@ readings (`src/heard.js`), and taken out if it wasn't:
 The summary isn't checked. What was taken out shows under the finding on the Findings tab, as **Left out, not said in
 it**: when something right is taken out, that line and the prompt are what to send in.
 
+### Times said
+
+Dispatch logs a unit en route, on scene or back in quarters by the 24-hour clock ("in route 1447", "back 0555"), and
+the model wrote those numbers as roads and addresses ("Route 1447", "University 1717"). So `src/times.js` reads a
+number of 3 or 4 digits (or with a colon, "8:30") within 5 minutes of the clock when it was said, in the server's time
+zone, as a time. In real traffic they were 0 to 3 minutes off. Not a time:
+
+- a house number: a road's kind follows ("1447 Main Street");
+- a number of something said before it ("Unit 1447", "room 315", "Code 1447");
+- a three-digit route ("Route 146"): no route has four digits, so "Route 1447" is a time.
+
+The times go to the model after the transmission ("Times said in it: 1447 (2:47 PM)"), and an address, road or unit
+the model writes that's only a time is taken out, shown as **Left out, a time**.
+
 ### Hearing a clip again
 
 Hearing the same clip with the same engine gives the same words, so a clip is heard again *told which words to

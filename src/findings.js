@@ -21,6 +21,7 @@ import { Digest } from './digest.js';
 import { Glossary } from './glossary.js';
 import { TYPES, addressRoads, words } from './roads.js';
 import { nameKey } from './uniden.js';
+import { timesIn, withoutTimes } from './times.js';
 
 const KEYS = {
   enabled: 'findings.enabled', api: 'findings.api', url: 'findings.url', model: 'findings.model',
@@ -128,6 +129,9 @@ Local terms, when listed after the transmission, say what a code or word means o
 them to understand it and to sum it up ("Code 4" might be "all is well"). Those marked "possibly" were worked out
 from earlier traffic and may be wrong: trust the transmission over them. A number is a code only where it's said
 as one, never a house, apartment or unit number.
+Dispatch logs the time on the 24-hour clock ("en route 1447" is en route at 2:47 PM, "back in quarters 0555").
+Times listed after the transmission are numbers said that are the time it was said: never a road, route, address or
+unit. Speech recognition writes "en route" as "in route" and "on scene" as "on seen".
 Radio talk is short and plain. Keep to its words: don't fill in what a short transmission leaves out.
 
 Examples (fields not shown are [] or ""):
@@ -144,7 +148,10 @@ Examples (fields not shown are [] or ""):
 4. New transmission: "Received, thank you."
    {"summary": ""}
 5. New transmission: "No, you can put me in the area."
-   {"summary": "A unit asks to be put in the area."}`;
+   {"summary": "A unit asks to be put in the area."}
+6. New transmission: "Engine 3, I show you in route 1447."
+   Times said in it: 1447 (2:47 PM)
+   {"summary": "Dispatch shows Engine 3 en route at 14:47.", "service": "fire", "units": ["Engine 3"]}`;
 
 // ---- Matching -------------------------------------------------------------
 
@@ -614,7 +621,7 @@ export class Findings {
    *   engine's ({text}) or another radio's ({channel, text}).
    * @returns {string} The user message.
    */
-  message(text, context = [], { channel = null, roads = [], static: noisy = false, others = [], readings = [], findings = [], plates = [], service = null, terms = [], note = null } = {}) {
+  message(text, context = [], { channel = null, roads = [], static: noisy = false, others = [], readings = [], findings = [], plates = [], times = [], service = null, terms = [], note = null } = {}) {
     const said = (c) => (typeof c === 'string' ? c : `${c.static ? '(heard through static) ' : ''}${c.text}`);
     const where = (c) => `[${c.channel ?? 'channel unknown'}, ${c.ago < 60_000 ? 'under a minute' : `${Math.round(c.ago / 60_000)} min`} before] `;
     const found = (f) => [f.found.summary, ...LISTS.filter((k) => f.found[k]?.length).map((k) => `${k}: ${f.found[k].join(', ')}`),
@@ -631,6 +638,7 @@ export class Findings {
         : r.again ? 'heard again, told which words to expect (so it may lean to them)' : 'another speech engine'}: ${r.text}`)
         .join('\n')}` : '',
       plates.length ? `\nPlates spelled out in it: ${plates.join(', ')}` : '',
+      times.length ? `\nTimes said in it: ${times.map((x) => `${x.said} (${x.clock})`).join(', ')}` : '',
       ...termLines(terms),
       note ? `\nA person's note on this transmission, from reading it before: ${note}` : '',
     ].filter(Boolean).join('\n');
@@ -867,14 +875,15 @@ export class Findings {
       const plates = platesIn(texts, { cuedOnly: amateur })
         .filter((p) => begun.includes(p) || open || begun.some((q) => variant(p, q)));
       const terms = this.glossary.said(firsts, t.channel_name);
+      const times = timesIn(firsts, t.started_at);
       sent = this.message(text, context, {
-        channel: t.channel_name, service: ch?.service, roads, static: isStatic(t.snr_db), others, readings, findings, plates, terms,
+        channel: t.channel_name, service: ch?.service, roads, static: isStatic(t.snr_db), others, readings, findings, plates, times, terms,
         note: this.noteOf(id)?.note ?? null,
       });
       ({ found, usage } = await this.send(sent));
       // Only what this transmission said: a road the model put right counts if it's one near that sounds like it
       near = hint(firsts.join(' '));
-      found = withPlates(onlyHeard(found, heardIn(firsts, near)), plates, { cued: firsts.some(cuedIn), amateur });
+      found = withoutTimes(withPlates(onlyHeard(found, heardIn(firsts, near)), plates, { cued: firsts.some(cuedIn), amateur }), times);
       // The channel's service over a guess: phonetic letters read as a ham, or "other" on a dispatch channel. A
       // service the model names on a channel of another (police on a fire channel) can be right, so it stays
       if (ch && (ch.service === 'amateur' || ['amateur', 'other'].includes(found.service))) found.service = ch.service;

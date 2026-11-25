@@ -10,6 +10,7 @@
 - _...Add new stuff here..._
 
 ### 🐞 Bug fixes
+- Findings reads a time dispatch logs ("in route 1447" at 2:47 PM) as a time: the model is told it, and an address or road that's only a time ("Route 1447") is left out, shown as "Left out, a time"
 - Two-step verification is a second step only: a passkey no longer signs anyone in on its own (Sign in with a passkey is gone), and signing in is a password or a linked account. The passkey or code is asked for when the radios or Admin need it, and at sign-in too only for accounts that tick Your account → Two-step verification → Ask when I sign in too
 - _...Add new stuff here..._
 

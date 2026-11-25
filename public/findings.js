@@ -215,10 +215,12 @@ function leftOut(unheard) {
   const line = (list, label, title) => (list.length
     ? [el('div', { className: 'meta', title }, `${label}: ${list.map((u) => u.value).join('; ')}`)] : []);
   return [
-    ...line(unheard.filter((u) => u.why !== 'plate'), 'Left out, not said in it',
+    ...line(unheard.filter((u) => !u.why), 'Left out, not said in it',
       'The model wrote these, but this transmission didn’t say them: most often copied from the earlier ones it was given'),
     ...line(unheard.filter((u) => u.why === 'plate'), 'Left out, not a plate',
       'The model put these in plates: a unit, an apartment, a callsign, or another reading of a plate read out'),
+    ...line(unheard.filter((u) => u.why === 'time'), 'Left out, a time',
+      'A number said that’s the time it was said, on the 24-hour clock ("en route 1447"), not a road or an address'),
   ];
 }
 
