@@ -7,6 +7,7 @@
 // MapLibre (public/vendor, through the import map in index.html) is imported
 // only when the view is first opened.
 import { showView } from './views.js';
+import { keep } from './prefs.js';
 
 const $ = (id) => document.getElementById(id);
 const el = (tag, props = {}, ...kids) => {
@@ -38,12 +39,12 @@ async function api(path, opts = {}) {
   return res.status === 204 ? {} : res.json().catch(() => ({}));
 }
 
-/** A choice remembered in this browser: a convenience, so a blocked store is no matter. */
+/** A choice remembered, in this browser and with the account (prefs.js): a convenience, so a blocked store is no matter. */
 function recall(key, fallback) {
   try { return localStorage.getItem(key) ?? fallback; } catch { return fallback; }
 }
 function remember(key, value) {
-  try { localStorage.setItem(key, value); } catch { /* storage blocked */ }
+  keep(key, value);
 }
 
 const STYLE_KEY = 'airscribe.mapStyle';

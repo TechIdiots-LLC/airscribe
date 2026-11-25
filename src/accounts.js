@@ -9,6 +9,9 @@ const LOCK_AFTER = 5;
 const LOCK_MS = 15 * 60 * 1000;
 
 const fail = (message, status = 400) => Object.assign(new Error(message), { status });
+// An account's page choices: each short, and not many
+const CHOICE_MAX = 4000;
+const CHOICES_MAX = 100;
 
 /**
  * @param {unknown} name - A username as typed.
@@ -95,6 +98,13 @@ export class Accounts {
         user_id INTEGER PRIMARY KEY,
         callsign TEXT NOT NULL, ssid INTEGER NOT NULL, symbol TEXT NOT NULL, beacon TEXT NOT NULL,
         updated_at INTEGER NOT NULL);
+      -- What an account chose on the pages (the Map's layers, its tab...), so it follows them to another browser
+      CREATE TABLE IF NOT EXISTS page_choices (
+        user_id INTEGER NOT NULL,
+        key TEXT NOT NULL,
+        value TEXT NOT NULL,
+        updated_at INTEGER NOT NULL,
+        PRIMARY KEY (user_id, key));
     `);
     // When a session passed a second step (docs/two-step.md): first, latest, for Admin, and the password asked again
     const have = new Set(db.prepare('PRAGMA table_info(sessions)').all().map((c) => c.name));
@@ -129,6 +139,47 @@ export class Accounts {
                        symbol = excluded.symbol, beacon = excluded.beacon, updated_at = excluded.updated_at`)
       .run(userId, p.callsign, p.ssid, p.symbol, p.beacon, this.now());
     return this.profile(userId);
+  }
+
+  /**
+   * @param {number} userId - The account.
+   * @returns {Record<string, string>} What it chose on the pages, by key.
+   */
+  choices(userId) {
+    const rows = this.db.prepare('SELECT key, value FROM page_choices WHERE user_id = ?').all(userId);
+    return Object.fromEntries(rows.map((r) => [r.key, r.value]));
+  }
+
+  /**
+   * Keep some of an account's choices; a null value forgets one.
+   * @param {number} userId - The account.
+   * @param {Record<string, string|null>} changes - By key ("airscribe.map.roads"); values are strings, kept short.
+   * @returns {Record<string, string>} All its choices now.
+   */
+  setChoices(userId, changes) {
+    if (!changes || typeof changes !== 'object' || Array.isArray(changes)) throw fail('send the choices as an object');
+    const entries = Object.entries(changes);
+    for (const [k, v] of entries) {
+      if (!/^[a-z][a-z0-9._-]{0,63}$/i.test(k)) throw fail(`not a choice: ${k.slice(0, 70)}`);
+      if (v !== null && (typeof v !== 'string' || v.length > CHOICE_MAX)) {
+        throw fail(`${k}: a string of up to ${CHOICE_MAX} characters, or null`);
+      }
+    }
+    const set = this.db.prepare(`INSERT INTO page_choices (user_id, key, value, updated_at) VALUES (?, ?, ?, ?)
+                                 ON CONFLICT(user_id, key) DO UPDATE SET value = excluded.value, updated_at = excluded.updated_at`);
+    const drop = this.db.prepare('DELETE FROM page_choices WHERE user_id = ? AND key = ?');
+    const now = this.now();
+    this.db.exec('BEGIN');
+    try {
+      for (const [k, v] of entries) (v === null ? drop.run(userId, k) : set.run(userId, k, v, now));
+      const n = this.db.prepare('SELECT count(*) AS n FROM page_choices WHERE user_id = ?').get(userId).n;
+      if (n > CHOICES_MAX) throw fail(`at most ${CHOICES_MAX} choices`);
+      this.db.exec('COMMIT');
+    } catch (e) {
+      this.db.exec('ROLLBACK');
+      throw e;
+    }
+    return this.choices(userId);
   }
 
   /** @returns {number} How many accounts there are. */
@@ -217,6 +268,7 @@ export class Accounts {
     this.db.prepare('DELETE FROM sessions WHERE user_id = ?').run(id);
     this.db.prepare('DELETE FROM linked_logins WHERE user_id = ?').run(id);
     this.db.prepare('DELETE FROM radio_profiles WHERE user_id = ?').run(id);
+    this.db.prepare('DELETE FROM page_choices WHERE user_id = ?').run(id);
     this.twoStep.reset(id);
     this.db.prepare('DELETE FROM users WHERE id = ?').run(id);
   }

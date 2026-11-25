@@ -382,6 +382,9 @@ export function createApp({ manager, store, sidecar, config, dataDir, updates, c
     api.get('/account', answer((req) => ({ ...accounts.user(mine(req)), providers: linked?.enabled() ?? [] })));
     // One's amateur radio profile: callsign, SSID, symbol, beacon message. No callsign clears it.
     api.put('/account/radio', answer((req) => ({ radio: accounts.setProfile(mine(req), checkProfile(req.body ?? {})) })));
+    // What one chose on the pages (the Map's layers, its tab...): kept with the account, so it follows them
+    api.get('/account/choices', answer((req) => accounts.choices(mine(req))));
+    api.put('/account/choices', answer((req) => accounts.setChoices(mine(req), req.body)));
     if (linked) {
       // Linking asks for the password, and goes on at the provider; unlinking asks for it too
       api.post('/account/links/:provider', answer((req, res) => {

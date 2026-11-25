@@ -241,6 +241,46 @@ test('accounts through the API: the first admin, invites, and who may do what', 
   }
 });
 
+test('choices on the pages: kept per account, merged, forgotten with null, gone with it', { skip: !sqlite }, async () => {
+  const { a, db } = await accountsAt();
+  const alice = a.create({ username: 'alice', password: 'correct horse', role: 'admin' });
+  const bob = a.create({ username: 'bob', password: 'bob password', role: 'viewer' });
+  assert.deepEqual(a.choices(alice.id), {});
+  a.setChoices(alice.id, { 'airscribe.map.roads': '1', 'airscribe.map.tab': 'fd' });
+  assert.deepEqual(a.setChoices(alice.id, { 'airscribe.map.tab': 'ch', 'airscribe.map.roads': null }), { 'airscribe.map.tab': 'ch' });
+  assert.deepEqual(a.choices(bob.id), {}, 'each account its own');
+  assert.throws(() => a.setChoices(alice.id, { 'bad key!': '1' }), /not a choice/);
+  assert.throws(() => a.setChoices(alice.id, { 'airscribe.x': 1 }), /a string/);
+  assert.throws(() => a.setChoices(alice.id, { 'airscribe.x': 'x'.repeat(4001) }), /a string of up to 4000/);
+  assert.throws(() => a.setChoices(alice.id, ['x']), /an object/);
+  const many = Object.fromEntries(Array.from({ length: 100 }, (_, i) => [`k${i}`, 'v']));
+  assert.throws(() => a.setChoices(alice.id, many), /at most 100/);
+  assert.deepEqual(a.choices(alice.id), { 'airscribe.map.tab': 'ch' }, 'none of a refused lot kept');
+  a.setChoices(bob.id, { 'airscribe.map.roads': '0' });
+  a.remove(bob.id);
+  assert.equal(db.prepare('SELECT count(*) AS n FROM page_choices WHERE user_id = ?').get(bob.id).n, 0);
+});
+
+test('choices through the API: one\'s own, signed in with an account', { skip: !sqlite }, async () => {
+  const { server, accounts, browser } = await serve({ auth: {} });
+  try {
+    accounts.create({ username: 'alice', password: 'correct horse', role: 'admin' });
+    accounts.create({ username: 'bob', password: 'bob password', role: 'viewer' });
+    assert.equal((await browser()('GET', '/account/choices')).status, 401, 'not signed out');
+    const alice = browser();
+    await alice('POST', '/login', { username: 'alice', password: 'correct horse' });
+    const bob = browser();
+    await bob('POST', '/login', { username: 'bob', password: 'bob password' });
+    const put = await bob('PUT', '/account/choices', { 'airscribe.map.roads': '0' });
+    assert.deepEqual([put.status, put.body], [200, { 'airscribe.map.roads': '0' }], 'a viewer keeps theirs');
+    assert.deepEqual((await bob('GET', '/account/choices')).body, { 'airscribe.map.roads': '0' });
+    assert.deepEqual((await alice('GET', '/account/choices')).body, {}, 'not another\'s');
+    assert.equal((await bob('PUT', '/account/choices', { 'airscribe.map.roads': 7 })).status, 400);
+  } finally {
+    server.close();
+  }
+});
+
 test('the settings file\'s password still works beside accounts, as an admin with no account', { skip: !sqlite }, async () => {
   const { server, accounts, browser } = await serve({ auth: { passwordHash: hashPassword('file password') } });
   try {

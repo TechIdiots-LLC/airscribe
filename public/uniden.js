@@ -1,6 +1,8 @@
 // Admin → Uniden's database: the HPDB folder from a scanner's SD card, a state at a time, for the Map's Find
 // (docs/radioreference.md#from-unidens-database). Its files are s_<StateId>.hpd; hpdb.cfg names the states.
-const $ = (id) => document.getElementById(id);
+import { keep } from './prefs.js';
+
+const $ =(id) => document.getElementById(id);
 const el = (tag, props = {}, ...kids) => {
   const e = Object.assign(document.createElement(tag), props);
   e.append(...kids);
@@ -143,7 +145,7 @@ $('ud-import').onclick = async () => {
   const ticked = new Set([...$('ud-states').querySelectorAll('input:checked')].map((i) => Number(i.value)));
   const todo = chosen?.states.filter((s) => ticked.has(s.id)) ?? [];
   if (!todo.length) return say('Tick at least one state.', true);
-  try { localStorage.setItem(PICKED_KEY, JSON.stringify([...ticked])); } catch { /* storage blocked */ }
+  keep(PICKED_KEY, JSON.stringify([...ticked]));
   $('ud-import').disabled = true;
   try {
     await call('PUT', '/admin/uniden/files/hpdb.cfg', await chosen.cfg.blob());

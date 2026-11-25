@@ -1,4 +1,5 @@
 import { offered, showView, viewFromHash } from './views.js';
+import { keep } from './prefs.js';
 import { showSecondStep } from './twostep.js';
 import { showPublic, hidePublic, publicShowing } from './publicview.js';
 
@@ -704,7 +705,7 @@ let searchTimer = null;
 $('filter-radio').onchange = reload;
 $('filter-channel').onchange = reload;
 $('hide-silent').onchange = () => {
-  try { localStorage.setItem(HIDE_KEY, $('hide-silent').checked ? '1' : '0'); } catch { /* storage blocked */ }
+  keep(HIDE_KEY, $('hide-silent').checked ? '1' : '0');
   reload();
 };
 // Asked of the server, so wait for a pause in the typing

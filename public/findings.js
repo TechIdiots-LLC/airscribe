@@ -2,6 +2,7 @@
 // what was found; Admin → Findings its server and roads; the Map the roads mentioned. Any signed-in user reads it;
 // only an admin changes it. The server enforces both regardless.
 import { showView } from './views.js';
+import { keep as keepChoice } from './prefs.js';
 
 const $ = (id) => document.getElementById(id);
 const el = (tag, props = {}, ...kids) => {
@@ -546,7 +547,7 @@ let focusId = null;       // a transmission to frame once loaded
 let roadPopup = null;
 
 const recall = (k, d) => { try { return localStorage.getItem(k) ?? d; } catch { return d; } };
-const keep = (k, v) => { try { localStorage.setItem(k, v); } catch { /* storage blocked */ } };
+const keep = keepChoice;
 $('map-roads').checked = recall(ROADS_KEY, '1') === '1';
 $('map-roads-hours').value = recall(ROADS_HOURS_KEY, '24');
 

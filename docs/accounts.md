@@ -56,6 +56,22 @@ callsign for APRS and a radio's beacon (**Amateur radio**,
 [packets.md](packets.md#your-profile-and-a-radios-beacon)), or sign out
 everywhere but here.
 
+## Choices on the pages
+
+What you choose on the pages is kept with your account, so it follows you to
+another browser, or to the server's other address (its IP and its domain name
+are two sites to a browser, each with its own storage). That's the Map's base
+map, layers, tab, radio, hours and hidden channels, Roads on the map, the
+feed's Hide silent, and the states ticked in Uniden's database
+(`public/prefs.js` lists them). Speaking findings aloud, and its voice, stay
+with the browser: they're about the device.
+
+They're read before the page draws (`GET /api/account/choices`) and saved a
+moment after each change (`PUT`, a key and a string, or null to forget one).
+The first time an account signs in somewhere, the choices already made in that
+browser are kept for it. Signed out, and on a server without accounts, they're
+kept in the browser only, as before.
+
 ## Signing in
 
 - Five wrong passwords in a row lock an account for 15 minutes; twenty wrong
