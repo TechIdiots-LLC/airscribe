@@ -28,6 +28,8 @@ const ORDINALS = {
 const CUES = new Set(['reg', 'registration', 'plate', 'plates', 'tag', 'tags']);
 // A ham callsign spelled out the same way ("November 1 Victor Zulu" is N1VZ) isn't a plate
 const CALLSIGN = /^[a-z]{1,2}\d[a-z]{1,3}$/;
+// Said between a plate and its repeat: "6 Papa Tango Papa 38, that's 6 PTP 38"
+const FILLER = new Set(['thats', 'that', 'is', 'its', 'again', 'say', 'repeat', 'correction']);
 
 /**
  * words() with numbers said as words made digits: "twenty four" is 24, "one two three" 1 2 3, "second" 2nd.
@@ -36,7 +38,11 @@ const CALLSIGN = /^[a-z]{1,2}\d[a-z]{1,3}$/;
  */
 export function numerals(s) {
   // "I'm" is one word, not the letters I and M; "X ray" is one letter
-  const t = words(String(s ?? '').replace(/\bx[- ]ray\b/gi, 'xray').replace(/['’]/g, '')).split(' ').filter(Boolean);
+  // "114.8" (a tone, a frequency) is a number with a point, not digits to run together
+  // A letter on its own stays one: words() makes "W" west and "N" north, as in a road's name
+  const t = String(s ?? '').replace(/\bx[- ]ray\b/gi, 'xray').replace(/['’]/g, '').replace(/(\d)\.(\d)/g, '$1 point $2')
+    .split(/\s+/).flatMap((w) => (/^[a-z]\W*$/i.test(w) ? [w.slice(0, 1).toLowerCase()] : words(w).split(' ')))
+    .filter(Boolean);
   const out = [];
   for (let i = 0; i < t.length; i++) {
     const w = t[i];
@@ -62,6 +68,29 @@ function part(w) {
 }
 
 /**
+ * A plate said twice in a row, as dispatch does to confirm it: "4 Foxtrot Yankee Victor 34, 4 FYV 34". The
+ * repeat says where the plate ends, which the run of letters and digits alone doesn't (4FYV344).
+ * @returns {{plate: string, to: number}|null} The plate, and the word after its repeat.
+ */
+function twice(t, from) {
+  let s = '';
+  const end = [];
+  for (let j = from; j < t.length && s.length < 20; j++) {
+    if (s && FILLER.has(t[j])) continue;
+    // Letters written as a word ("FYV") count here: only an exact repeat is taken
+    const p = part(t[j]) ?? (/^[a-z]{2,3}$/.test(t[j]) ? { s: t[j] } : null);
+    if (!p) break;
+    s += p.s;
+    for (let k = 0; k < p.s.length; k++) end.push(j + 1);
+  }
+  for (let n = 8; n >= 4; n--) {
+    const a = s.slice(0, n);
+    if (s.slice(n, 2 * n) === a && /\d/.test(a) && /[a-z]/.test(a) && !CALLSIGN.test(a)) return { plate: a, to: end[2 * n - 1] };
+  }
+  return null;
+}
+
+/**
  * The plates read out in some text.
  * @param {string} text - A transcript.
  * @returns {{plates: {plate: string, cued: boolean}[], unclear: boolean, rest: string}} Each plate (upper case),
@@ -82,6 +111,15 @@ export function readPlates(text) {
       from = i + 1;
       while (from < t.length && from <= i + 3 && !part(t[from])) from++;
     } else if (!part(t[i])) continue;
+    // Or a word in: a stray letter before it ("H six Papa Tango Papa 38, that's 6 PTP 38")
+    const stray = part(t[from]);
+    const rep = twice(t, from) ?? (stray?.letter && stray.s.length === 1 && !stray.said ? twice(t, from + 1) : null);
+    if (rep) {
+      for (let k = from; k < rep.to; k++) used.add(k);
+      if (!plates.some((p) => p.plate === rep.plate.toUpperCase())) plates.push({ plate: rep.plate.toUpperCase(), cued: cue });
+      i = rep.to - 1;
+      continue;
+    }
     let s = '';
     let letters = 0;
     let spoken = 0;   // letters said as a word, or written in a run: a bare "a" or "i" is more likely a word
@@ -95,16 +133,24 @@ export function readPlates(text) {
       if (p.said) spoken += p.s.replace(/\d/g, '').length;
       if (p.digit) digits += p.s.replace(/\D/g, '').length;
     }
-    const ok = cue
+    // Ending in a number with a point ("PL 114.8"): a tone or a frequency
+    const decimal = t[j] === 'point' && /^\d/.test(t[j + 1] ?? '');
+    // A unit said twice ("A12. A12 shutting it down")
+    const unit = s.length % 2 === 0 && s.length < 8 && s.slice(0, s.length / 2).repeat(2) === s;
+    const ok = !decimal && !unit && (cue
       ? s.length >= 2 && s.length <= 8 && (letters > 0 || digits >= 3)
       // Read out with no cue: letters and digits both, as a plate is, and not a time, a phone number or a callsign
-      : s.length >= 5 && s.length <= 8 && spoken >= 2 && digits >= 1;
+      : s.length >= 5 && s.length <= 8 && spoken >= 2 && digits >= 1);
     if (ok && !CALLSIGN.test(s)) {
       for (let k = from; k < j; k++) used.add(k);
       if (!plates.some((p) => p.plate === s.toUpperCase())) plates.push({ plate: s.toUpperCase(), cued: cue });
       i = j - 1;
     } else if (cue) {
-      unclear = true;
+      unclear = !decimal;
+    } else if (j > i + 1) {
+      // Not from a word further in: the end of a name spelled out ("Mike Charlie India November November India
+      // Sierra 528 74") or of a licence number is no plate either
+      i = j - 1;
     }
   }
   return { plates, unclear, rest: t.filter((_, k) => !used.has(k)).join(' ') };
@@ -118,4 +164,46 @@ export function readPlates(text) {
  */
 export function spelled(text) {
   return numerals(text).map((w) => LETTERS[w] ?? w).join('');
+}
+
+/** Whether "reg", "plate" or "tag" was said in some text. */
+export function cuedIn(text) {
+  const t = numerals(text);
+  return t.some((w, i) => CUES.has(w) || (w === 'range' && t[i - 1] === 'mass'));
+}
+
+/** Two plates one is a mishearing of: one inside the other, or four characters in a row the same. */
+export function variant(a, b) {
+  if (a === b) return false;
+  if (a.includes(b) || b.includes(a)) return true;
+  for (let i = 0; i + 4 <= a.length; i++) if (b.includes(a.slice(i, i + 4))) return true;
+  return false;
+}
+
+/**
+ * The plates spelled out in a transmission, across its readings. Engines hear the ends of a plate differently
+ * (6PTP38, H6PTP38): of two that are variants, the one more readings read is kept. Read as often, both are: one
+ * may be cut short (ABC1, ABC123), and hearing it again can settle it.
+ * @param {string[]} texts - Its readings.
+ * @param {{cuedOnly?: boolean}} [o] - Only those after "reg" or "plate": on a ham channel a callsign is spelled
+ *   the same way.
+ * @returns {string[]} The plates.
+ */
+export function platesIn(texts, { cuedOnly = false } = {}) {
+  const each = texts.map((s) => readPlates(s).plates.filter((p) => !cuedOnly || p.cued).map((p) => p.plate));
+  const all = [...new Set(each.flat())];
+  const n = new Map(all.map((p) => [p, each.filter((r) => r.includes(p)).length]));
+  return all.filter((p) => !all.some((q) => variant(p, q) && n.get(q) > n.get(p)));
+}
+
+/**
+ * Whether a plate the model wrote could be one: letters and digits, 5 to 8 of them; any 2 to 8 after "reg" or
+ * "plate". A unit ("A12"), an apartment ("918") or a word ("REVOKED") the model put in plates isn't.
+ * @param {string} plate - Upper case, letters and digits only.
+ * @param {boolean} cued - Whether "reg" or "plate" was said.
+ * @returns {boolean}
+ */
+export function plausible(plate, cued) {
+  if (!/^[A-Z0-9]{2,8}$/.test(plate) || CALLSIGN.test(plate.toLowerCase())) return false;
+  return cued || (plate.length >= 5 && /\d/.test(plate) && /[A-Z]/.test(plate));
 }

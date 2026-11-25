@@ -173,6 +173,18 @@ function tokens(u) {
     u.ms != null ? `${(u.ms / 1000).toFixed(1)} s` : ''].filter(Boolean).join(', ');
 }
 
+/** What the model wrote that was taken out: not said in the transmission, or put in plates and not one. */
+function leftOut(unheard) {
+  const line = (list, label, title) => (list.length
+    ? [el('div', { className: 'meta', title }, `${label}: ${list.map((u) => u.value).join('; ')}`)] : []);
+  return [
+    ...line(unheard.filter((u) => u.why !== 'plate'), 'Left out, not said in it',
+      'The model wrote these, but this transmission didn’t say them: most often copied from the earlier ones it was given'),
+    ...line(unheard.filter((u) => u.why === 'plate'), 'Left out, not a plate',
+      'The model put these in plates: a unit, an apartment, a callsign, or another reading of a plate read out'),
+  ];
+}
+
 const FIELD = { addresses: 'address', roads: 'road', plates: 'plate', vehicles: 'vehicle', people: 'person', units: 'unit' };
 /** Corrections between findings: those a later transmission made to this one, and those this one made. */
 function corrections(r) {
@@ -315,8 +327,7 @@ function resultRow(r) {
     el('div', { className: 'meta' }, `“${r.text}”`),
     foundList(r.found, marked),
     ...corrections(r),
-    r.found.unheard?.length ? el('div', { className: 'meta', title: 'The model wrote these, but this transmission didn’t say them: most often copied from the earlier ones it was given' },
-      `Left out, not said in it: ${r.found.unheard.map((u) => u.value).join('; ')}`) : '',
+    ...leftOut(r.found.unheard ?? []),
     el('audio', { controls: true, preload: 'none', src: withToken(`/api/transmissions/${r.id}/audio`) }),
     ...copiesOf(r, true),
     r.sent ? sentBox('Sent to the model', r.sent, r.usage) : '',

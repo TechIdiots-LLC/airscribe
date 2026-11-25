@@ -132,6 +132,23 @@ as words. After "reg", "registration", "plate" or "tag" ("Mass range" too, as it
 letters and digits. With nothing before it, it takes 5 to 8 with at least two spelled letters and a digit
 ("Papa Juliet 415"), but not a ham callsign ("November 1 Victor Zulu" is N1VZ), a phone number, or a unit like "5 A1".
 
+From real traffic, a few more rules:
+
+- **Said twice.** Dispatch repeats a plate to confirm it ("4 Foxtrot Yankee Victor 34, 4 FYV 34"), and the
+  recogniser runs the two together. An exact repeat marks where the plate ends: 4FYV34, not 4FYV344.
+- **Not a plate.** A run of letters and digits isn't a plate when:
+  - it ends in a number with a point ("PL 114.8" is a repeater's tone);
+  - it's too long ("Mike Charlie India November November India Sierra 528 74" spells a name, then a date of birth);
+  - it's one short thing said twice ("A12. A12").
+- **One plate, several readings.** When engines read the ends differently (6PTP38 and H6PTP38), the one more
+  readings read is kept. When they're read as often, both are kept, since one may be cut short.
+- **Ham channels.** On a channel whose service is amateur, only a plate after "reg" or "plate" is read: a callsign
+  is spelled out the same way.
+- **The model's own plates.** A plate the model writes must look like one: 5 to 8 letters and digits, both (any 2 to
+  8 after "reg" or "plate"). It mustn't be another reading of a plate read out, and on a ham channel it needs "reg"
+  or "plate" said. A unit ("A12"), an apartment ("918") or a word ("REVOKED") is taken out and shown as "Left out,
+  not a plate".
+
 ### What was said
 
 A small model copies details from the context it's given, however it's told not to: "So you're in route at 2043"

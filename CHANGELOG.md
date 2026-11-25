@@ -5,6 +5,7 @@
 - _...Add new stuff here..._
 
 ### 🐞 Bug fixes
+- Findings reads plates more carefully. A plate said twice ends where its repeat begins (4FYV34, not 4FYV344). A tone ("PL 114.8"), a name spelled out, or a unit said twice isn't read as one, and of an engine's stray reading (H6PTP38 beside 6PTP38) the one more engines read is kept. On ham channels only a plate after "reg" or "plate" counts. A plate the model writes must look like one; units, apartments and callsigns it put in plates are shown as "Left out, not a plate"
 - Findings: another radio's transmission counts as the same call only when the two were on the air together. With Same call within set wide, the next call on the frequency became an "other reading", and its names were reported for a "thank you"
 - Speak new findings no longer says a call twice: a summary much like one said in the last three minutes is skipped (a dispatcher's repeat, or the same call on two channels), and only one AirScribe tab in a browser speaks
 - _...Add new stuff here..._

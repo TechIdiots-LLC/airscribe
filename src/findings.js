@@ -16,7 +16,7 @@
 
 import { isStatic } from './quality.js';
 import { heardValue, onlyHeard, said as heardIn } from './heard.js';
-import { readPlates } from './plates.js';
+import { cuedIn, platesIn, plausible, readPlates, variant } from './plates.js';
 import { addressRoads, words } from './roads.js';
 import { nameKey } from './uniden.js';
 
@@ -262,13 +262,28 @@ export function againPrompt(why, roads = []) {
   return `${lead} ${roads.slice(0, 12).join(', ')}.`;
 }
 
-/** The plates spelled out in a transmission, in any of its readings. */
-const platesIn = (texts) => [...new Set(texts.flatMap((s) => readPlates(s).plates.map((p) => p.plate)))];
-
-/** An answer with the plates spelled out in the transmission, whether or not the model wrote them. */
-const withPlates = (found, plates) => ({
-  ...found, plates: [...found.plates, ...plates.filter((p) => !found.plates.includes(p))].slice(0, 20),
-});
+/**
+ * An answer with the plates spelled out in the transmission, whether or not the model wrote them. One the model
+ * wrote that's a variant of those (H6PTP38 for 6PTP38), or doesn't look like a plate (a unit, an apartment, a
+ * callsign on a ham channel), is taken out, as `unheard` with why: 'plate'.
+ * @param {object} found - onlyHeard() of the answer.
+ * @param {string[]} plates - platesIn() of its readings.
+ * @param {{cued: boolean, amateur?: boolean}} o - Whether "reg" or "plate" was said; whether it's a ham channel.
+ * @returns {object} The answer.
+ */
+function withPlates(found, plates, { cued, amateur = false }) {
+  const out = [];
+  const not = [];
+  for (const p of found.plates) {
+    const ok = plates.includes(p) || (!plates.some((q) => variant(p, q)) && plausible(p, cued) && (cued || !amateur));
+    (ok ? out : not).push(p);
+  }
+  return {
+    ...found,
+    plates: [...out, ...plates.filter((p) => !out.includes(p))].slice(0, 20),
+    unheard: [...(found.unheard ?? []), ...not.map((value) => ({ field: 'plates', value, why: 'plate' }))],
+  };
+}
 
 /** Words said: runs of letters or digits, so "24-7-9-5" is four. */
 const count = (text) => (String(text ?? '').match(/[\p{L}\p{N}]+/gu) ?? []).length;
@@ -590,7 +605,7 @@ export class Findings {
     const sent = this.message(sample, [], { plates });
     const reply = await this.send(sent);
     const { usage } = reply;
-    const found = withPlates(onlyHeard(reply.found, heardIn([sample])), plates);
+    const found = withPlates(onlyHeard(reply.found, heardIn([sample])), plates, { cued: cuedIn(sample) });
     return { model: this.get('model'), ms: this.now() - t0, text: sample, sent, found, usage };
   }
 
@@ -715,16 +730,18 @@ export class Findings {
     try {
       const said = [...context.map((c) => c.text), text].join(' ');
       const roads = this.roads?.hint(said, this.roads.where(t.channel_name)) ?? [];
-      const plates = platesIn(texts);
       // Static is said, not skipped: the model is told to trust it less
       const ch = this.channelService(t.channel_name);
+      // A ham spells a callsign the way dispatch spells a plate: there, only one after "reg" or "plate"
+      const amateur = ch?.service === 'amateur';
+      const plates = platesIn(texts, { cuedOnly: amateur });
       sent = this.message(text, context, {
         channel: t.channel_name, service: ch?.service, roads, static: isStatic(t.snr_db), others, readings, findings, plates,
       });
       ({ found, usage } = await this.send(sent));
       // Only what this transmission said: a road the model put right counts if it's one near that sounds like it
       near = this.roads?.hint(texts.join(' '), this.roads.where(t.channel_name)) ?? [];
-      found = withPlates(onlyHeard(found, heardIn(texts, near)), plates);
+      found = withPlates(onlyHeard(found, heardIn(texts, near)), plates, { cued: texts.some(cuedIn), amateur });
       // The channel's service over a guess: phonetic letters read as a ham, or "other" on a dispatch channel. A
       // service the model names on a channel of another (police on a fire channel) can be right, so it stays
       if (ch && (ch.service === 'amateur' || ['amateur', 'other'].includes(found.service))) found.service = ch.service;
