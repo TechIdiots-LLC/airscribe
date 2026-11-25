@@ -292,7 +292,7 @@ test('earlier findings go with each transmission, and a later one can correct th
     return id;
   };
   findings.addWatch({ term: 'ABC 123' });
-  const old = say('too long ago to matter', clock - 20 * 60_000, 'Holden PD');
+  const old = say('car nine, too long ago to matter', clock - 20 * 60_000, 'Holden PD');
   answers.push({ summary: 'Old call', units: ['Car 9'] });
   await findings.read(old);
   const first = say('car twelve stop on twelve main plate adam boy charlie one two eight', clock - 3 * 60_000, 'Holden PD');
@@ -410,7 +410,7 @@ test('an OpenAI-style server is asked the OpenAI way', { skip: !sqlite }, async 
   };
   const findings = new Findings({ store: new Store(':memory:', 'base'), fetch });
   findings.save({ api: 'openai', url: 'http://server.invalid', model: 'gpt-x' });
-  const t = await findings.test('hello there');
+  const t = await findings.test('plate x ray yankee zulu nine');
   assert.equal(seen[0].url, 'http://server.invalid/v1/chat/completions');
   assert.equal(seen[0].body.response_format.type, 'json_schema');
   assert.deepEqual([t.model, t.found.summary, t.found.plates], ['gpt-x', 'ok', ['XYZ9']]);

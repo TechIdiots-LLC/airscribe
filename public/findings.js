@@ -308,6 +308,8 @@ function resultRow(r) {
     el('div', { className: 'meta' }, `“${r.text}”`),
     foundList(r.found, marked),
     ...corrections(r),
+    r.found.unheard?.length ? el('div', { className: 'meta', title: 'The model wrote these, but this transmission didn’t say them: most often copied from the earlier ones it was given' },
+      `Left out, not said in it: ${r.found.unheard.map((u) => u.value).join('; ')}`) : '',
     el('audio', { controls: true, preload: 'none', src: withToken(`/api/transmissions/${r.id}/audio`) }),
     ...copiesOf(r, true),
     r.sent ? sentBox('Sent to the model', r.sent, r.usage) : '',

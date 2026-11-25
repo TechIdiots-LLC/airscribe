@@ -4,6 +4,7 @@
 ### ✨ Features and improvements
 - Each page has its own address (`#/map`, `#/admin`, ...): a reload stays on the page, and Back and Forward move between pages
 - Findings reads plates spelled out on the radio itself ("Mass Reg 4, Sierra, Sierra, Romeo 33" is 4SSR33), tells the model, and keeps them when the model leaves them out
+- Findings only keeps what the transmission said: an address, name, vehicle or unit the model copied from the transmissions before it is taken out, and shown as "Left out, not said in it"
 - _...Add new stuff here..._
 
 ### 🐞 Bug fixes

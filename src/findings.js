@@ -15,6 +15,7 @@
  */
 
 import { isStatic } from './quality.js';
+import { onlyHeard, said as heardIn } from './heard.js';
 import { readPlates } from './plates.js';
 import { addressRoads, words } from './roads.js';
 
@@ -497,7 +498,7 @@ export class Findings {
     const sent = this.message(sample, [], { plates });
     const reply = await this.send(sent);
     const { usage } = reply;
-    const found = withPlates(reply.found, plates);
+    const found = withPlates(onlyHeard(reply.found, heardIn([sample])), plates);
     return { model: this.get('model'), ms: this.now() - t0, text: sample, sent, found, usage };
   }
 
@@ -613,7 +614,10 @@ export class Findings {
       // Static is said, not skipped: the model is told to trust it less
       sent = this.message(text, context, { channel: t.channel_name, roads, static: isStatic(t.snr_db), others, readings, findings, plates });
       ({ found, usage } = await this.send(sent));
-      found = withPlates(found, plates);
+      // Only what this transmission said: a road the model put right counts if it's one near that sounds like it
+      const texts = [text, ...readings.map((r) => r.text)];
+      const near = this.roads?.hint(texts.join(' '), this.roads.where(t.channel_name)) ?? [];
+      found = withPlates(onlyHeard(found, heardIn(texts, near)), plates);
       this.lastError = null;
     } catch (e) {
       error = e.message;

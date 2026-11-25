@@ -39,10 +39,10 @@ const SUFFIX = {
   n: 'north', s: 'south', e: 'east', w: 'west',
 };
 // The kind of road, at the end of its name: "Elm" is what tells Elm Street from Oak Street
-const TYPES = new Set(['street', 'road', 'avenue', 'drive', 'lane', 'boulevard', 'court', 'place', 'parkway', 'circle',
+export const TYPES = new Set(['street', 'road', 'avenue', 'drive', 'lane', 'boulevard', 'court', 'place', 'parkway', 'circle',
   'terrace', 'way', 'trail', 'turnpike', 'pike', 'expressway', 'freeway', 'square', 'row', 'loop', 'extension', 'alley',
   'highway']);
-const DIRS = new Set(['north', 'south', 'east', 'west', 'northeast', 'northwest', 'southeast', 'southwest']);
+export const DIRS = new Set(['north', 'south', 'east', 'west', 'northeast', 'northwest', 'southeast', 'southwest']);
 
 /** Words, lowercased, street abbreviations spelled out: "Elm St." and "elm street" read the same. */
 export function words(s) {

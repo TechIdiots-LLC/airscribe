@@ -106,6 +106,24 @@ as words. After "reg", "registration", "plate" or "tag" ("Mass range" too, as it
 letters and digits. With nothing before it, it takes 5 to 8 with at least two spelled letters and a digit
 ("Papa Juliet 415"), but not a ham callsign ("November 1 Victor Zulu" is N1VZ), a phone number, or a unit like "5 A1".
 
+### What was said
+
+A small model copies details from the context it's given, however it's told not to: "So you're in route at 2043"
+came back with the address, vehicle, patient and units of the call before it, and a ham net's chat with a domestic
+call's address. So every value the model writes is checked against what the transmission said, in any of its
+readings (`src/heard.js`), and taken out if it wasn't:
+
+- One of the words that tell it apart must have been said, or one a letter or two away ("Beechwood" for Beachwood
+  Drive). Words most calls share don't count: "Fire" in "Rutland Fire", "female" in "89-year-old female".
+- A value of only numbers and those words ("Car 12", "Quad 1") needs its number said. Numbers said as words count.
+- An address needs its house number said too; its road may still be kept on its own.
+- A road counts if it's one of those near the channel that sound like something said, so a mishearing put right stays.
+- The letters a plate was spelled in don't count as words: "Sierra" read out isn't Sierra Street.
+- A correction to an earlier finding needs its new value said.
+
+The summary isn't checked. What was taken out shows under the finding on the Findings tab, as **Left out, not said in
+it**: when something right is taken out, that line and the prompt are what to send in.
+
 ### Corrections
 
 "Correction, one-twelve Main" after a finding of "12 Main St": the model is asked to say when the new transmission

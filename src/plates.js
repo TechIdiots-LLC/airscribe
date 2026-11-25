@@ -35,8 +35,8 @@ const CALLSIGN = /^[a-z]{1,2}\d[a-z]{1,3}$/;
  * @returns {string[]} The words.
  */
 export function numerals(s) {
-  // "I'm" is one word, not the letters I and M
-  const t = words(String(s ?? '').replace(/x-ray/gi, 'xray').replace(/['’]/g, '')).split(' ').filter(Boolean);
+  // "I'm" is one word, not the letters I and M; "X ray" is one letter
+  const t = words(String(s ?? '').replace(/\bx[- ]ray\b/gi, 'xray').replace(/['’]/g, '')).split(' ').filter(Boolean);
   const out = [];
   for (let i = 0; i < t.length; i++) {
     const w = t[i];
