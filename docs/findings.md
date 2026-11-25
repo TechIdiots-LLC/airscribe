@@ -40,7 +40,7 @@ the model is told so (below).
 | This channel's last | 5 | How many of the same channel's (0–20; 0 gives none). |
 | Other channels' last | 5 | How many of the other channels' (0–20; 0 gives none). |
 | Same call within | 5 s | Another radio on the same frequency this close heard the same transmission (0–30; 0 never counts one). |
-| Earlier findings, last | 5 | How many of the findings already made, on any channel, go with each transmission (0–20; 0 gives none, and nothing is corrected). |
+| Earlier findings, last | 5 | How many of the findings already made, on its channel or naming something it says, go with each transmission (0–20; 0 gives none, and nothing is corrected). |
 | from | 15 min | How far back those go (1–60). |
 | Wait for other engines | 3 min | How long to wait for the other speech engines before reading with the default one's alone (0–30; 0 reads the default engine's alone, as soon as it's done). |
 
@@ -63,10 +63,12 @@ counted twice. Should the second copy have heard words the first was read withou
 the first is read again, with them as another radio's reading. The watch list sees the copy's words too. Calls read
 twice before this was in place stay as they are.
 
-Before all that come the **earlier findings**: the last five (by default) from the 15 minutes before, on any
-channel, each with its number, channel, how long before, its summary and what was found in it. They tell the model what
-has been worked out already (the address a call settled on, the units on it), and let it correct them (below). Those
-with nothing found are left out.
+Before all that come the **earlier findings**: the last five (by default) from the 15 minutes before that may be
+the same call, each with its number, channel, how long before, its summary and what was found in it. They tell the
+model what has been worked out already (the address a call settled on, the units on it), and let it correct them
+(below). Those on the transmission's own channel go, and those on another channel only when they name a unit, road,
+address or plate the transmission says (Engine 2 sent on dispatch, then talking on a fireground): given every
+channel's, a small model copied a domestic call's address into a ham net. Those with nothing found are left out.
 
 Any of the transmissions that came through
 static is marked "heard through static", and the model is told to report from those only what reads clearly: speech

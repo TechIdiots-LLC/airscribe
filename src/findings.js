@@ -15,7 +15,7 @@
  */
 
 import { isStatic } from './quality.js';
-import { onlyHeard, said as heardIn } from './heard.js';
+import { heardValue, onlyHeard, said as heardIn } from './heard.js';
 import { readPlates } from './plates.js';
 import { addressRoads, words } from './roads.js';
 
@@ -646,12 +646,12 @@ export class Findings {
       .filter((r) => !skip.has(r.id)).slice(0, othersCount)
       .map((r) => ({ channel: r.channel_name, ago: t.started_at - r.started_at, text: r.text, static: isStatic(r.snr_db) }))
       .reverse();
-    const findings = this.earlier(t, skip);
+    const texts = [text, ...readings.map((r) => r.text)];
+    const findings = this.earlier(t, skip, texts);
     let found = null;
     let error = null;
     let sent = null;
     let usage = null;
-    const texts = [text, ...readings.map((r) => r.text)];
     let near = [];
     try {
       const said = [...context.map((c) => c.text), text].join(' ');
@@ -743,21 +743,27 @@ export class Findings {
   }
 
   /**
-   * The findings just before a transmission, on any channel, with something found: what's been worked out so far.
-   * @param {{id: number, started_at: number}} t - The transmission.
+   * The findings just before a transmission that may be the same call, with something found: those on its channel,
+   * and those on another that name a unit, road or address it says ("Engine 2" sent on dispatch, talking on a
+   * fireground). The rest only gave the model details to copy into an unrelated answer.
+   * @param {{id: number, started_at: number, channel_name?: string|null}} t - The transmission.
    * @param {Set<number>} skip - Its copies from other radios.
+   * @param {string[]} [texts] - Its readings; without them, every channel's.
    * @returns {{id: number, channel: string|null, ago: number, found: object}[]} Oldest first.
    */
-  earlier(t, skip = new Set()) {
+  earlier(t, skip = new Set(), texts = null) {
     const n = this.number('findingsCount');
     if (!n) return [];
+    const heard = texts && heardIn(texts);
     return this.db.prepare(`
       SELECT t.id, t.channel_name, t.started_at, f.result FROM findings f JOIN transmissions t ON t.id = f.transmission_id
        WHERE f.status = 'done' AND t.id != ? AND t.started_at < ? AND t.started_at >= ?
        ORDER BY t.started_at DESC LIMIT ?`)
-      .all(t.id, t.started_at, t.started_at - this.number('findingsMinutes') * 60_000, n * 3)
+      .all(t.id, t.started_at, t.started_at - this.number('findingsMinutes') * 60_000, Math.min(n * 10, 200))
       .map((r) => ({ id: r.id, channel: r.channel_name, ago: t.started_at - r.started_at, found: JSON.parse(r.result) }))
       .filter((f) => !skip.has(f.id) && (f.found.summary || LISTS.some((k) => f.found[k]?.length)))
+      .filter((f) => !heard || f.channel === t.channel_name ||
+        ['units', 'roads', 'addresses', 'plates'].some((k) => (f.found[k] ?? []).some((v) => heardValue(heard, k, v))))
       .slice(0, n)
       .reverse();
   }

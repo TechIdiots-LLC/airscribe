@@ -347,6 +347,26 @@ test('earlier findings go with each transmission, and a later one can correct th
   assert.deepEqual(made.map((r) => [r.id, r.madeAt]), [[later, clock]], 'by when it was made, not when it was heard');
 });
 
+test('another channel’s finding goes with a transmission only when it names a unit, road or address said', { skip: !sqlite }, async () => {
+  const { store, findings, calls, say, clock } = await setUp();
+  findings.save({ enabled: true, url: 'http://llm.invalid:11434' });
+  const done = (id, found) => store.db.prepare(`INSERT INTO findings (transmission_id, status, result, created_at)
+    VALUES (?, 'done', ?, ?)`).run(id, JSON.stringify({ summary: 's', ...found }), clock());
+  const ham = say('thanksgiving plans', clock() - 120_000, 'Marlboro W');
+  done(ham, { summary: 'A ham talks about stuffing', people: ['Verma'] });
+  const domestic = say('domestic', clock() - 100_000, 'PD F1 East');
+  done(domestic, { summary: 'A domestic dispute', addresses: ['520 South Ridge Street'] });
+  const dispatch = say('engine two respond', clock() - 90_000, 'Fire Dispatch');
+  done(dispatch, { summary: 'Engine 2 sent to a fire alarm', units: ['Engine 2'] });
+  const before = say('engine two go ahead', clock() - 60_000);
+  done(before, { summary: 'Engine 2 checks in', units: ['Engine 2'] });
+  await findings.read(say('Engine 2 on scene, nothing showing', clock(), 'Fireground'));
+  const user = calls[0].body.messages[1].content;
+  assert.match(user, new RegExp(`finding ${dispatch} \\[Fire Dispatch`), 'the same unit, sent on dispatch');
+  assert.match(user, new RegExp(`finding ${before} \\[Holden PD`));
+  assert.doesNotMatch(user, /stuffing|domestic dispute/, 'calls that share nothing with it');
+});
+
 test('a clip heard through static is still read, and the model is told so', { skip: !sqlite }, async () => {
   const { store, findings, calls, say, clock } = await setUp({ answer: { summary: 'Engine 2 to Main' } });
   findings.save({ enabled: true, url: 'http://llm.invalid:11434' });
