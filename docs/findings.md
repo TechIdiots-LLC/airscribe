@@ -404,8 +404,8 @@ With the roads around the channels in **Admin → Findings → Roads**, Findings
   that. Only names close to words in the transmission are sent, at most 25, never the whole list. The channel's name
   goes with them. A ham channel gets none: a chat about antennas sounded like 25 roads ("My Way", "Guys Way"),
   and the model reported some.
-- **The roads mentioned light up on the Map.** On the Map's **Findings** tab, a signed-in user ticks **Roads on the map** and chooses how
-  far back; the tab lists what was found in that time, and **Show** frames the roads one mentions. Each road a finding names is drawn where it runs near the transmission's channel, in the colour
+- **The roads mentioned light up on the Map.** On the Map's **Findings** tab, a signed-in user has **Roads on the map** (on unless
+  unticked) and chooses how far back; the tab lists what was found in that time, and **Show** frames the roads one mentions. Each road a finding names is drawn where it runs near the transmission's channel, in the colour
   of the service that last mentioned it (police blue, fire red, EMS yellow, public works orange, amateur purple, other
   grey), fading the longer ago within the hours chosen, and wider the more it's been mentioned. A road whose name was only *like* one there (misheard,
   maybe) is dashed. Where an address names two roads that meet ("Main St and Route 9"), the corner gets a dot.

@@ -547,7 +547,7 @@ let roadPopup = null;
 
 const recall = (k, d) => { try { return localStorage.getItem(k) ?? d; } catch { return d; } };
 const keep = (k, v) => { try { localStorage.setItem(k, v); } catch { /* storage blocked */ } };
-$('map-roads').checked = recall(ROADS_KEY, '0') === '1';
+$('map-roads').checked = recall(ROADS_KEY, '1') === '1';
 $('map-roads-hours').value = recall(ROADS_HOURS_KEY, '24');
 
 function roadNote(text) {

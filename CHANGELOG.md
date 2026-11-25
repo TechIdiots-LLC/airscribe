@@ -6,6 +6,7 @@
 - Findings → The day so far: each hour, once it's over and read, the model sums up what happened in it (an item per call or conversation, each opening the findings it came from), and writes the day's overview again, for every radio and for each. Pick a day, a radio or a channel. On by default with Findings; Admin → Findings → Sum up each hour turns it off
 - Findings can have a note: an admin writes what the model got wrong ("the car is grey, not great") under a finding, everyone sees it, and the model is given it with the finding whenever it's listed with a later transmission, and when the transmission is read again
 - A footer on every page: AirScribe's version (for the signed-in), © TechIdiots LLC, and the privacy policy and terms. The terms are a fuller user agreement, and Admin → This server names who runs the server and how to reach them on both pages
+- The Map's Roads on the map (Findings tab) is on by default
 - A privacy policy and terms of use, at /privacy.html and /terms.html, readable signed out and linked from the sign-in page and the public view: what an account, a linked Google (or GitHub, Discord, Facebook) sign-in and cookies keep, for a sign-in provider's consent screen
 - _...Add new stuff here..._
 
