@@ -910,6 +910,18 @@ export function createApp({ manager, store, sidecar, config, dataDir, updates, c
     api.get('/admin/findings/watches', admin, answer(() => findings.watches()));
     api.post('/admin/findings/watches', admin, answer((req) => findings.addWatch(req.body ?? {})));
     api.delete('/admin/findings/watches/:id', admin, answer((req) => findings.removeWatch(Number(req.params.id))));
+    // Local terms: known ones, the model's guesses, and those collected (docs/findings.md#local-terms)
+    const terms = findings.glossary;
+    api.get('/admin/findings/terms', admin, answer(() => ({ terms: terms.list(), counts: terms.counts() })));
+    api.post('/admin/findings/terms', admin, answer((req) => terms.add(req.body ?? {})));
+    api.put('/admin/findings/terms/:id', admin, answer((req) => terms.update(Number(req.params.id), req.body ?? {})));
+    api.delete('/admin/findings/terms/:id', admin, answer((req) => terms.remove(Number(req.params.id))));
+    api.get('/admin/findings/terms/:id/seen', admin, answer((req) => terms.seen(Number(req.params.id))));
+    api.post('/admin/findings/terms/learn', admin, answer(() => findings.learn()));
+    api.post('/admin/findings/terms/import', admin, answer((req) => terms.importText(req.body?.text)));
+    api.get('/admin/findings/terms/export', admin, (req, res) => {
+      res.type('text/plain').attachment('airscribe-terms.txt').send(`${terms.exportText()}\n`);
+    });
     // The roads it mentioned, for the Map; and the roads themselves, from OpenStreetMap (docs/findings.md#roads)
     api.get('/admin/findings/map', admin, answer((req) => findings.map({ hours: req.query.hours ?? 24, also: req.query.also, channel: req.query.channel, radio: req.query.radio })));
     if (findings.roads) {

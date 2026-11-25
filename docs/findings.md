@@ -211,6 +211,47 @@ was shown is changed, and only a value it has ("12 Main Street" matches "12 Main
 anything else it claims is left alone. What was first found is kept in the database (`findings.original`). The
 transcripts themselves never change. A transmission read again starts from its new answer.
 
+### Local terms
+
+Radio has its own words, and every area its own: "Code 5", "Q5 statements", "a Section 12 up to UMass". A model
+that doesn't know them guesses, or quotes them back. **Admin → Findings → Local terms** says what they mean here.
+When a transmission says one, the model gets it after the transmission ("Local terms said in it: Code 4: all is
+well"), and is told to use it to understand and sum up. It's also told that a number is a code only where it's said
+as one, never a house or apartment number. Only the terms said are sent, so a long list doesn't make every prompt
+longer: 12 at most.
+
+A term matches however it was said or heard. "Code four" is Code 4, and "Q 5" and "cue five" are Q5. A long word a
+letter off still counts ("secton 12"). An entry can be kept to some channels (`PD F*, Fire Ops*`, with * for any
+characters), so one code can mean one thing on the police channels and another on fire's.
+
+There are four kinds of entry:
+
+| Kind | Where it comes from | Given to the model |
+| --- | --- | --- |
+| **Known** | an admin added it, accepted a guess, or imported it | as what it means |
+| **Guess** | the model worked it out from how it was used | marked "possibly … not confirmed": a hint it weighs against the transmission |
+| **Collected** | said on the air, not worked out yet | no |
+| **Rejected** | an admin rejected the guess | no |
+
+**Collected.** As each transmission is read, AirScribe notes the codes said in it: "Code 5", "Signal 23", "Unit 26"
+(not "Unit 308" after a street, which is an apartment) and "10-4" as written. It also notes the terms the model
+says it didn't know (its `terms` answer), but only those the transmission really says. Each is counted, with the
+last 12 transmissions it was said in.
+
+**Worked out.** Once a collected term has been said 3 times, the model is asked what it likely means, given only
+those transmissions and their channels, never its own earlier guess. With nothing waiting to be read, Findings
+does this by itself every 15 minutes, a few terms at a time. **Work out meanings now** does it at once. An answer
+with a meaning becomes a guess, with the model's confidence (low, medium, high). An answer without one stays
+collected, to be asked again after 5 more uses. **Ask again** sends a rejected term back to be collected.
+
+Each entry shows the transmissions it was said in. **Import or export** reads and writes the known ones, a line
+each: `term = meaning`, with `| channels` after it to keep it to those. Lines starting with `#` are skipped. The
+export file ([Sharing what it did](#sharing-what-it-did)) lists the known terms and guesses.
+
+From the Nov 25 export of real Worcester-area traffic, the codes most said were Code 5 (18 times), Code 22 (6) and
+Code 4 (4). The signal codes and Oscar/Charlie car numbers on older scanner guides weren't said at all, so a guide's
+whole list is worth less than the terms the traffic actually uses.
+
 **Treat it as a lead, not a fact.** Speech recognition mishears radio, and a model can turn a misheard word into a
 confident wrong plate or address. Each finding shows the transcript and plays the clip: check them before acting on
 anything. A bigger speech model (large-v3-turbo on a GPU) helps more than a bigger language model.
@@ -291,6 +332,10 @@ The same, for scripts. Reading takes any signed-in user's token or session; the 
 | `POST /api/admin/findings/backfill` | `{hours}`: read the transmissions of the last `hours` |
 | `GET /api/admin/findings/results` | `?q=&hits=1&before=&limit=`: findings, newest first |
 | `GET`, `POST /api/admin/findings/watches`; `DELETE …/watches/:id` | the watch list |
+| `GET`, `POST /api/admin/findings/terms`; `PUT`, `DELETE …/terms/:id` | local terms, and their counts; `{term, meaning, channels}`; `{meaning, channels, status}` |
+| `GET /api/admin/findings/terms/:id/seen` | the transmissions a term was said in |
+| `POST /api/admin/findings/terms/learn` | work out what the collected terms mean, now |
+| `POST /api/admin/findings/terms/import`; `GET …/terms/export` | `{text}`, a line each; the known ones, as text |
 | `POST /api/admin/findings/forget` | delete every finding and match |
 
 ## Roads

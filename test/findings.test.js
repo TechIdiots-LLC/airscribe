@@ -569,6 +569,55 @@ test('an OpenAI-style server is asked the OpenAI way', { skip: !sqlite }, async 
   assert.throws(() => findings.save({ url: 'ftp://x' }), /http:\/\/ or https:\/\//);
 });
 
+test('local terms: known ones and guesses go with a transmission that says them; codes are collected and worked out', { skip: !sqlite }, async () => {
+  const { store, findings, calls, say, clock } = await setUp({ answer: { summary: 'Car 3 is code 4', terms: ['Q5', 'Rumpus'] } });
+  findings.save({ enabled: true, url: 'http://llm.invalid:11434' });
+  const g = findings.glossary;
+  g.add({ term: 'Code 4', meaning: 'all is well', channels: 'Holden*' });
+  g.add({ term: 'Signal 23', meaning: 'no fire showing', channels: 'Fire*' });
+  const user = () => calls.at(-1).body.messages[1].content;
+
+  await findings.read(say('car three code four, cue five statements', clock()));
+  assert.match(user(), /Local terms said in it:\n- Code 4: all is well/, 'said as words, it matches');
+  assert.doesNotMatch(user(), /Signal 23/, 'not said, and another channel’s');
+  assert.doesNotMatch(user(), /Possibly/);
+  assert.match(calls.at(-1).body.messages[0].content, /A number is a code only where it's said\s+as one/);
+
+  // Collected: the code said, and the term the model didn't know that was said; not one it made up
+  const listed = () => Object.fromEntries(g.list().map((e) => [e.term, e]));
+  assert.equal(listed()['Code 4'].uses, 1, 'a known term is counted too');
+  assert.equal(listed().Q5.status, 'candidate');
+  assert.equal(listed().Rumpus, undefined, 'not said in it');
+
+  // Said often enough: the model works it out from where it was said, as a guess
+  for (let i = 0; i < 2; i++) await findings.read(say(`unit ${i + 4}, he's making Q5 statements again`, clock() + i + 1));
+  assert.equal(listed().Q5.uses, 3);
+  const before = calls.length;
+  store.setSetting('findings.model', 'qwen3:8b');
+  const answers = { Q5: { meaning: 'suicidal statements', confidence: 'medium' } };
+  findings.fetch = async (url, opts) => {
+    const body = JSON.parse(opts.body);
+    calls.push({ url, body });
+    const term = body.messages[1].content.match(/^Term: (.+)$/m)?.[1];
+    return Response.json({ message: { content: JSON.stringify(answers[term] ?? { meaning: '', confidence: 'low' }) } });
+  };
+  const learned = await findings.learn();
+  assert.deepEqual(learned, { asked: 1, guessed: 1 });
+  assert.match(calls[before].body.messages[1].content, /Term: Q5\n\nSaid in:\n- \[Holden PD\] unit 5, he's making Q5 statements again/);
+  assert.equal(calls[before].body.format.required.join(), 'meaning,confidence', 'its own schema');
+  assert.deepEqual([listed().Q5.status, listed().Q5.meaning, listed().Q5.confidence], ['guess', 'suicidal statements', 'medium']);
+  assert.deepEqual(await findings.learn(), { asked: 0, guessed: 0 }, 'not asked again until said more');
+
+  // A guess goes with the next transmission that says it, marked as one; rejected, it doesn't
+  findings.fetch = async (url, opts) => (calls.push({ url, body: JSON.parse(opts.body) }), Response.json({ message: { content: '{"summary":"x"}' } }));
+  await findings.read(say('Q 5 statements at the house', clock() + 10));
+  assert.match(user(), /Possibly \(worked out from earlier traffic, not confirmed\):\n- Q5: suicidal statements/);
+  g.update(listed().Q5.id, { status: 'rejected' });
+  await findings.read(say('more Q5 statements', clock() + 11));
+  assert.doesNotMatch(user(), /Q5: suicidal/);
+  assert.ok(findings.exported({ hours: 1 }).terms.some((t) => t.term === 'Code 4'), 'the export has them');
+});
+
 test('signed-in users read Findings, only an admin changes it, the public neither', { skip: !sqlite }, async () => {
   const { DatabaseSync } = await import('node:sqlite');
   const { Store } = await import('../src/store.js');
@@ -609,6 +658,8 @@ test('signed-in users read Findings, only an admin changes it, the public neithe
     assert.equal((await bob('POST', '/admin/findings/watches', { term: 'x' })).status, 403, 'nor the watch list');
     assert.equal((await bob('DELETE', '/admin/findings/roads')).status, 403);
     assert.equal((await bob('GET', '/admin/findings/export')).status, 403, 'nor the export, which holds what was sent');
+    assert.equal((await bob('GET', '/admin/findings/terms')).status, 403, 'nor the local terms');
+    assert.equal((await bob('POST', '/admin/findings/terms', { term: 'Code 4', meaning: 'ok' })).status, 403);
     const alice = await as('alice', 'correct horse');
     const s = await alice('PUT', '/admin/findings', { url: 'http://llm.invalid:11434', model: 'qwen3:8b', apiKey: 'secret' });
     assert.equal(s.status, 200);
@@ -625,6 +676,24 @@ test('signed-in users read Findings, only an admin changes it, the public neithe
     assert.match(ex.body.instructions, /radio traffic/);
     assert.equal(ex.body.settings.apiKey, undefined, 'never the key');
     assert.equal((await alice('GET', '/admin/findings/export?hours=9999')).status, 400);
+
+    // Local terms: added, changed, imported, exported
+    const term = await alice('POST', '/admin/findings/terms', { term: 'Code 4', meaning: 'all is well', channels: 'PD F*' });
+    assert.equal(term.body.status, 'known');
+    assert.equal((await alice('POST', '/admin/findings/terms', { term: 'Code 5' })).status, 400, 'a meaning is needed');
+    const changed = await alice('PUT', `/admin/findings/terms/${term.body.id}`, { meaning: 'no more help needed' });
+    assert.equal(changed.body.meaning, 'no more help needed');
+    const imported = await alice('POST', '/admin/findings/terms/import', { text: 'Q5 = suicidal statements\nnot a line' });
+    assert.deepEqual(imported.body, { added: 1, skipped: 1 });
+    const listed = (await alice('GET', '/admin/findings/terms')).body;
+    assert.deepEqual(listed.terms.map((t) => t.term), ['Code 4', 'Q5']);
+    assert.equal(listed.counts.known, 2);
+    const adminCookie = (await fetch(`${base}/login`, {
+      method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ username: 'alice', password: 'correct horse' }),
+    })).headers.get('set-cookie').split(';')[0];
+    const text = await fetch(`${base}/admin/findings/terms/export`, { headers: { cookie: adminCookie } }).then((r) => r.text());
+    assert.equal(text, 'Code 4 = no more help needed | PD F*\nQ5 = suicidal statements\n');
+    assert.equal((await alice('DELETE', `/admin/findings/terms/${term.body.id}`)).body.removed, true);
 
     // Roads: a file as the body, read as it arrives
     const cookie = (await fetch(`${base}/login`, { method: 'POST', headers: { 'content-type': 'application/json' }, body: JSON.stringify({ username: 'alice', password: 'correct horse' }) })).headers.get('set-cookie').split(';')[0];

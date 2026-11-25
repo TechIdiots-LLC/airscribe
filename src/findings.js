@@ -17,6 +17,7 @@
 import { isStatic } from './quality.js';
 import { heardValue, onlyHeard, said as heardIn } from './heard.js';
 import { cuedIn, numerals, phonetic, platesIn, plausible, readPlates, variant } from './plates.js';
+import { Glossary } from './glossary.js';
 import { TYPES, addressRoads, words } from './roads.js';
 import { nameKey } from './uniden.js';
 
@@ -44,6 +45,7 @@ const OVERLAP_MS = 1000;             // two radios' clips of one call: one can s
 const TIMEOUT_MS = 120_000;         // a model loading onto the card for the first call takes a while
 const QUEUE_MAX = 5000;
 const SWEEP_MS = 60 * 60 * 1000;
+const LEARN_MS = 15 * 60 * 1000;     // working out local terms, when nothing is waiting to be read
 const LISTS = ['addresses', 'roads', 'plates', 'vehicles', 'people', 'units'];
 /** Who is talking, as the model tells it: the Map colours roads by it. */
 export const SERVICES = ['police', 'fire', 'ems', 'works', 'amateur', 'other'];
@@ -58,6 +60,7 @@ export const SCHEMA = {
     incident: { type: 'string' },
     service: { type: 'string', enum: SERVICES },
     again: { type: 'string', enum: ['', ...AGAIN_WHY] },
+    terms: { type: 'array', items: { type: 'string' } },
     ...Object.fromEntries(LISTS.map((k) => [k, { type: 'array', items: { type: 'string' } }])),
     corrections: {
       type: 'array',
@@ -70,7 +73,7 @@ export const SCHEMA = {
       },
     },
   },
-  required: ['summary', 'incident', 'service', 'again', ...LISTS, 'corrections'],
+  required: ['summary', 'incident', 'service', 'again', 'terms', ...LISTS, 'corrections'],
 };
 
 const SYSTEM = `You read transcripts of radio traffic (police, fire, EMS, public works, amateur radio), made by speech
@@ -107,6 +110,8 @@ said. Answer with JSON:
 - again: when a detail that matters seems misheard, so hearing the clip again could get it: "plate" (a plate only
   partly heard), "number" (a house or unit number unclear), "road" (a road's or place's name that doesn't sound
   right); otherwise ""
+- terms: codes and local words in the new transmission whose meaning here you don't know, as said ("Q5",
+  "Section 12", "Code 7"), and none that local terms listed with it explain; usually []
 Use [] or "" for anything not said. Never guess: leave out what the text doesn't say.
 Earlier findings, when listed, are what was worked out from earlier transmissions on any channel, each with its
 number. They're context too: report their details again only when the new transmission says them.
@@ -114,6 +119,10 @@ When roads near the channel are listed and the transmission means one of them (s
 road's name), write it as listed. Don't report a listed road the transmission doesn't mention.
 A transmission marked as heard through static came in weak: its transcript is more likely to be wrong, or words made
 up from noise. Report from it only what reads clearly, and nothing that seems invented.
+Local terms, when listed after the transmission, say what a code or word means on this server's channels: use
+them to understand it and to sum it up ("Code 4" might be "all is well"). Those marked "possibly" were worked out
+from earlier traffic and may be wrong: trust the transmission over them. A number is a code only where it's said
+as one, never a house, apartment or unit number.
 Radio talk is short and plain. Keep to its words: don't fill in what a short transmission leaves out.
 
 Examples (fields not shown are [] or ""):
@@ -216,6 +225,7 @@ export function tidy(raw) {
   const out = {
     summary: str(o.summary), incident: str(o.incident, 80), service: serviceOf(o.service),
     again: AGAIN_WHY.includes(o.again) ? o.again : '',
+    terms: [...new Set((Array.isArray(o.terms) ? o.terms : []).map((v) => str(v, 40)).filter(Boolean))].slice(0, 5),
   };
   for (const k of LISTS) {
     const seen = new Set();
@@ -311,6 +321,31 @@ function withPlates(found, plates, { cued, amateur = false }) {
   };
 }
 
+/** The local terms a transmission says, for its prompt: known ones, then guesses, marked as such. */
+function termLines(terms) {
+  const known = terms.filter((t) => t.status === 'known');
+  const guess = terms.filter((t) => t.status !== 'known');
+  const line = (t) => `- ${t.term}: ${t.meaning}`;
+  return [
+    known.length ? `\nLocal terms said in it:\n${known.map(line).join('\n')}` : '',
+    guess.length ? `\nPossibly (worked out from earlier traffic, not confirmed):\n${guess.map(line).join('\n')}` : '',
+  ];
+}
+
+/** Working out what a local term means, from transmissions it was said in. */
+const LEARN_SYSTEM = `You work out what a radio code or local word means where it was heard, from how it's used. You
+get a term heard on police, fire, EMS or amateur radio in one area, and transmissions it was said in, each with its
+channel, as speech recognition wrote them (it mishears words). Answer with JSON:
+- meaning: what it most likely means there, in a few plain words ("all is well, no more help needed",
+  "suicidal statements"), or "" when the transmissions don't show it. What it commonly means elsewhere may help,
+  when the transmissions fit it. A unit's name ("Unit 26") means who or what that unit is, if they show it
+- confidence: "high" when the transmissions make it plain, "medium" when they point to it, "low" for a guess`;
+const LEARN_SCHEMA = {
+  type: 'object',
+  properties: { meaning: { type: 'string' }, confidence: { type: 'string', enum: ['low', 'medium', 'high'] } },
+  required: ['meaning', 'confidence'],
+};
+
 /** Words said: runs of letters or digits, so "24-7-9-5" is four. */
 const count = (text) => (String(text ?? '').match(/[\p{L}\p{N}]+/gu) ?? []).length;
 /** A transcript with the model's annotations ("(static)", "[BLANK_AUDIO]") taken out. */
@@ -333,6 +368,7 @@ export class Findings {
     this.db = store.db;
     this.manager = manager;
     this.roads = roads;
+    this.glossary = new Glossary(this.db, { now });
     this.primary = primary ?? null;
     this.fetch = fetch;
     this.now = now;
@@ -409,11 +445,16 @@ export class Findings {
     this.sweep();
     this.timer = setInterval(() => this.sweep(), SWEEP_MS);
     this.timer.unref?.();
+    this.learning = setInterval(() => {
+      if (this.enabled() && !this.queue.length && !this.running) this.learn().catch((e) => console.error(`[findings] local terms: ${e.message}`));
+    }, LEARN_MS);
+    this.learning.unref?.();
   }
 
   stop() {
     this.manager?.off('transcribed', this.onTranscribed);
     clearInterval(this.timer);
+    clearInterval(this.learning);
     for (const t of this.late.values()) clearTimeout(t);
     this.late.clear();
     this.queue = [];
@@ -458,6 +499,7 @@ export class Findings {
         findings: this.db.prepare("SELECT count(*) AS n FROM findings WHERE status != 'copy'").get().n,
         hits: this.db.prepare('SELECT count(*) AS n FROM finding_hits').get().n,
       },
+      terms: this.glossary.counts(),
       // The biggest prompt of the last day, as the server counted it: how near the model's context window it comes
       biggestPrompt: this.db.prepare(`SELECT max(json_extract(usage, '$.prompt')) AS n FROM findings
                                         WHERE usage IS NOT NULL AND created_at >= ?`).get(this.now() - 86_400_000).n ?? null,
@@ -557,7 +599,7 @@ export class Findings {
    *   engine's ({text}) or another radio's ({channel, text}).
    * @returns {string} The user message.
    */
-  message(text, context = [], { channel = null, roads = [], static: noisy = false, others = [], readings = [], findings = [], plates = [], service = null } = {}) {
+  message(text, context = [], { channel = null, roads = [], static: noisy = false, others = [], readings = [], findings = [], plates = [], service = null, terms = [] } = {}) {
     const said = (c) => (typeof c === 'string' ? c : `${c.static ? '(heard through static) ' : ''}${c.text}`);
     const where = (c) => `[${c.channel ?? 'channel unknown'}, ${c.ago < 60_000 ? 'under a minute' : `${Math.round(c.ago / 60_000)} min`} before] `;
     const found = (f) => [f.found.summary, ...LISTS.filter((k) => f.found[k]?.length).map((k) => `${k}: ${f.found[k].join(', ')}`)]
@@ -574,6 +616,7 @@ export class Findings {
         : r.again ? 'heard again, told which words to expect (so it may lean to them)' : 'another speech engine'}: ${r.text}`)
         .join('\n')}` : '',
       plates.length ? `\nPlates spelled out in it: ${plates.join(', ')}` : '',
+      ...termLines(terms),
     ].filter(Boolean).join('\n');
   }
 
@@ -584,21 +627,32 @@ export class Findings {
    *   answer, and the tokens the server counted for the prompt and the answer.
    */
   async send(user) {
+    const { reply, usage } = await this.ask(user);
+    return { found: tidy(reply), usage };
+  }
+
+  /**
+   * One question to the model, with its own instructions and the schema its answer must follow.
+   * @param {string} user - The question.
+   * @param {{system?: string, schema?: object, name?: string}} [o] - The instructions and schema; Findings' own by default.
+   * @returns {Promise<{reply: unknown, usage: object}>} The parsed answer, and what it took.
+   */
+  async ask(user, { system = SYSTEM, schema = SCHEMA, name = 'findings' } = {}) {
     const t0 = this.now();
     const url = this.get('url');
     const model = this.get('model');
     if (!url || !model) throw fail('Findings has no server or model: set them in Admin → Findings.');
-    const messages = [{ role: 'system', content: SYSTEM }, { role: 'user', content: user }];
+    const messages = [{ role: 'system', content: system }, { role: 'user', content: user }];
     const key = this.store.setting(KEYS.apiKey);
     const headers = { 'Content-Type': 'application/json', ...(key ? { Authorization: `Bearer ${key}` } : {}) };
     const ollama = this.get('api') === 'ollama';
     // Ollama's own API holds the answer to the schema and can turn a model's thinking off; an OpenAI-style
     // server is asked for the schema the way OpenAI's API asks
     const [path, body] = ollama
-      ? ['/api/chat', { model, messages, stream: false, think: false, format: SCHEMA, options: { temperature: 0 } }]
+      ? ['/api/chat', { model, messages, stream: false, think: false, format: schema, options: { temperature: 0 } }]
       : ['/v1/chat/completions', {
           model, messages, temperature: 0,
-          response_format: { type: 'json_schema', json_schema: { name: 'findings', schema: SCHEMA } },
+          response_format: { type: 'json_schema', json_schema: { name, schema } },
         }];
     let res;
     try {
@@ -615,7 +669,33 @@ export class Findings {
     const usage = ollama
       ? { prompt: n(reply?.prompt_eval_count), answer: n(reply?.eval_count) }
       : { prompt: n(reply?.usage?.prompt_tokens), answer: n(reply?.usage?.completion_tokens) };
-    return { found: tidy(parseReply(content)), usage: { ...usage, ms: this.now() - t0 } };
+    return { reply: parseReply(content), usage: { ...usage, ms: this.now() - t0 } };
+  }
+
+  /**
+   * Work out what collected local terms mean: each said often enough is sent with the transmissions it was said
+   * in, and what the model makes of it is kept as a guess, for an admin to accept or reject. Its own earlier guess
+   * isn't given, so one guess doesn't confirm itself.
+   * @param {{max?: number}} [o] - How many terms at most.
+   * @returns {Promise<{asked: number, guessed: number}>} How many were sent, and how many came back with a meaning.
+   */
+  async learn({ max = 5 } = {}) {
+    if (this.learningNow) return { asked: 0, guessed: 0, busy: true };
+    this.learningNow = true;
+    let asked = 0;
+    let guessed = 0;
+    try {
+      for (const e of this.glossary.toWorkOut(max)) {
+        const seen = this.glossary.seen(e.id);
+        const user = `Term: ${e.term}\n\nSaid in:\n${seen.map((s) => `- [${s.channel ?? 'channel unknown'}] ${s.text}`).join('\n')}`;
+        const { reply } = await this.ask(user, { system: LEARN_SYSTEM, schema: LEARN_SCHEMA, name: 'term' });
+        asked++;
+        if (this.glossary.workedOut(e.id, reply ?? {})?.status === 'guess') guessed++;
+      }
+    } finally {
+      this.learningNow = false;
+    }
+    return { asked, guessed };
   }
 
   /**
@@ -770,8 +850,9 @@ export class Findings {
       const open = firsts.some((s) => readPlates(s).unclear);
       const plates = platesIn(texts, { cuedOnly: amateur })
         .filter((p) => begun.includes(p) || open || begun.some((q) => variant(p, q)));
+      const terms = this.glossary.said(firsts, t.channel_name);
       sent = this.message(text, context, {
-        channel: t.channel_name, service: ch?.service, roads, static: isStatic(t.snr_db), others, readings, findings, plates,
+        channel: t.channel_name, service: ch?.service, roads, static: isStatic(t.snr_db), others, readings, findings, plates, terms,
       });
       ({ found, usage } = await this.send(sent));
       // Only what this transmission said: a road the model put right counts if it's one near that sounds like it
@@ -780,6 +861,8 @@ export class Findings {
       // The channel's service over a guess: phonetic letters read as a ham, or "other" on a dispatch channel. A
       // service the model names on a channel of another (police on a fire channel) can be right, so it stays
       if (ch && (ch.service === 'amateur' || ['amateur', 'other'].includes(found.service))) found.service = ch.service;
+      // Codes said, and what the model didn't know, counted toward working out what they mean
+      this.glossary.collect(firsts, { id, channel: t.channel_name, unknown: found.terms });
       this.lastError = null;
     } catch (e) {
       error = e.message;
@@ -1175,6 +1258,9 @@ export class Findings {
         againEngine: this.againWith(), ...Object.fromEntries(Object.keys(CONTEXT).map((k) => [k, this.number(k)])),
       },
       instructions: SYSTEM,
+      // Local terms, with what the model made of those it guessed
+      terms: this.glossary.list().filter((e) => e.status !== 'rejected')
+        .map((e) => ({ term: e.term, meaning: e.meaning, channels: e.channels, status: e.status, confidence: e.confidence, uses: e.uses })),
       findings: rows.map((r) => ({
         id: r.id, startedAt: new Date(r.started_at).toISOString(), channel: r.channel_name, radio: r.mac,
         static: isStatic(r.snr_db), status: r.status, copyOf: r.copy_of, model: r.model, heardAgain: r.again,

@@ -486,6 +486,27 @@
       <input type="file" id="fd-roads-file" accept=".geojson,.geojsonseq,.geojsonl,.json,.jsonl,.ndjson" hidden>
       <button id="fd-roads-clear" class="link">Delete roads</button>
     </div>
+    <h4>Local terms</h4>
+    <p class="meta">What codes and words mean on these channels (“Code 4”, “Q5”, “Section 12”). When a transmission
+      says one, the model is told what it means. <strong>Known</strong> terms are yours. Codes said on the air, and
+      words the model didn’t know, are collected; once one has been said a few times, the model works out what it
+      likely means from those transmissions, as a <strong>guess</strong>. Guesses are given to the model marked as
+      unconfirmed: accept one to make it known, or reject it. Channels, optional, keep a term to those
+      (<code>PD F*, Fire Ops*</code>; * for any characters).</p>
+    <div class="row wrap">
+      <input id="gl-term" size="12" placeholder="Code 4" spellcheck="false">
+      <input id="gl-meaning" size="28" placeholder="what it means">
+      <input id="gl-channels" size="16" placeholder="channels (all)" spellcheck="false">
+      <button id="gl-add">Add</button>
+      <button id="gl-learn" title="Ask the model about the collected terms said often enough; it also does this by itself when it’s quiet">Work out meanings now</button>
+    </div>
+    <p class="meta" id="gl-status" role="status"></p>
+    <div id="gl-list"></div>
+    <details>
+      <summary class="meta">Import or export, one per line: <code>term = meaning | channels</code></summary>
+      <textarea id="gl-text" rows="6" cols="60" spellcheck="false" placeholder="Code 4 = all is well, no more help needed | PD F*"></textarea>
+      <div class="row wrap"><button id="gl-import">Import these</button><a id="gl-export" href="/api/admin/findings/terms/export">Download the known terms</a></div>
+    </details>
     <p class="meta">What it finds, and the watch list, are on the <button class="link" data-view="findings">Findings</button> tab.</p>
   </div>
 </section>
@@ -606,6 +627,7 @@
 <script src="map.js" type="module"></script>
 <script src="admin.js" type="module"></script>
 <script src="findings.js" type="module"></script>
+<script src="terms.js" type="module"></script>
 <script src="uniden.js" type="module"></script>
 <script src="users.js" type="module"></script>
 <script src="logins.js" type="module"></script>

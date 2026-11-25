@@ -436,3 +436,9 @@ main.page-text h2 { font-size: 17px; margin: 24px 0 6px; }
 main.page-text li { margin: 4px 0; }
 .legal { font-size: 12px; color: var(--muted); text-align: center; margin: 4px 0 0; }
 .legal a { color: var(--muted); }
+
+/* Admin → Findings → Local terms */
+#gl-list h5 { margin: 12px 0 4px; }
+#gl-list summary { cursor: pointer; margin: 8px 0; }
+.gl-seen { margin: 4px 0 8px; padding-left: 18px; }
+#gl-text { width: 100%; max-width: 640px; font: 13px/1.4 ui-monospace, monospace; }

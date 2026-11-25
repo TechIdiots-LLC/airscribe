@@ -2,6 +2,7 @@
 
 ## master
 ### ✨ Features and improvements
+- Findings knows local terms: Admin → Findings → Local terms says what a code or word means here ("Code 4", "Q5", "Section 12"), and a transmission that says one is read with it. Codes said on the air ("Code 5", "Signal 23", "Unit 26", "10-4") and words the model didn't know are collected, and once one has been said a few times the model works out what it likely means from those transmissions. That's a guess, given to the model marked as unconfirmed, until an admin accepts or rejects it. Entries can be kept to some channels, and imported or exported a line each
 - A privacy policy and terms of use, at /privacy.html and /terms.html, readable signed out and linked from the sign-in page and the public view: what an account, a linked Google (or GitHub, Discord, Facebook) sign-in and cookies keep, for a sign-in provider's consent screen
 - _...Add new stuff here..._
 
