@@ -927,6 +927,9 @@ export function createApp({ manager, store, sidecar, config, dataDir, updates, c
       channel: req.query.channel, radio: req.query.radio,
     })));
     api.get('/admin/findings/watches', admin, answer(() => findings.watches()));
+    // A person's note on a finding, given to the model with it from then on
+    api.put('/admin/findings/:id/note', admin, answer((req) => findings.setNote(Number(req.params.id), req.body?.note,
+      req.user?.username ?? null)));
     api.post('/admin/findings/watches', admin, answer((req) => findings.addWatch(req.body ?? {})));
     api.delete('/admin/findings/watches/:id', admin, answer((req) => findings.removeWatch(Number(req.params.id))));
     // Local terms: known ones, the model's guesses, and those collected (docs/findings.md#local-terms)

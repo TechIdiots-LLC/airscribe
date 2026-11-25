@@ -115,6 +115,9 @@ said. Answer with JSON:
 Use [] or "" for anything not said. Never guess: leave out what the text doesn't say.
 Earlier findings, when listed, are what was worked out from earlier transmissions on any channel, each with its
 number. They're context too: report their details again only when the new transmission says them.
+A person's note on an earlier finding, or on the new transmission, was written by someone who checked it: trust it
+over what was found or heard. Where it says how something was misheard ("grey, not great"), read the new
+transmission the same way.
 When roads near the channel are listed and the transmission means one of them (speech recognition often mishears a
 road's name), write it as listed. Don't report a listed road the transmission doesn't mention.
 A transmission marked as heard through static came in weak: its transcript is more likely to be wrong, or words made
@@ -410,7 +413,11 @@ export class Findings {
         field TEXT NOT NULL, was TEXT NOT NULL, now TEXT NOT NULL,
         created_at INTEGER NOT NULL);
       CREATE INDEX IF NOT EXISTS finding_corrections_tx ON finding_corrections(transmission_id);
-      CREATE INDEX IF NOT EXISTS finding_corrections_by ON finding_corrections(by_id);`);
+      CREATE INDEX IF NOT EXISTS finding_corrections_by ON finding_corrections(by_id);
+      -- A person's note on a finding ("grey, not great"): shown with it, and given to the model with it
+      CREATE TABLE IF NOT EXISTS finding_notes (
+        transmission_id INTEGER PRIMARY KEY,
+        note TEXT NOT NULL, by TEXT, created_at INTEGER NOT NULL);`);
     this.onTranscribed = ({ id, engine }) => {
       // Heard again: read again, with it
       if (AGAIN.test(engine ?? '')) return this.add(id);
@@ -599,11 +606,11 @@ export class Findings {
    *   engine's ({text}) or another radio's ({channel, text}).
    * @returns {string} The user message.
    */
-  message(text, context = [], { channel = null, roads = [], static: noisy = false, others = [], readings = [], findings = [], plates = [], service = null, terms = [] } = {}) {
+  message(text, context = [], { channel = null, roads = [], static: noisy = false, others = [], readings = [], findings = [], plates = [], service = null, terms = [], note = null } = {}) {
     const said = (c) => (typeof c === 'string' ? c : `${c.static ? '(heard through static) ' : ''}${c.text}`);
     const where = (c) => `[${c.channel ?? 'channel unknown'}, ${c.ago < 60_000 ? 'under a minute' : `${Math.round(c.ago / 60_000)} min`} before] `;
-    const found = (f) => [f.found.summary, ...LISTS.filter((k) => f.found[k]?.length).map((k) => `${k}: ${f.found[k].join(', ')}`)]
-      .filter(Boolean).join('; ');
+    const found = (f) => [f.found.summary, ...LISTS.filter((k) => f.found[k]?.length).map((k) => `${k}: ${f.found[k].join(', ')}`),
+      f.note ? `a person's note on it: ${f.note}` : ''].filter(Boolean).join('; ');
     return [
       channel ? `Channel: ${channel}${service ? ` (${SERVICE_SAID[service]})` : ''}\n` : '',
       roads.length ? `Roads near this channel with names like words said:\n${roads.join('; ')}\n` : '',
@@ -617,6 +624,7 @@ export class Findings {
         .join('\n')}` : '',
       plates.length ? `\nPlates spelled out in it: ${plates.join(', ')}` : '',
       ...termLines(terms),
+      note ? `\nA person's note on this transmission, from reading it before: ${note}` : '',
     ].filter(Boolean).join('\n');
   }
 
@@ -853,6 +861,7 @@ export class Findings {
       const terms = this.glossary.said(firsts, t.channel_name);
       sent = this.message(text, context, {
         channel: t.channel_name, service: ch?.service, roads, static: isStatic(t.snr_db), others, readings, findings, plates, terms,
+        note: this.noteOf(id)?.note ?? null,
       });
       ({ found, usage } = await this.send(sent));
       // Only what this transmission said: a road the model put right counts if it's one near that sounds like it
@@ -996,11 +1005,12 @@ export class Findings {
     if (!n) return [];
     const heard = texts && heardIn(texts);
     return this.db.prepare(`
-      SELECT t.id, t.channel_name, t.started_at, f.result FROM findings f JOIN transmissions t ON t.id = f.transmission_id
+      SELECT t.id, t.channel_name, t.started_at, f.result, n.note FROM findings f JOIN transmissions t ON t.id = f.transmission_id
+        LEFT JOIN finding_notes n ON n.transmission_id = t.id
        WHERE f.status = 'done' AND t.id != ? AND t.started_at < ? AND t.started_at >= ?
        ORDER BY t.started_at DESC LIMIT ?`)
       .all(t.id, t.started_at, t.started_at - this.number('findingsMinutes') * 60_000, Math.min(n * 10, 200))
-      .map((r) => ({ id: r.id, channel: r.channel_name, ago: t.started_at - r.started_at, found: JSON.parse(r.result) }))
+      .map((r) => ({ id: r.id, channel: r.channel_name, ago: t.started_at - r.started_at, found: JSON.parse(r.result), note: r.note ?? null }))
       .filter((f) => !skip.has(f.id) && (f.found.summary || LISTS.some((k) => f.found[k]?.length)))
       .filter((f) => !heard || f.channel === t.channel_name ||
         ['units', 'roads', 'addresses', 'plates'].some((k) => (f.found[k] ?? []).some((v) => heardValue(heard, k, v))))
@@ -1157,6 +1167,7 @@ export class Findings {
       found: JSON.parse(r.result), hits: hitsOf.all(r.id), sent: r.sent ?? null, static: isStatic(r.snr_db),
       usage: r.usage ? JSON.parse(r.usage) : null, heardAgain: r.again ?? null, correctedBy: by.all(r.id), corrects: of.all(r.id), madeAt: r.created_at,
       copies: copies.all(r.id).map((c) => ({ ...c, text: text.get(c.id, this.primary ?? '')?.text ?? '' })),
+      note: this.noteOf(r.id),
     }));
   }
 
@@ -1264,7 +1275,7 @@ export class Findings {
       findings: rows.map((r) => ({
         id: r.id, startedAt: new Date(r.started_at).toISOString(), channel: r.channel_name, radio: r.mac,
         static: isStatic(r.snr_db), status: r.status, copyOf: r.copy_of, model: r.model, heardAgain: r.again,
-        transcripts: scripts.all(r.id), sent: r.sent, found: json(r.result), firstFound: json(r.original),
+        transcripts: scripts.all(r.id), sent: r.sent, found: json(r.result), firstFound: json(r.original), note: this.noteOf(r.id)?.note ?? null,
         usage: json(r.usage), error: r.error, correctedBy: fixes.all(r.id),
       })),
     };
@@ -1273,7 +1284,7 @@ export class Findings {
   /** Delete every finding and match (the watch list stays). */
   forget() {
     this.queue = [];
-    this.db.exec('DELETE FROM finding_hits; DELETE FROM finding_corrections; DELETE FROM findings;');
+    this.db.exec('DELETE FROM finding_hits; DELETE FROM finding_corrections; DELETE FROM finding_notes; DELETE FROM findings;');
     return this.settings();
   }
 
@@ -1287,5 +1298,36 @@ export class Findings {
                        OR by_id NOT IN (SELECT id FROM transmissions)`).run(cutoff);
     this.db.prepare(`DELETE FROM findings WHERE created_at < ?
                        OR transmission_id NOT IN (SELECT id FROM transmissions)`).run(cutoff);
+    this.db.prepare('DELETE FROM finding_notes WHERE transmission_id NOT IN (SELECT transmission_id FROM findings)').run();
+  }
+
+  /**
+   * A person's note on a finding: what the model got wrong, or what it should know ("the car is grey, not
+   * great"). It's shown with the finding, and given to the model whenever the finding is listed with a later
+   * transmission, or the transmission is read again. Empty takes it off.
+   * @param {number} id - The finding's transmission.
+   * @param {string} note - The note.
+   * @param {string|null} [by] - Who wrote it.
+   * @returns {{note: string|null, by: string|null, at: number|null}} The note now.
+   */
+  setNote(id, note, by = null) {
+    if (!this.db.prepare("SELECT 1 FROM findings WHERE transmission_id = ? AND status IN ('done', 'error')").get(id)) {
+      throw fail('no such finding', 404);
+    }
+    const text = String(note ?? '').trim().slice(0, 500);
+    if (!text) {
+      this.db.prepare('DELETE FROM finding_notes WHERE transmission_id = ?').run(id);
+      return { note: null, by: null, at: null };
+    }
+    this.db.prepare(`INSERT INTO finding_notes (transmission_id, note, by, created_at) VALUES (?, ?, ?, ?)
+                     ON CONFLICT(transmission_id) DO UPDATE SET note = excluded.note, by = excluded.by, created_at = excluded.created_at`)
+      .run(id, text, by, this.now());
+    return { note: text, by, at: this.now() };
+  }
+
+  /** @returns {{note: string, by: string|null, at: number}|null} A finding's note. */
+  noteOf(id) {
+    const r = this.db.prepare('SELECT note, by, created_at AS at FROM finding_notes WHERE transmission_id = ?').get(id);
+    return r ?? null;
   }
 }

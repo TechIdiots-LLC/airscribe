@@ -618,6 +618,28 @@ test('local terms: known ones and guesses go with a transmission that says them;
   assert.ok(findings.exported({ hours: 1 }).terms.some((t) => t.term === 'Code 4'), 'the export has them');
 });
 
+test('a person’s note on a finding goes to the model with it, and when it’s read again', { skip: !sqlite }, async () => {
+  const { findings, calls, say, clock, tick } = await setUp({ answer: { summary: 'Car 12 stops a great Honda Civic', vehicles: ['great Honda Civic'] } });
+  findings.save({ enabled: true, url: 'http://llm.invalid:11434' });
+  const first = say('car twelve stopping a great honda civic on main', clock());
+  await findings.read(first);
+  assert.throws(() => findings.setNote(9999, 'x'), /no such finding/);
+  assert.deepEqual(findings.setNote(first, '  the car is grey, not great  ', 'alice').note, 'the car is grey, not great');
+  assert.equal(findings.results({})[0].note.by, 'alice');
+
+  tick(60_000);
+  await findings.read(say('car twelve the great honda is clear', clock()));
+  const user = calls.at(-1).body.messages[1].content;
+  assert.match(user, /- finding \d+ .*vehicles: great Honda Civic; a person's note on it: the car is grey, not great/);
+  assert.match(calls.at(-1).body.messages[0].content, /A person's note on an earlier finding/);
+
+  // Read again: its own note goes with it
+  await findings.read(first);
+  assert.match(calls.at(-1).body.messages[1].content, /A person's note on this transmission, from reading it before: the car is grey, not great/);
+  assert.equal(findings.setNote(first, '').note, null, 'empty takes it off');
+  assert.equal(findings.results({}).find((r) => r.id === first).note, null);
+});
+
 test('signed-in users read Findings, only an admin changes it, the public neither', { skip: !sqlite }, async () => {
   const { DatabaseSync } = await import('node:sqlite');
   const { Store } = await import('../src/store.js');
@@ -659,6 +681,7 @@ test('signed-in users read Findings, only an admin changes it, the public neithe
     assert.equal((await bob('DELETE', '/admin/findings/roads')).status, 403);
     assert.equal((await bob('GET', '/admin/findings/export')).status, 403, 'nor the export, which holds what was sent');
     assert.equal((await bob('GET', '/admin/findings/terms')).status, 403, 'nor the local terms');
+    assert.equal((await bob('PUT', '/admin/findings/1/note', { note: 'x' })).status, 403, 'nor notes');
     assert.equal((await bob('POST', '/admin/findings/terms', { term: 'Code 4', meaning: 'ok' })).status, 403);
     const alice = await as('alice', 'correct horse');
     const s = await alice('PUT', '/admin/findings', { url: 'http://llm.invalid:11434', model: 'qwen3:8b', apiKey: 'secret' });

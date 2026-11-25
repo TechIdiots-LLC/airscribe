@@ -451,3 +451,5 @@ main.page-text li { background: none; border: 0; border-radius: 0; padding: 0; m
 .site-footer > * + *::before { content: '·'; margin-right: 8px; color: var(--muted); }
 .site-footer a { color: var(--muted); }
 .site-footer a:hover { color: var(--fg); }
+.fd-note { margin: 4px 0; }
+.fd-note textarea { width: 100%; max-width: 560px; font: inherit; }

@@ -173,6 +173,42 @@ function tokens(u) {
     u.ms != null ? `${(u.ms / 1000).toFixed(1)} s` : ''].filter(Boolean).join(', ');
 }
 
+/**
+ * A person's note on a finding ("grey, not great"): shown to everyone, written by an admin, and given to the model
+ * whenever the finding is listed with a later transmission.
+ */
+function noteBox(r) {
+  const box = el('div', { className: 'fd-note' });
+  const show = (n) => {
+    box.replaceChildren(
+      n ? el('div', {}, el('strong', {}, 'Note: '), n.note,
+        el('span', { className: 'meta' }, ` · ${[n.by, n.at ? new Date(n.at).toLocaleDateString() : ''].filter(Boolean).join(', ')}`)) : '',
+      isAdmin ? el('button', { className: 'link', onclick: () => edit(n) }, n ? 'Edit the note' : 'Add a note') : '');
+  };
+  const edit = (n) => {
+    const text = el('textarea', { rows: 2, cols: 50, value: n?.note ?? '', maxLength: 500,
+      placeholder: 'What it got wrong, or should know: “the car is grey, not great”' });
+    const msg = el('span', { className: 'error' });
+    const save = async (note) => {
+      try {
+        const saved = await api(`/admin/findings/${r.id}/note`, { method: 'PUT', body: { note } });
+        r.note = saved.note ? saved : null;
+        show(r.note);
+      } catch (e) {
+        msg.textContent = e.message;
+      }
+    };
+    box.replaceChildren(text, el('div', { className: 'row' },
+      el('button', { onclick: () => save(text.value) }, 'Save'),
+      n ? el('button', { className: 'link', onclick: () => save('') }, 'Remove') : '',
+      el('button', { className: 'link', onclick: () => show(n) }, 'Cancel'), msg),
+    el('p', { className: 'meta' }, 'The model is given it with this finding from now on, and when this transmission is read again.'));
+    text.focus();
+  };
+  show(r.note);
+  return box;
+}
+
 /** What the model wrote that was taken out: not said in the transmission, or put in plates and not one. */
 function leftOut(unheard) {
   const line = (list, label, title) => (list.length
@@ -328,6 +364,7 @@ function resultRow(r) {
     foundList(r.found, marked),
     ...corrections(r),
     ...leftOut(r.found.unheard ?? []),
+    noteBox(r),
     el('audio', { controls: true, preload: 'none', src: withToken(`/api/transmissions/${r.id}/audio`) }),
     ...copiesOf(r, true),
     r.sent ? sentBox('Sent to the model', r.sent, r.usage) : '',

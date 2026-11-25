@@ -211,6 +211,20 @@ was shown is changed, and only a value it has ("12 Main Street" matches "12 Main
 anything else it claims is left alone. What was first found is kept in the database (`findings.original`). The
 transcripts themselves never change. A transmission read again starts from its new answer.
 
+### Notes on a finding
+
+When the model gets something wrong, an admin can say so on the finding itself: **Add a note** under it ("the car
+is grey, not great"). Everyone signed in sees the note. The model is given it with that finding whenever the
+finding is listed with a later transmission ("…; a person's note on it: the car is grey, not great"), and with the
+transmission itself if it's read again. It's told a note was written by someone who checked, to trust it over what
+was found, and to read the new transmission the same way where the note says how something was misheard.
+
+A note helps only while its finding is listed, which is for **Earlier findings, last** minutes. A mishearing that
+keeps coming back ("great" for "grey" before every car) is better as a local term, which goes with every
+transmission that says it: `great = often a mishearing of "grey", before a vehicle`.
+
+Notes go with the finding: deleted when it is, and in the export.
+
 ### Local terms
 
 Radio has its own words, and every area its own: "Code 5", "Q5 statements", "a Section 12 up to UMass". A model
@@ -333,6 +347,7 @@ The same, for scripts. Reading takes any signed-in user's token or session; the 
 | `GET /api/admin/findings/results` | `?q=&hits=1&before=&limit=`: findings, newest first |
 | `GET`, `POST /api/admin/findings/watches`; `DELETE …/watches/:id` | the watch list |
 | `GET`, `POST /api/admin/findings/terms`; `PUT`, `DELETE …/terms/:id` | local terms, and their counts; `{term, meaning, channels}`; `{meaning, channels, status}` |
+| `PUT /api/admin/findings/:id/note` | `{note}`: a note on a finding; empty takes it off |
 | `GET /api/admin/findings/terms/:id/seen` | the transmissions a term was said in |
 | `POST /api/admin/findings/terms/learn` | work out what the collected terms mean, now |
 | `POST /api/admin/findings/terms/import`; `GET …/terms/export` | `{text}`, a line each; the known ones, as text |
