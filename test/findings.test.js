@@ -367,6 +367,37 @@ test('another channel’s finding goes with a transmission only when it names a 
   assert.doesNotMatch(user, /stuffing|domestic dispute/, 'calls that share nothing with it');
 });
 
+test('a channel’s service is the model’s to go by, and holds over a guess of ham or other', { skip: !sqlite }, async () => {
+  const { serviceByName } = await import('../src/findings.js');
+  assert.deepEqual(['Holden PD', 'Holden Fir', 'W1EMC Sout', 'EMS Citywide - EMS Dispatch', 'C8 Fire/EMS Dispatch', 'Rutld Reg2']
+    .map(serviceByName), ['police', 'fire', 'amateur', 'ems', null, null], 'a name that says two says nothing');
+  // "Sierra Alpha" on a fire channel read as a ham, as it was
+  const { store, findings, calls, say, clock, tick } = await setUp({ answer: { summary: 'x', service: 'amateur' } });
+  findings.save({ enabled: true, url: 'http://llm.invalid:11434' });
+  await findings.read(say('Sierra Alpha 762-1400, copy one', clock(), 'Holden Fir'));
+  assert.match(calls[0].body.messages[1].content, /^Channel: Holden Fir \(a fire channel\)\n/);
+  assert.equal(findings.results({})[0].found.service, 'fire');
+  // A channel its name says nothing about: what its findings mostly said, once there are enough
+  const done = (n, s) => {
+    for (let i = 0; i < n; i++) {
+      const id = say(`traffic ${s} ${i}`, clock() - 1000 * (i + 10), 'Rutld Reg2');
+      store.db.prepare("INSERT INTO findings (transmission_id, status, result, created_at) VALUES (?, 'done', ?, ?)")
+        .run(id, JSON.stringify({ summary: 's', service: s }), clock());
+    }
+  };
+  done(4, 'fire');
+  assert.equal(findings.channelService('Rutld Reg2'), null, 'four is too few');
+  done(1, 'amateur');
+  done(2, 'fire');
+  tick(10 * 60_000);
+  assert.deepEqual(findings.channelService('Rutld Reg2'), { service: 'fire', from: 'usual' });
+  // Uniden's database over the name
+  store.db.exec(`CREATE TABLE IF NOT EXISTS uniden_entries (key TEXT, func INTEGER)`);
+  store.db.prepare('INSERT INTO uniden_entries (key, func) VALUES (?, 13)').run('holden pd');
+  tick(10 * 60_000);
+  assert.deepEqual(findings.channelService('Holden PD'), { service: 'amateur', from: 'uniden' });
+});
+
 test('findings can be had for one channel, or one radio', { skip: !sqlite }, async () => {
   const { store, findings, say, clock } = await setUp({ answer: { summary: 'x' } });
   findings.save({ enabled: true, url: 'http://llm.invalid:11434' });

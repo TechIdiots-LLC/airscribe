@@ -18,6 +18,7 @@ import { isStatic } from './quality.js';
 import { heardValue, onlyHeard, said as heardIn } from './heard.js';
 import { readPlates } from './plates.js';
 import { addressRoads, words } from './roads.js';
+import { nameKey } from './uniden.js';
 
 const KEYS = {
   enabled: 'findings.enabled', api: 'findings.api', url: 'findings.url', model: 'findings.model',
@@ -81,8 +82,10 @@ said. Answer with JSON:
 - summary: one short sentence on what the new transmission says, or "" if it says nothing of substance
 - incident: the kind of call in a few words ("motor vehicle crash", "structure fire"), or ""
 - service: who is talking: "police", "fire", "ems", "works" (public works, highway, utilities, transit), "amateur"
-  (ham radio), or "other". The channel's name helps: "Holden PD" is police, "Paxton FD" fire, and a channel named
-  by a callsign ("W1BIM", "N1LHP") is an amateur repeater
+  (ham radio), or "other". When the channel's service is given with its name, that's who talks on it: answer it
+  unless the transmission is plainly another service (police heard on a fire channel). Letters read out ("Sierra
+  Alpha") are said by every service, not only hams. Otherwise the channel's name helps: "Holden PD" is police,
+  "Paxton FD" fire, and a channel named by a callsign ("W1BIM", "N1LHP") is an amateur repeater
 - addresses: street addresses, intersections and named places, written as an address is ("412 Elm St",
   "Main St and Route 9", "Walmart on Route 20")
 - roads: the names of the roads those mention, each once ("Elm Street", "Route 9")
@@ -155,6 +158,34 @@ export function serviceOf(v) {
   if (/works|highway|dpw|utilit|transit|water|road/.test(s)) return 'works';
   if (/amateur|\bham\b|repeater/.test(s)) return 'amateur';
   return 'other';
+}
+
+/** A channel's service, as the model is told it. */
+const SERVICE_SAID = {
+  police: 'a police channel', fire: 'a fire channel', ems: 'an EMS channel', works: 'a public works channel',
+  amateur: 'an amateur radio repeater or simplex channel',
+};
+
+// Uniden's FuncTagId for a frequency: the service its database gives it (dispatch, tactical, talk)
+const FUNC = { 2: 'police', 7: 'police', 23: 'police', 3: 'fire', 8: 'fire', 24: 'fire', 4: 'ems', 9: 'ems', 25: 'ems',
+  13: 'amateur', 14: 'works', 26: 'works', 34: 'works' };
+
+/**
+ * A channel's service from its name, when the name says only one: "Holden PD" police, "Holden Fir" fire, a callsign
+ * ("W1EMC Sout") amateur; "C8 Fire/EMS Dispatch", which says two, nothing.
+ * @param {string} name - The channel.
+ * @returns {string|null} The service.
+ */
+export function serviceByName(name) {
+  const s = String(name ?? '');
+  const said = [
+    [/\b[aknw][a-z]?\d[a-z]{1,3}\b/i, 'amateur'],
+    [/\b(pd|police|sheriff|law|trooper)\b/i, 'police'],
+    [/\b(fd|fire|fir)\b/i, 'fire'],
+    [/\b(ems|ambulance|medic)\b/i, 'ems'],
+    [/\b(dpw|highway|works)\b/i, 'works'],
+  ].filter(([re]) => re.test(s)).map(([, v]) => v);
+  return said.length === 1 ? said[0] : null;
 }
 
 export function tidy(raw) {
@@ -466,13 +497,13 @@ export class Findings {
    *   engine's ({text}) or another radio's ({channel, text}).
    * @returns {string} The user message.
    */
-  message(text, context = [], { channel = null, roads = [], static: noisy = false, others = [], readings = [], findings = [], plates = [] } = {}) {
+  message(text, context = [], { channel = null, roads = [], static: noisy = false, others = [], readings = [], findings = [], plates = [], service = null } = {}) {
     const said = (c) => (typeof c === 'string' ? c : `${c.static ? '(heard through static) ' : ''}${c.text}`);
     const where = (c) => `[${c.channel ?? 'channel unknown'}, ${c.ago < 60_000 ? 'under a minute' : `${Math.round(c.ago / 60_000)} min`} before] `;
     const found = (f) => [f.found.summary, ...LISTS.filter((k) => f.found[k]?.length).map((k) => `${k}: ${f.found[k].join(', ')}`)]
       .filter(Boolean).join('; ');
     return [
-      channel ? `Channel: ${channel}\n` : '',
+      channel ? `Channel: ${channel}${service ? ` (${SERVICE_SAID[service]})` : ''}\n` : '',
       roads.length ? `Roads near this channel with names like words said:\n${roads.join('; ')}\n` : '',
       findings.length ? `Earlier findings:\n${findings.map((f) => `- finding ${f.id} ${where(f)}${found(f)}`).join('\n')}\n` : '',
       others.length ? `Meanwhile on other channels:\n${others.map((c) => `- ${where(c)}${said(c)}`).join('\n')}\n` : '',
@@ -658,11 +689,17 @@ export class Findings {
       const roads = this.roads?.hint(said, this.roads.where(t.channel_name)) ?? [];
       const plates = platesIn(texts);
       // Static is said, not skipped: the model is told to trust it less
-      sent = this.message(text, context, { channel: t.channel_name, roads, static: isStatic(t.snr_db), others, readings, findings, plates });
+      const ch = this.channelService(t.channel_name);
+      sent = this.message(text, context, {
+        channel: t.channel_name, service: ch?.service, roads, static: isStatic(t.snr_db), others, readings, findings, plates,
+      });
       ({ found, usage } = await this.send(sent));
       // Only what this transmission said: a road the model put right counts if it's one near that sounds like it
       near = this.roads?.hint(texts.join(' '), this.roads.where(t.channel_name)) ?? [];
       found = withPlates(onlyHeard(found, heardIn(texts, near)), plates);
+      // The channel's service over a guess: phonetic letters read as a ham, or "other" on a dispatch channel. A
+      // service the model names on a channel of another (police on a fire channel) can be right, so it stays
+      if (ch && (ch.service === 'amateur' || ['amateur', 'other'].includes(found.service))) found.service = ch.service;
       this.lastError = null;
     } catch (e) {
       error = e.message;
@@ -684,6 +721,45 @@ export class Findings {
     await this.watch(t, text, found);
     if (found?.corrections.length) await this.correct(id, found.corrections, new Set(findings.map((f) => f.id)));
     if (found) this.hearAgain(id, found, texts, near);
+  }
+
+  /**
+   * Who talks on a channel, as far as it's known without the model: Uniden's database for it, its name ("Holden
+   * PD", "W1EMC"), or what most of its findings have said. Cached a few minutes: it changes slowly.
+   * @param {string|null} name - The channel.
+   * @returns {{service: string, from: 'uniden'|'name'|'usual'}|null} The service, and how it's known.
+   */
+  channelService(name) {
+    if (!name) return null;
+    this.services ??= new Map();
+    const hit = this.services.get(name);
+    if (hit && hit.at > this.now() - 5 * 60_000) return hit.v;
+    let v = null;
+    try {
+      const funcs = this.db.prepare(`SELECT func, count(*) AS n FROM uniden_entries WHERE key = ? AND func IS NOT NULL
+                                      GROUP BY func ORDER BY n DESC`).all(nameKey(name));
+      const s = funcs.map((f) => FUNC[f.func]).find(Boolean);
+      if (s) v = { service: s, from: 'uniden' };
+    } catch {
+      // Uniden's database never imported
+    }
+    if (!v) {
+      const s = serviceByName(name);
+      if (s) v = { service: s, from: 'name' };
+    }
+    if (!v) {
+      // Seven in ten of the last fortnight's, of five or more that said: "Rutld Reg2" is fire if most of it was
+      const rows = this.db.prepare(`SELECT json_extract(f.result, '$.service') AS s, count(*) AS n
+                                      FROM findings f JOIN transmissions t ON t.id = f.transmission_id
+                                     WHERE f.status = 'done' AND t.channel_name = ? AND f.created_at >= ?
+                                     GROUP BY s ORDER BY n DESC`).all(name, this.now() - 14 * 86_400_000)
+        .filter((r) => r.s && r.s !== 'other');
+      const all = rows.reduce((n, r) => n + r.n, 0);
+      // Amateur nine in ten: the model's own mistake was reading a dispatcher's phonetic letters as a ham
+      if (all >= 5 && rows[0].n / all >= (rows[0].s === 'amateur' ? 0.9 : 0.7)) v = { service: rows[0].s, from: 'usual' };
+    }
+    this.services.set(name, { at: this.now(), v });
+    return v;
   }
 
   /** The engine a clip is heard again with: the one set, else the default; only one that takes a prompt. */

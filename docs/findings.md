@@ -85,7 +85,7 @@ the new one says, to leave out what isn't said rather than guess, and to answer 
 | --- | --- |
 | `summary` | One short sentence, or empty when nothing of substance was said |
 | `incident` | The kind of call: "motor vehicle crash", "structure fire" |
-| `service` | Who is talking: `police`, `fire`, `ems`, `works` (public works, highway, utilities, transit), `amateur` or `other`. The channel's name helps it ("Holden PD") |
+| `service` | Who is talking: `police`, `fire`, `ems`, `works` (public works, highway, utilities, transit), `amateur` or `other`. The channel's own service goes with it when it's known (below) |
 | `addresses` | Addresses, intersections and named places: "412 Elm St", "Main St and Route 9" |
 | `roads` | The roads those mention, each once: "Elm Street", "Route 9" |
 | `plates` | Letters and digits only; a phonetic alphabet read out ("Adam Boy Charlie 1 2 3") becomes letters: "ABC123" |
@@ -95,6 +95,22 @@ the new one says, to leave out what isn't said rather than guess, and to answer 
 | `corrections` | What the new transmission corrects in an earlier finding (below): `finding`, `field`, `was`, `now` |
 
 Whatever comes back is held to that shape: lists of short strings, plates as 2 to 10 letters and digits.
+
+### The channel's service
+
+Asked one transmission at a time, the model labelled the same dispatch channel fire, then other, then amateur: a
+dispatcher reading out "Sierra Alpha" sounds like a ham. So the service is worked out for the channel, and given
+with its name ("Channel: Holden Fir (a fire channel)"), from the first of:
+
+1. **Uniden's database**, when it's imported: the service it tags the channel's name with (law, fire or EMS
+   dispatch, tactical or talk; ham; public works, utilities, transportation).
+2. **Its name**, when the name says one service only: "PD", "police", "sheriff"; "FD", "fire", "Fir"; "EMS",
+   "ambulance"; "DPW", "highway"; a callsign ("W1EMC") for amateur. "C8 Fire/EMS Dispatch" says two, so nothing.
+3. **What its findings have mostly said**: seven in ten of five or more in the last fortnight, nine in ten for
+   amateur, since that's the label the model got wrong.
+
+The channel's service replaces an answer of `amateur` or `other` (and any answer on an amateur channel). Another
+service the model names stays, since police can be heard on a fire channel.
 
 ### Plates read out
 
