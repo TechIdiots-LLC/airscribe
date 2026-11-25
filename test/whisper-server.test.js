@@ -107,6 +107,18 @@ test('it starts the server on loopback with the model, and keeps it for the next
   }
 });
 
+test('a prompt is sent when one is given, and not otherwise', async () => {
+  const e = engineWith();
+  try {
+    assert.ok(!('prompt' in (await sent(e)).fields));
+    const { fields } = JSON.parse((await e.transcribe(wav, { prompt: 'Copy. Plate Alpha Bravo.' })).text);
+    assert.equal(fields.prompt, 'Copy. Plate Alpha Bravo.');
+    assert.equal(e.prompts, true);
+  } finally {
+    e.stop();
+  }
+});
+
 test('no language is sent unless one is set, leaving the server its own', async () => {
   const e = engineWith();
   try {

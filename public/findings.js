@@ -59,7 +59,7 @@ function foundList(found, marked = new Set()) {
 
 // ---- Settings -------------------------------------------------------------------
 
-const CONTEXT = ['contextMinutes', 'contextCount', 'othersCount', 'sameCallSeconds', 'waitMinutes', 'findingsCount', 'findingsMinutes'];
+const CONTEXT = ['contextMinutes', 'contextCount', 'othersCount', 'sameCallSeconds', 'waitMinutes', 'findingsCount', 'findingsMinutes', 'againTimes'];
 
 function render(s) {
   $('fd-enabled').checked = s.enabled;
@@ -71,6 +71,10 @@ function render(s) {
   $('fd-webhook').value = s.webhook ?? '';
   $('fd-keep').value = s.keepDays;
   for (const k of CONTEXT) $(`fd-${k}`).value = s[k] ?? '';
+  const engines = s.againEngines ?? [];
+  $('fd-againEngine').replaceChildren(...(engines.length ? engines : ['']).map((n) => el('option', { value: n }, n || 'none takes a prompt')));
+  $('fd-againEngine').value = engines.includes(s.againEngine) ? s.againEngine : (engines[0] ?? '');
+  $('fd-againEngine').disabled = !engines.length;
   const [state, error] = stateOf(s);
   say(s.biggestPrompt ? `${state} Biggest prompt in the last day: ${s.biggestPrompt.toLocaleString()} tokens.` : state, error);
   roadsReady = Boolean(s.roads?.ways);
@@ -214,6 +218,7 @@ $('fd-save').onclick = async () => {
         model: $('fd-model').value, apiKey: $('fd-key').value, webhook: $('fd-webhook').value,
         keepDays: $('fd-keep').value,
         ...Object.fromEntries(CONTEXT.map((k) => [k, $(`fd-${k}`).value])),
+        againEngine: $('fd-againEngine').value,
       },
     }));
   } catch (e) {
@@ -303,6 +308,7 @@ function resultRow(r) {
       servicePill(r.found.service),
       r.found.incident ? el('span', { className: 'pill' }, r.found.incident) : '',
       r.static ? el('span', { className: 'pill tag-static', title: 'A weak signal: the transcript, and what was found in it, may be wrong' }, 'static') : '',
+      r.heardAgain ? el('span', { className: 'pill', title: 'The clip was heard again, told which words to expect, because this seemed misheard' }, `heard again: ${r.heardAgain}`) : '',
       ...r.hits.map((h) => el('span', { className: 'pill' }, `watch: ${h.term}`))),
     r.found.summary ? el('div', {}, el('strong', {}, r.found.summary)) : '',
     el('div', { className: 'meta' }, `“${r.text}”`),

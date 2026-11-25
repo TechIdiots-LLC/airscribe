@@ -376,6 +376,41 @@ test('a plate spelled out is given to the model, and kept when it leaves it out'
   assert.equal(r.hits[0]?.field, 'plates', 'a watch for it matches');
 });
 
+test('a plate the model says is misheard is heard again, told the alphabet, and read again once', { skip: !sqlite }, async () => {
+  const { store, manager, findings, calls, say, clock } = await setUp({ answer: { summary: 'Car 12 runs a plate', again: 'plate' } });
+  const asked = [];
+  manager.engines = new Map([['base', { prompts: true }], ['sherpa', {}]]);
+  manager.hearAgain = (o) => (asked.push(o), true);
+  findings.start();
+  try {
+    findings.save({ enabled: true, url: 'http://llm.invalid:11434' });
+    assert.throws(() => findings.save({ againEngine: 'sherpa' }), /takes a prompt/);
+    assert.deepEqual(findings.settings().againEngines, ['base']);
+    const id = say('car twelve running plate adam boy charlie one', clock());
+    await findings.read(id);
+    assert.equal(asked.length, 1);
+    assert.equal(asked[0].as, 'base+again1');
+    assert.match(asked[0].prompt, /^Copy\. En route\. Received\. Plate Alpha Bravo .* Zulu, 1 2 3/);
+    assert.equal(findings.results({})[0].heardAgain, 'plate');
+
+    // Heard again: read again with it, and not sent a second time
+    store.saveTranscript(id, 'base+again1', { status: 'done', text: 'car twelve running plate adam boy charlie one two three' });
+    manager.emit('transcribed', { id, engine: 'base+again1', status: 'done' });
+    await findings.drain();
+    assert.match(calls[1].body.messages[1].content, /- heard again, told which words to expect \(so it may lean to them\): car twelve/);
+    assert.match(calls[1].body.messages[1].content, /Plates spelled out in it: ABC1, ABC123/);
+    assert.equal(asked.length, 1, 'once, as set');
+
+    // A road with no roads near to tell it: hearing it again would hear the same
+    findings.save({ againTimes: 2 });
+    assert.equal(findings.hearAgain(id, { again: 'road' }, ['x'], []), null);
+    findings.save({ againTimes: 0 });
+    assert.equal(findings.hearAgain(id, { again: 'plate' }, ['x'], []), null);
+  } finally {
+    findings.stop();
+  }
+});
+
 test('with the model down, the error is kept and watches still see the transcript', { skip: !sqlite }, async () => {
   const { findings, say, clock, tick } = await setUp({ fail: true });
   findings.save({ enabled: true, url: 'http://llm.invalid:11434', keepDays: 2 });

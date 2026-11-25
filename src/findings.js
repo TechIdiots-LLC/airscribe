@@ -21,8 +21,12 @@ import { addressRoads, words } from './roads.js';
 
 const KEYS = {
   enabled: 'findings.enabled', api: 'findings.api', url: 'findings.url', model: 'findings.model',
-  apiKey: 'findings.apiKey', webhook: 'findings.webhook', keepDays: 'findings.keepDays',
+  apiKey: 'findings.apiKey', webhook: 'findings.webhook', keepDays: 'findings.keepDays', againEngine: 'findings.againEngine',
 };
+/** What a clip heard again is saved as: "turbo+again1" beside "turbo". */
+export const AGAIN = /\+again(\d+)$/;
+/** Why the model can ask for a clip to be heard again. */
+const AGAIN_WHY = ['plate', 'number', 'road'];
 const DEFAULTS = { api: 'ollama', model: 'qwen3:8b', keepDays: 30 };
 /** What the model is given with each transmission, set on the Admin page: whole numbers, capped so the prompt stays small. */
 export const CONTEXT = {
@@ -33,6 +37,7 @@ export const CONTEXT = {
   waitMinutes: { def: 3, min: 0, max: 30, what: 'wait 0 to 30 minutes for the other speech engines' },
   findingsMinutes: { def: 15, min: 1, max: 60, what: 'give earlier findings from the last 1 to 60 minutes' },
   findingsCount: { def: 5, min: 0, max: 20, what: 'give 0 to 20 earlier findings' },
+  againTimes: { def: 1, min: 0, max: 2, what: 'hear a clip again 0 to 2 times' },
 };
 const TIMEOUT_MS = 120_000;          // a model loading onto the card for the first call takes a while
 const QUEUE_MAX = 5000;
@@ -50,6 +55,7 @@ export const SCHEMA = {
     summary: { type: 'string' },
     incident: { type: 'string' },
     service: { type: 'string', enum: SERVICES },
+    again: { type: 'string', enum: ['', ...AGAIN_WHY] },
     ...Object.fromEntries(LISTS.map((k) => [k, { type: 'array', items: { type: 'string' } }])),
     corrections: {
       type: 'array',
@@ -62,7 +68,7 @@ export const SCHEMA = {
       },
     },
   },
-  required: ['summary', 'incident', 'service', ...LISTS, 'corrections'],
+  required: ['summary', 'incident', 'service', 'again', ...LISTS, 'corrections'],
 };
 
 const SYSTEM = `You read transcripts of radio traffic (police, fire, EMS, public works, amateur radio), made by speech
@@ -90,6 +96,9 @@ said. Answer with JSON:
   clearly (another house number, plate or street for the same thing), one entry per detail: finding (its number),
   field (addresses, roads, plates, vehicles, people or units), was (the earlier value, exactly as listed) and now
   (the right value). Never for a detail of another call
+- again: when a detail that matters seems misheard, so hearing the clip again could get it: "plate" (a plate only
+  partly heard), "number" (a house or unit number unclear), "road" (a road's or place's name that doesn't sound
+  right); otherwise ""
 Use [] or "" for anything not said. Never guess: leave out what the text doesn't say.
 Earlier findings, when listed, are what was worked out from earlier transmissions on any channel, each with its
 number. They're context too: report their details again only when the new transmission says them.
@@ -151,7 +160,10 @@ export function serviceOf(v) {
 export function tidy(raw) {
   const o = raw && typeof raw === 'object' ? raw : {};
   const str = (v, max = 300) => (typeof v === 'string' ? v.trim().slice(0, max) : '');
-  const out = { summary: str(o.summary), incident: str(o.incident, 80), service: serviceOf(o.service) };
+  const out = {
+    summary: str(o.summary), incident: str(o.incident, 80), service: serviceOf(o.service),
+    again: AGAIN_WHY.includes(o.again) ? o.again : '',
+  };
   for (const k of LISTS) {
     const seen = new Set();
     out[k] = (Array.isArray(o[k]) ? o[k] : [])
@@ -181,6 +193,23 @@ export function parseReply(content) {
   const b = s.lastIndexOf('}');
   if (a < 0 || b < a) throw new Error('the model didn’t answer with JSON');
   return JSON.parse(s.slice(a, b + 1));
+}
+
+const PHONETIC = 'Alpha Bravo Charlie Delta Echo Foxtrot Golf Hotel India Juliet Kilo Lima Mike November Oscar Papa ' +
+  'Quebec Romeo Sierra Tango Uniform Victor Whiskey X-ray Yankee Zulu';
+
+/**
+ * What whisper is told before a clip it hears again. It takes a prompt as what was said just before, not as an
+ * instruction: so plain radio talk, to keep it to that style, and only the words that might be misheard: the
+ * alphabet for a plate, the roads near that sound like something said for a road or a number.
+ * @param {string} why - 'plate', 'number' or 'road'.
+ * @param {string[]} roads - Roads near the channel that sound like something said.
+ * @returns {string} The prompt.
+ */
+export function againPrompt(why, roads = []) {
+  const lead = 'Copy. En route. Received.';
+  if (why === 'plate') return `${lead} Plate ${PHONETIC}, 1 2 3 4 5 6 7 8 9 0.`;
+  return `${lead} ${roads.slice(0, 12).join(', ')}.`;
 }
 
 /** The plates spelled out in a transmission, in any of its readings. */
@@ -245,6 +274,8 @@ export class Findings {
     if (!cols.has('original')) this.db.exec('ALTER TABLE findings ADD COLUMN original TEXT');
     // Another radio's copy of a transmission read once: status 'copy', and the one read
     if (!cols.has('copy_of')) this.db.exec('ALTER TABLE findings ADD COLUMN copy_of INTEGER');
+    // Why the clip was last sent to be heard again
+    if (!cols.has('again')) this.db.exec('ALTER TABLE findings ADD COLUMN again TEXT');
     this.db.exec(`
       CREATE TABLE IF NOT EXISTS finding_corrections (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -254,6 +285,8 @@ export class Findings {
       CREATE INDEX IF NOT EXISTS finding_corrections_tx ON finding_corrections(transmission_id);
       CREATE INDEX IF NOT EXISTS finding_corrections_by ON finding_corrections(by_id);`);
     this.onTranscribed = ({ id, engine }) => {
+      // Heard again: read again, with it
+      if (AGAIN.test(engine ?? '')) return this.add(id);
       if (!this.engines.length) return this.add(id);
       if (!this.engines.includes(engine)) return;
       const wait = this.number('waitMinutes') * 60_000;
@@ -323,6 +356,9 @@ export class Findings {
       webhook: this.get('webhook'),
       keepDays: Number(this.get('keepDays')),
       ...Object.fromEntries(Object.keys(CONTEXT).map((k) => [k, this.number(k)])),
+      // What a clip can be heard again with: the engines that take a prompt
+      againEngine: this.get('againEngine') || this.primary,
+      againEngines: [...(this.manager?.engines?.entries?.() ?? [])].filter(([, e]) => e.prompts).map(([n]) => n),
       ready: this.enabled(),
       queued: this.queue.length,
       lastError: this.lastError,
@@ -363,7 +399,10 @@ export class Findings {
    * @param {object} body - enabled, api, url, model, apiKey, webhook, keepDays, CONTEXT's numbers; or forgetKey.
    * @returns {object} settings().
    */
-  save({ enabled, api, url, model, apiKey, webhook, keepDays, forgetKey, ...rest } = {}) {
+  save({ enabled, api, url, model, apiKey, webhook, keepDays, forgetKey, againEngine, ...rest } = {}) {
+    if (againEngine !== undefined && againEngine !== '') {
+      if (!this.manager?.engines?.get?.(String(againEngine))?.prompts) throw fail('hear clips again with an engine that takes a prompt (whisper-server)');
+    }
     const numbers = {};
     for (const [k, c] of Object.entries(CONTEXT)) {
       if (rest[k] === undefined || rest[k] === '') continue;
@@ -398,6 +437,7 @@ export class Findings {
     if (forgetKey === true) this.store.setSetting(KEYS.apiKey, null);
     if (on !== undefined) this.store.setSetting(KEYS.enabled, on ? '1' : null);
     for (const [k, n] of Object.entries(numbers)) this.store.setSetting(`findings.${k}`, n);
+    if (againEngine !== undefined) this.store.setSetting(KEYS.againEngine, String(againEngine) || null);
     if (!this.enabled()) this.queue = [];
     return this.settings();
   }
@@ -439,7 +479,9 @@ export class Findings {
       context.length ? `Earlier on this channel:\n${context.map((c) => `- ${said(c)}`).join('\n')}\n` : '',
       `New transmission${noisy ? ', heard through static (weak signal: the transcript may be wrong)' : ''}:\n${text}`,
       readings.length ? `\nOther readings of the new transmission:\n${readings.map((r) => `- ${r.channel
-        ? `another radio on the same frequency (${r.channel})` : 'another speech engine'}: ${r.text}`).join('\n')}` : '',
+        ? `another radio on the same frequency (${r.channel})`
+        : r.again ? 'heard again, told which words to expect (so it may lean to them)' : 'another speech engine'}: ${r.text}`)
+        .join('\n')}` : '',
       plates.length ? `\nPlates spelled out in it: ${plates.join(', ')}` : '',
     ].filter(Boolean).join('\n');
   }
@@ -563,7 +605,9 @@ export class Findings {
   readings(id) {
     const all = this.db.prepare("SELECT engine, text FROM transcripts WHERE transmission_id = ? AND status = 'done'").all(id)
       .map((r) => ({ engine: r.engine, text: spoken(r.text) })).filter((r) => count(r.text) >= 2);
-    return all.sort((a, b) => (b.engine === this.primary) - (a.engine === this.primary) || count(b.text) - count(a.text));
+    // A clip heard again comes after the first hearings: it was told what to expect
+    return all.sort((a, b) => (b.engine === this.primary) - (a.engine === this.primary) ||
+      AGAIN.test(a.engine) - AGAIN.test(b.engine) || count(b.text) - count(a.text));
   }
 
   async read(id) {
@@ -585,7 +629,7 @@ export class Findings {
       .find(Boolean);
     if (first) return this.attach(t, text, first);
     const readings = [
-      ...heard.slice(1).map((r) => ({ text: r.text })),
+      ...heard.slice(1).map((r) => ({ text: r.text, again: AGAIN.test(r.engine) })),
       ...copies.flatMap((c) => this.readings(c.id).slice(0, 1).map((r) => ({ channel: c.channel_name, text: r.text }))),
     ].filter((r, i, all) => !same(r.text, text) && all.findIndex((o) => same(o.text, r.text)) === i);
     const before = (where, args, n) => this.db.prepare(`
@@ -607,16 +651,17 @@ export class Findings {
     let error = null;
     let sent = null;
     let usage = null;
+    const texts = [text, ...readings.map((r) => r.text)];
+    let near = [];
     try {
       const said = [...context.map((c) => c.text), text].join(' ');
       const roads = this.roads?.hint(said, this.roads.where(t.channel_name)) ?? [];
-      const plates = platesIn([text, ...readings.map((r) => r.text)]);
+      const plates = platesIn(texts);
       // Static is said, not skipped: the model is told to trust it less
       sent = this.message(text, context, { channel: t.channel_name, roads, static: isStatic(t.snr_db), others, readings, findings, plates });
       ({ found, usage } = await this.send(sent));
       // Only what this transmission said: a road the model put right counts if it's one near that sounds like it
-      const texts = [text, ...readings.map((r) => r.text)];
-      const near = this.roads?.hint(texts.join(' '), this.roads.where(t.channel_name)) ?? [];
+      near = this.roads?.hint(texts.join(' '), this.roads.where(t.channel_name)) ?? [];
       found = withPlates(onlyHeard(found, heardIn(texts, near)), plates);
       this.lastError = null;
     } catch (e) {
@@ -638,6 +683,42 @@ export class Findings {
     // Watches see the transcript even when the model failed
     await this.watch(t, text, found);
     if (found?.corrections.length) await this.correct(id, found.corrections, new Set(findings.map((f) => f.id)));
+    if (found) this.hearAgain(id, found, texts, near);
+  }
+
+  /** The engine a clip is heard again with: the one set, else the default; only one that takes a prompt. */
+  againWith() {
+    const all = this.manager?.engines;
+    if (!all?.get) return null;
+    const name = this.get('againEngine') || this.primary;
+    return all.get(name)?.prompts ? name : null;
+  }
+
+  /**
+   * Hear a clip again, told which words to expect, when something that matters seems misheard: the model says
+   * so, a plate was begun and not finished, or the readings spell different plates. At most againTimes times; it's
+   * read again when the new transcript is in (onTranscribed).
+   * @param {number} id - The transmission.
+   * @param {object} found - What was found.
+   * @param {string[]} texts - Its readings.
+   * @param {string[]} near - Roads near its channel that sound like something said.
+   * @returns {string|null} Why, when it was sent.
+   */
+  hearAgain(id, found, texts, near) {
+    const engine = this.againWith();
+    if (!engine || !this.manager?.hearAgain) return null;
+    const read = texts.map(readPlates);
+    const spelt = new Set(read.flatMap((r) => r.plates.map((p) => p.plate)));
+    const why = found.again || (read.some((r) => r.unclear) || spelt.size > 1 ? 'plate' : '');
+    // A road or number is heard again with the roads near that sound like it: with none, it would hear the same
+    if (!why || (why !== 'plate' && !near.length)) return null;
+    const done =this.db.prepare('SELECT engine FROM transcripts WHERE transmission_id = ?').all(id)
+      .filter((r) => AGAIN.test(r.engine)).length;
+    if (done >= this.number('againTimes')) return null;
+    const as = `${engine}+again${done + 1}`;
+    if (!this.manager.hearAgain({ id, engineName: engine, prompt: againPrompt(why, near), as })) return null;
+    this.db.prepare('UPDATE findings SET again = ? WHERE transmission_id = ?').run(why, id);
+    return why;
   }
 
   /**
@@ -804,7 +885,7 @@ export class Findings {
       args.push(`%${search}%`, `%${search}%`, `%${compact(search).toUpperCase() || search}%`, `%${search}%`);
     }
     const rows = this.db.prepare(`
-      SELECT t.id, t.started_at, t.channel_name, t.duration_ms, t.snr_db, f.model, f.result, f.sent, f.usage, f.created_at
+      SELECT t.id, t.started_at, t.channel_name, t.duration_ms, t.snr_db, f.model, f.result, f.sent, f.usage, f.created_at, f.again
         FROM findings f JOIN transmissions t ON t.id = f.transmission_id
        WHERE ${where.join(' AND ')} ORDER BY ${made ? 'f.created_at' : 't.started_at DESC'} LIMIT ?`).all(...args, n);
     const text = this.db.prepare(`SELECT text FROM transcripts WHERE transmission_id = ? AND status = 'done'
@@ -825,7 +906,7 @@ export class Findings {
       id: r.id, startedAt: r.started_at, channel: r.channel_name, durationMs: r.duration_ms, model: r.model,
       text: text.get(r.id, this.primary ?? '')?.text ?? '',
       found: JSON.parse(r.result), hits: hitsOf.all(r.id), sent: r.sent ?? null, static: isStatic(r.snr_db),
-      usage: r.usage ? JSON.parse(r.usage) : null, correctedBy: by.all(r.id), corrects: of.all(r.id), madeAt: r.created_at,
+      usage: r.usage ? JSON.parse(r.usage) : null, heardAgain: r.again ?? null, correctedBy: by.all(r.id), corrects: of.all(r.id), madeAt: r.created_at,
       copies: copies.all(r.id).map((c) => ({ ...c, text: text.get(c.id, this.primary ?? '')?.text ?? '' })),
     }));
   }

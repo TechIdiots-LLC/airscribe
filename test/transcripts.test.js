@@ -154,3 +154,21 @@ test('an unknown engine is refused rather than silently doing nothing', () => {
   const { manager } = make();
   assert.throws(() => manager.retranscribe('nope'), /unknown engine/);
 });
+
+test('a clip heard again is given its prompt, and kept beside the first', async () => {
+  const { manager, store, dataDir } = make();
+  const prompts = [];
+  manager.engines.set('whisper', { name: 'whisper', prompts: true, transcribe: async (wav, o) => (prompts.push(o?.prompt), { text: 'again' }) });
+  const id = addClip(manager, store, dataDir);
+  const seen = [];
+  manager.on('transcribed', (e) => seen.push(e.engine));
+  assert.equal(manager.hearAgain({ id, engineName: 'whisper', prompt: 'Copy. Plate Alpha Bravo.', as: 'whisper+again1' }), true);
+  manager.enqueue({ priority: 0, id: addClip(manager, store, dataDir, 2), engineName: 'base', wav: join(dataDir, 'clips', 'AABBCCDDEEFF', 'c2.16k.wav') });
+  await manager.pump();
+  assert.deepEqual(seen.sort(), ['base', 'whisper+again1'], 'saved, and said, under its own name');
+  assert.deepEqual(prompts, ['Copy. Plate Alpha Bravo.']);
+  assert.equal(store.transcripts(id)[0].engine, 'whisper+again1');
+  assert.throws(() => manager.hearAgain({ id, engineName: 'nope', prompt: '', as: 'x' }), /unknown engine/);
+  store.rows.set(9, { id: 9, audio_file: 'gone.wav' });
+  assert.equal(manager.hearAgain({ id: 9, engineName: 'whisper', prompt: '', as: 'x' }), false, 'its audio is gone');
+});

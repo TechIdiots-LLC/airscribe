@@ -569,12 +569,12 @@ export class Manager extends EventEmitter {
    * @param {{id: number, engineName: string, wav: string}} job - The work.
    * @returns {Promise<void>}
    */
-  async runJob({ id, engineName, wav }) {
+  async runJob({ id, engineName, wav, prompt, as }) {
     const engine = this.engines.get(engineName);
     if (!engine || !this.store.hasTransmission(id)) return;
     let result;
     try {
-      const { text } = await engine.transcribe(wav);
+      const { text } = await (prompt ? engine.transcribe(wav, { prompt }) : engine.transcribe(wav));
       result = { status: 'done', text };
     } catch (e) {
       result = { status: 'error', error: e.message };
@@ -582,10 +582,25 @@ export class Manager extends EventEmitter {
     // Deleted while it was being read: there is nothing to attach the
     // transcript to, and nothing for the page to show
     if (!this.store.hasTransmission(id)) return;
-    this.store.saveTranscript(id, engineName, result);
+    this.store.saveTranscript(id, as ?? engineName, result);
     this.emit('update', { type: 'transmission', ...this.store.transmission(id) });
     // For Findings, which reads finished transcripts (never sent to the page)
-    this.emit('transcribed', { id, engine: engineName, status: result.status });
+    this.emit('transcribed', { id, engine: as ?? engineName, status: result.status });
+  }
+
+  /**
+   * Hear a clip again, with words to expect: Findings asks when a plate, number or road seemed misheard. Queued
+   * behind live traffic, and kept as another transcript, named `as`, beside the first.
+   * @param {{id: number, engineName: string, prompt: string, as: string}} o - The clip, the engine, the prompt.
+   * @returns {boolean} Whether it was queued: false when its audio is gone.
+   */
+  hearAgain({ id, engineName, prompt, as }) {
+    if (!this.engines.has(engineName)) throw new Error(`unknown engine ${engineName}`);
+    const row = this.store.transmission(id);
+    const wav = row && this.engineWavFor(row);
+    if (!wav) return false;
+    this.enqueue({ priority: 1, id, engineName, wav, prompt, as });
+    return true;
   }
 
   /**

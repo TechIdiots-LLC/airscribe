@@ -131,7 +131,7 @@ export function createEngines(stt) {
     const engine = make(cfg);
     // The config's name wins, so two models of the same type stay apart:
     // "tiny" and "base" are both sherpa-onnx and must not collide.
-    engines.set(name, { ...engine, name, transcribe: (w) => engine.transcribe(w),
+    engines.set(name, { ...engine, name, prompts: Boolean(engine.prompts), transcribe: (w, o) => engine.transcribe(w, o),
                         stop: () => engine.stop?.() });
   }
 

@@ -124,6 +124,29 @@ readings (`src/heard.js`), and taken out if it wasn't:
 The summary isn't checked. What was taken out shows under the finding on the Findings tab, as **Left out, not said in
 it**: when something right is taken out, that line and the prompt are what to send in.
 
+### Hearing a clip again
+
+Hearing the same clip with the same engine gives the same words, so a clip is heard again *told which words to
+expect*: whisper-server takes a prompt, which it reads as what was said just before the clip and leans towards. It's
+sent when:
+
+- the model answers `again`: `plate` (one only partly heard), `number` (a house or unit number unclear) or `road` (a
+  road's or place's name that doesn't sound right);
+- "plate" or "reg" was said with no plate after it, or the readings spell different plates.
+
+What it's told depends on why, and is kept to plain radio talk ("Copy. En route. Received."), so it keeps to that
+style rather than writing fuller sentences than were said. For a plate it's given the phonetic alphabet and the
+digits; for a road or a number, the roads near the channel that sound like something said, and nothing at all when
+there are none, since it would only hear the same again. It's never told what the model thought was said.
+
+The new transcript is kept beside the first, as `<engine>+again1`, and the transmission is read again with it as
+another reading, which the model is told was heard with words to expect: a clip told "Beachwood Drive" may hear
+Beachwood Drive in noise, so it's weighed as a hint, not as proof. The finding shows **heard again: plate** (or
+number, road).
+
+Set on Admin → Findings: **Hear again up to** 0 to 2 times (1 by default; 0 never), **with** an engine that takes a
+prompt (the default engine if it does). Clips heard again wait behind live traffic.
+
 ### Corrections
 
 "Correction, one-twelve Main" after a finding of "12 Main St": the model is asked to say when the new transmission

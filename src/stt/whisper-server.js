@@ -79,6 +79,8 @@ async function healthy(base) {
  */
 export class WhisperServerEngine {
   name = 'whisper-server';
+  /** Takes a prompt: words to expect, which Findings gives a clip it has heard again. */
+  prompts = true;
 
   /**
    * @param {object} c - The `stt.whisper-server` config section.
@@ -186,9 +188,10 @@ export class WhisperServerEngine {
 
   /**
    * @param {string} wavPath - A 16 kHz mono WAV.
+   * @param {{prompt?: string}} [o] - Text taken as said just before the clip: whisper leans to its words and style.
    * @returns {Promise<{text: string}>} The transcript.
    */
-  async transcribe(wavPath) {
+  async transcribe(wavPath, { prompt } = {}) {
     await this.start();
     const base = this.base;
     if (!base) throw new Error('whisper-server not running');
@@ -197,6 +200,7 @@ export class WhisperServerEngine {
     form.append('response_format', 'json');
     form.append('no_timestamps', 'true');
     if (this.c.language) form.append('language', String(this.c.language));
+    if (prompt) form.append('prompt', prompt);
 
     let res;
     try {
