@@ -754,12 +754,14 @@ export class Findings {
     let usage = null;
     let near = [];
     try {
-      const said = [...context.map((c) => c.text), text].join(' ');
-      const roads = this.roads?.hint(said, this.roads.where(t.channel_name)) ?? [];
       // Static is said, not skipped: the model is told to trust it less
       const ch = this.channelService(t.channel_name);
       // A ham spells a callsign the way dispatch spells a plate: there, only one after "reg" or "plate"
       const amateur = ch?.service === 'amateur';
+      // Not to a ham channel: a chat about antennas sounds like a dozen roads ("My Way", "Guys Way"), and the model
+      // reported them
+      const hint = (s) => (amateur ? [] : this.roads?.hint(s, this.roads.where(t.channel_name)) ?? []);
+      const roads = hint([...context.map((c) => c.text), text].join(' '));
       // A plate heard again counts when it finishes one begun ("plate Adam Boy Charlie one" then ABC123)
       const begun = platesIn(firsts, { cuedOnly: amateur });
       const open = firsts.some((s) => readPlates(s).unclear);
@@ -770,7 +772,7 @@ export class Findings {
       });
       ({ found, usage } = await this.send(sent));
       // Only what this transmission said: a road the model put right counts if it's one near that sounds like it
-      near = this.roads?.hint(firsts.join(' '), this.roads.where(t.channel_name)) ?? [];
+      near = hint(firsts.join(' '));
       found = withPlates(onlyHeard(found, heardIn(firsts, near)), plates, { cued: firsts.some(cuedIn), amateur });
       // The channel's service over a guess: phonetic letters read as a ham, or "other" on a dispatch channel. A
       // service the model names on a channel of another (police on a fire channel) can be right, so it stays

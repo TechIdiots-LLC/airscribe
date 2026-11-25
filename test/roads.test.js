@@ -135,6 +135,14 @@ test('Findings gives the model the roads near the channel, and maps what it ment
   assert.equal(m.features.features.find((f) => m.places[f.properties.key].name === 'Elm Street').geometry.coordinates.length, 2);
   assert.equal(findings.map({ hours: 1, also: id }).transmissions[id].channel, 'Holden PD');
   assert.throws(() => findings.map({ hours: 'x' }), /number of hours/);
+
+  // Not on a ham channel: a chat about antennas sounds like a dozen roads
+  const ham = store.addTransmission({ mac: 'AA:BB', startedAt: at + 1000, durationMs: 4000, audioFile: 'b.wav', channelName: 'W1BIM' });
+  store.saveTranscript(ham, 'base', { status: 'done', text: 'my elm dipole is up on the tower' });
+  await findings.read(ham);
+  assert.doesNotMatch(prompts[1], /Roads near this channel/);
+  assert.deepEqual(findings.results({}).find((r) => r.id === ham).found.roads, ['Elm Street'],
+    'a road said by name is kept; one only sounding like a word said is not');
 });
 
 // ---- The map's own tiles --------------------------------------------------------------------------------------
