@@ -161,6 +161,15 @@ test('read once every engine is done, with the other engines and radios as other
     assert.match(user, /New transmission:\nMarry mileage, 3-4-7-9-5, 2-1-31\./, 'the engine that heard something');
     assert.match(user, /Other readings of the new transmission:\n- another radio on the same frequency \(Rutld Reg2\): mileage 3 4 7 9 5/);
     assert.doesNotMatch(user, /Meanwhile on other channels/, 'the copy isn’t other traffic');
+
+    // The default engine heard nothing and only one other did, with no other radio: noise made words, not read
+    const lone = tx('AA', 'West Dispatch', '', 60_000);
+    store.saveTranscript(lone, 'base', { status: 'done', text: '' });
+    store.saveTranscript(lone, 'ov', { status: 'done', text: 'May Street in him' });
+    manager.emit('transcribed', { id: lone, engine: 'ov', status: 'done' });
+    manager.emit('transcribed', { id: lone, engine: 'base', status: 'done' });
+    await findings.drain();
+    assert.equal(calls.length, 1);
   } finally {
     findings.stop();
   }

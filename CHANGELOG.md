@@ -8,6 +8,7 @@
 - Findings can have a clip heard again when a plate, number or road seems misheard: whisper-server is told the words to expect (the phonetic alphabet, or the roads near), and the transmission is read again with what it heard. Admin → Findings sets how many times (once by default) and with which engine
 - Findings works out each channel's service (from Uniden's database, its name, or what its findings mostly said), tells the model, and uses it over an answer of amateur or other: a dispatcher reading "Sierra Alpha" is no longer a ham
 - Findings' instructions end with worked examples, and ask for specific summaries: a ham conversation is summed up with the equipment, band or net it's about, in up to two sentences
+- Findings doesn't read a transmission the default engine heard no words in, unless another radio or two other engines did: one engine's words over static were mostly noise, and came back with roads
 - The Findings tab and the Map's Findings tab can show one radio's or one channel's findings; the roads on the map follow the Map's choice
 - Findings gives the model earlier findings only from the same channel, or from another that names a unit, road, address or plate the transmission says, not every channel's
 - _...Add new stuff here..._

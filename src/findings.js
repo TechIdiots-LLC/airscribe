@@ -664,6 +664,10 @@ export class Findings {
     const heard = t ? this.readings(id) : [];
     // Nothing said by any engine (a beep, static): nothing to read
     if (!heard.length) return;
+    // The default engine heard no words at all: what one other engine makes of it is most often noise made words
+    const own = this.primary && this.db.prepare(`SELECT text FROM transcripts
+                                                  WHERE transmission_id = ? AND engine = ? AND status = 'done'`).get(id, this.primary);
+    const unsaid = own && !count(spoken(own.text));
     const text = heard[0].text;
     const same = (a, b) => words(a) === words(b);
     // The same transmission from another radio on the frequency: another reading, not other traffic
@@ -681,6 +685,8 @@ export class Findings {
       ...heard.slice(1).map((r) => ({ text: r.text, again: AGAIN.test(r.engine) })),
       ...copies.flatMap((c) => this.readings(c.id).slice(0, 1).map((r) => ({ channel: c.channel_name, text: r.text }))),
     ].filter((r, i, all) => !same(r.text, text) && all.findIndex((o) => same(o.text, r.text)) === i);
+    // ...unless another radio heard words too, or a second engine did: then something was said
+    if (unsaid && heard.length < 2 && !readings.some((r) => r.channel)) return;
     const before = (where, args, n) => this.db.prepare(`
       SELECT id, channel_name, started_at, snr_db FROM transmissions
        WHERE ${where} AND data = 0 AND started_at < ? AND started_at >= ? ORDER BY started_at DESC LIMIT ?`)

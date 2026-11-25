@@ -57,7 +57,9 @@ with its equipment and band rather than as "a person discusses plans", and an ac
 report. Amateur summaries may run to two sentences, since there's no call to sum up. They're told radio talk is
 short and plain, and not to fill in what a short transmission leaves out.
 
-The new one's transcript is the default engine's, or, when that heard nothing, the engine's that heard most. After
+The new one's transcript is the default engine's, or, when that heard nothing, the engine's that heard most; but only
+when another radio heard words too, or two other engines did: one engine finding words where the default heard none
+was most often static made into words ("May Street in him"), so that isn't read. After
 it come **other readings** of the same words: each other engine's, when it differs, and another radio's that heard
 the same frequency within five seconds (two radios on one dispatch channel, a scanner and a handheld). The model is
 told to use them together to work out what was said. A copy from another radio is left out of the other channels'
