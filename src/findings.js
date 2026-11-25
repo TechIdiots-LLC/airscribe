@@ -79,7 +79,10 @@ one channel and talking on another, a call that moves from dispatch to a firegro
 say. Other readings of the new transmission may follow it: another speech engine's, or another radio's that heard the
 same frequency at the same moment. Those are the same words heard differently: use them together to work out what was
 said. Answer with JSON:
-- summary: one short sentence on what the new transmission says, or "" if it says nothing of substance
+- summary: one short sentence on what the new transmission says, or "" if it says nothing of substance. Be
+  specific: say what was said, with its names and numbers (the unit, the place, the radio or antenna and its make
+  and model, the band, the net), never only "a person discusses plans". Amateur traffic has no call to sum up:
+  say what they're talking about, in up to two sentences
 - incident: the kind of call in a few words ("motor vehicle crash", "structure fire"), or ""
 - service: who is talking: "police", "fire", "ems", "works" (public works, highway, utilities, transit), "amateur"
   (ham radio), or "other". When the channel's service is given with its name, that's who talks on it: answer it
@@ -108,7 +111,22 @@ number. They're context too: report their details again only when the new transm
 When roads near the channel are listed and the transmission means one of them (speech recognition often mishears a
 road's name), write it as listed. Don't report a listed road the transmission doesn't mention.
 A transmission marked as heard through static came in weak: its transcript is more likely to be wrong, or words made
-up from noise. Report from it only what reads clearly, and nothing that seems invented.`;
+up from noise. Report from it only what reads clearly, and nothing that seems invented.
+Radio talk is short and plain. Keep to its words: don't fill in what a short transmission leaves out.
+
+Examples (fields not shown are [] or ""):
+1. Earlier on this channel: "Engine 2 respond to 20 Elm Street for the fall, 89-year-old female."
+   New transmission: "Engine 2 en route."
+   {"summary": "Engine 2 is en route.", "service": "fire", "units": ["Engine 2"]}
+   (The address and patient were in the earlier one, not this one.)
+2. New transmission: "Car 12, Mass reg 4 Sierra Sierra Romeo 33 on a gray Audi."
+   Plates spelled out in it: 4SSR33
+   {"summary": "Car 12 runs plate 4SSR33 on a gray Audi.", "service": "police", "plates": ["4SSR33"],
+    "vehicles": ["gray Audi"], "units": ["Car 12"]}
+3. New transmission: "This is N1VZ. I put up a new dipole for 40 meters and the IC-7300 is hearing Europe tonight."
+   {"summary": "N1VZ put up a new 40-meter dipole and is hearing Europe on an Icom IC-7300.", "service": "amateur"}
+4. New transmission: "Received, thank you."
+   {"summary": ""}`;
 
 // ---- Matching -------------------------------------------------------------
 
