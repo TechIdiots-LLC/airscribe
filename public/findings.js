@@ -75,6 +75,7 @@ function render(s) {
   $('fd-againEngine').replaceChildren(...(engines.length ? engines : ['']).map((n) => el('option', { value: n }, n || 'none takes a prompt')));
   $('fd-againEngine').value = engines.includes(s.againEngine) ? s.againEngine : (engines[0] ?? '');
   $('fd-againEngine').disabled = !engines.length;
+  $('fd-digest').checked = s.digest !== false;
   const [state, error] = stateOf(s);
   say(s.biggestPrompt ? `${state} Biggest prompt in the last day: ${s.biggestPrompt.toLocaleString()} tokens.` : state, error);
   roadsReady = Boolean(s.roads?.ways);
@@ -252,7 +253,7 @@ async function loadTab({ list = true } = {}) {
     tabSay(s.enabled ? text : `${text}${isAdmin ? ' Turn it on, and give it a model server, in Admin → Findings.' : ''}`, error);
     $('fd-instructions').replaceChildren(sentBox('The instructions the model is given, with every transmission', s.instructions));
     fillPickers().catch(() => {});
-    await Promise.all([loadWatches(), list ? loadResults() : null]);
+    await Promise.all([loadWatches(), list ? loadResults() : null, loadDigest()]);
   } catch (e) {
     tabSay(e.message, true);
   }
@@ -268,6 +269,7 @@ $('fd-save').onclick = async () => {
         keepDays: $('fd-keep').value,
         ...Object.fromEntries(CONTEXT.map((k) => [k, $(`fd-${k}`).value])),
         againEngine: $('fd-againEngine').value,
+        digest: $('fd-digest').checked,
       },
     }));
   } catch (e) {
@@ -307,6 +309,67 @@ $('fd-forget').onclick = async () => {
     await loadResults();
   } catch (e) {
     say(e.message, true);
+  }
+};
+
+// ---- The day so far -------------------------------------------------------------
+// Each hour, once it's over, summed up by the model; the day's overview written again after each (docs/findings.md
+// #the-day-so-far). Each item opens the findings it came from.
+
+const hhmm = (ms) => new Date(ms).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+
+/** An item of the day: when, where, what, and the findings it came from, opened on a click. */
+function digestItem(it) {
+  const list = el('ul', { className: 'user-list dg-findings', hidden: true });
+  const open = el('button', {
+    className: 'link',
+    onclick: async () => {
+      list.hidden = !list.hidden;
+      if (list.hidden || list.dataset.loaded) return;
+      list.dataset.loaded = '1';
+      try {
+        const rows = await api(`/findings/results?ids=${it.findings.join(',')}&limit=100`);
+        list.replaceChildren(...(rows.length ? rows.map(resultRow) : [el('li', { className: 'meta' }, 'Those findings are gone.')]));
+      } catch (e) {
+        list.replaceChildren(el('li', { className: 'error' }, e.message));
+      }
+    },
+  }, `${it.findings.length} transmission${it.findings.length === 1 ? '' : 's'}`);
+  return el('li', {},
+    el('div', { className: 'radio-head' },
+      el('span', { className: 'meta' }, `${hhmm(it.at)} · ${it.channel ?? 'channel unknown'}`), servicePill(it.service), open),
+    el('div', {}, it.text), list);
+}
+
+async function loadDigest() {
+  const params = picked(new URLSearchParams(), 'dg-radio', 'dg-channel');
+  if ($('dg-day').value) params.set('day', $('dg-day').value);
+  const d = await api(`/findings/digest?${params}`);
+  $('dg-day').replaceChildren(...d.days.map((day) => el('option', { value: day }, day === d.today ? `${day} (today)` : day)));
+  $('dg-day').value = d.day;
+  const through = d.throughHour !== null ? `Summed up through ${hhmm(d.throughHour + 3_600_000)}` : 'No hour of this day summed up yet';
+  $('dg-status').textContent = [
+    d.on ? through : `${through}. It’s off: Admin → Findings → Sum up each hour.`,
+    d.overview ? `overview written ${hhmm(d.overview.madeAt)}` : '',
+    d.lastError ? `last try: ${d.lastError.error}` : '',
+  ].filter(Boolean).join(' · ');
+  $('dg-overview').replaceChildren(d.overview?.text ? el('p', { className: 'dg-overview' }, d.overview.text)
+    : $('dg-channel').value ? el('p', { className: 'meta' }, 'One channel’s items; the overview is for every radio, or one.') : '');
+  $('dg-hours').replaceChildren(...(d.hours.length ? d.hours.map((h) => el('details', { open: h === d.hours[0] },
+    el('summary', {}, `${hhmm(h.hour)}–${hhmm(h.hour + 3_600_000)}`, el('span', { className: 'meta' }, ` · ${h.items.length} item${h.items.length === 1 ? '' : 's'}`)),
+    el('ul', { className: 'user-list' }, ...h.items.map(digestItem))))
+    : [el('p', { className: 'meta' }, 'Nothing summed up for this day yet: each hour is, a few minutes after it’s over.')]));
+}
+
+for (const id of ['dg-day', 'dg-radio', 'dg-channel']) $(id).onchange = () => loadDigest().catch((e) => tabSay(e.message, true));
+$('dg-run').onclick = async () => {
+  $('dg-status').textContent = 'Summing up…';
+  try {
+    const r = await api('/admin/findings/digest/run', { method: 'POST' });
+    await loadDigest();
+    if (!r.hours) $('dg-status').textContent += ' · Every hour that’s over is summed up already.';
+  } catch (e) {
+    tabSay(e.message, true);
   }
 };
 
@@ -377,7 +440,7 @@ function resultRow(r) {
 /** The radio and channel pickers, on the Findings tab and the Map's: every radio, and every channel heard. */
 async function fillPickers() {
   const [radios, channels] = await Promise.all([api('/radios'), api('/channels')]);
-  for (const [r, c] of [['fd-f-radio', 'fd-f-channel'], ['map-fd-radio', 'map-fd-channel']]) {
+  for (const [r, c] of [['fd-f-radio', 'fd-f-channel'], ['map-fd-radio', 'map-fd-channel'], ['dg-radio', 'dg-channel']]) {
     const was = [$(r).value, $(c).value];
     $(r).replaceChildren(el('option', { value: '' }, 'All radios'), ...radios.map((x) => el('option', { value: x.mac }, x.name ?? x.mac)));
     $(c).replaceChildren(el('option', { value: '' }, 'All channels'), ...channels.map((x) => el('option', { value: x.name }, x.name)));
@@ -461,6 +524,7 @@ document.addEventListener('airscribe:signed-in', (e) => {
   $('findings-toggle').hidden = !e.detail?.role;
   $('fd-watch-form').hidden = !isAdmin;
   $('fd-export-row').hidden = !isAdmin;
+  $('dg-run').hidden = !isAdmin;
 });
 
 // ---- Roads mentioned, on the Map --------------------------------------------------

@@ -453,3 +453,9 @@ main.page-text li { background: none; border: 0; border-radius: 0; padding: 0; m
 .site-footer a:hover { color: var(--fg); }
 .fd-note { margin: 4px 0; }
 .fd-note textarea { width: 100%; max-width: 560px; font: inherit; }
+
+/* Findings → The day so far */
+.dg-overview { font-size: 15px; line-height: 1.5; margin: 8px 0 12px; }
+#dg-hours details { margin: 6px 0; }
+#dg-hours summary { cursor: pointer; font-weight: 600; }
+.dg-findings { margin-top: 8px; }

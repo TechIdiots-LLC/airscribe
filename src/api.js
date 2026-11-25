@@ -902,8 +902,10 @@ export function createApp({ manager, store, sidecar, config, dataDir, updates, c
     api.get('/findings', answer(() => findings.status()));
     api.get('/findings/results', answer((req) => findings.results({
       q: req.query.q, hits: req.query.hits === '1', before: req.query.before, since: req.query.since, after: req.query.after,
-      limit: req.query.limit, channel: req.query.channel, radio: req.query.radio,
+      limit: req.query.limit, channel: req.query.channel, radio: req.query.radio, ids: req.query.ids,
     })));
+    // The day so far: its overview and what happened each hour (docs/findings.md#the-day-so-far)
+    api.get('/findings/digest', answer((req) => findings.digest.day({ day: req.query.day, radio: req.query.radio, channel: req.query.channel })));
     api.get('/findings/watches', answer(() => findings.watches()));
     api.get('/findings/map', answer((req) => findings.map({ hours: req.query.hours ?? 24, also: req.query.also, channel: req.query.channel, radio: req.query.radio })));
     const admin = auth.requireRole('admin');
@@ -927,6 +929,10 @@ export function createApp({ manager, store, sidecar, config, dataDir, updates, c
       channel: req.query.channel, radio: req.query.radio,
     })));
     api.get('/admin/findings/watches', admin, answer(() => findings.watches()));
+    api.post('/admin/findings/digest/run', admin, answer(() => {
+      if (!findings.enabled()) throw refuse('turn Findings on first', 400);
+      return findings.digest.run();
+    }));
     // A person's note on a finding, given to the model with it from then on
     api.put('/admin/findings/:id/note', admin, answer((req) => findings.setNote(Number(req.params.id), req.body?.note,
       req.user?.username ?? null)));

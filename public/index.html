@@ -471,6 +471,7 @@
       <label title="How far back the earlier findings go">from <input id="fd-findingsMinutes" type="number" min="1" max="60" step="1" size="3"> min</label>
       <label title="When a plate, number or road seems misheard, the clip is heard again, told which words to expect; 0 never">Hear again up to <input id="fd-againTimes" type="number" min="0" max="2" step="1" size="3"> times</label>
       <label title="A whisper-server engine: it takes the words to expect">with <select id="fd-againEngine"></select></label>
+      <label class="toggle" title="Every hour, once it’s over, the model sums up what happened in it, and writes the day’s overview again: Findings → The day so far"><input type="checkbox" id="fd-digest"> Sum up each hour</label>
     </div>
     <div class="row wrap">
       <button id="fd-save">Save</button>
@@ -541,6 +542,19 @@
       <label>Note <input id="fd-note" maxlength="200" size="18" placeholder="why"></label>
       <button id="fd-watch-add">Add</button>
     </div>
+  </div>
+  <div class="panel" id="dg-panel">
+    <div class="row wrap"><h3>The day so far</h3>
+      <select id="dg-day" title="Which day"></select>
+      <select id="dg-radio" title="Whose transmissions"><option value="">All radios</option></select>
+      <select id="dg-channel" title="Which channel"><option value="">All channels</option></select>
+      <button id="dg-run" hidden title="Sum up the hours that are over and not summed up yet; it does this by itself every few minutes">Update now</button>
+      <span class="spacer"></span>
+      <button class="link" data-view="insights" title="Transmissions per hour and channel, and the commonest words">The numbers: Insights</button>
+    </div>
+    <p class="meta" id="dg-status" role="status"></p>
+    <div id="dg-overview"></div>
+    <div id="dg-hours"></div>
   </div>
   <div class="panel">
     <h3>Found</h3>

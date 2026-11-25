@@ -17,6 +17,7 @@
 import { isStatic } from './quality.js';
 import { heardValue, onlyHeard, said as heardIn } from './heard.js';
 import { cuedIn, numerals, phonetic, platesIn, plausible, readPlates, variant } from './plates.js';
+import { Digest } from './digest.js';
 import { Glossary } from './glossary.js';
 import { TYPES, addressRoads, words } from './roads.js';
 import { nameKey } from './uniden.js';
@@ -24,6 +25,7 @@ import { nameKey } from './uniden.js';
 const KEYS = {
   enabled: 'findings.enabled', api: 'findings.api', url: 'findings.url', model: 'findings.model',
   apiKey: 'findings.apiKey', webhook: 'findings.webhook', keepDays: 'findings.keepDays', againEngine: 'findings.againEngine',
+  digest: 'findings.digest',
 };
 /** What a clip heard again is saved as: "turbo+again1" beside "turbo". */
 export const AGAIN = /\+again(\d+)$/;
@@ -418,6 +420,7 @@ export class Findings {
       CREATE TABLE IF NOT EXISTS finding_notes (
         transmission_id INTEGER PRIMARY KEY,
         note TEXT NOT NULL, by TEXT, created_at INTEGER NOT NULL);`);
+    this.digest = new Digest(this);
     this.onTranscribed = ({ id, engine }) => {
       // Heard again: read again, with it
       if (AGAIN.test(engine ?? '')) return this.add(id);
@@ -456,12 +459,14 @@ export class Findings {
       if (this.enabled() && !this.queue.length && !this.running) this.learn().catch((e) => console.error(`[findings] local terms: ${e.message}`));
     }, LEARN_MS);
     this.learning.unref?.();
+    this.digest.start();
   }
 
   stop() {
     this.manager?.off('transcribed', this.onTranscribed);
     clearInterval(this.timer);
     clearInterval(this.learning);
+    this.digest.stop();
     for (const t of this.late.values()) clearTimeout(t);
     this.late.clear();
     this.queue = [];
@@ -507,6 +512,8 @@ export class Findings {
         hits: this.db.prepare('SELECT count(*) AS n FROM finding_hits').get().n,
       },
       terms: this.glossary.counts(),
+      // The day so far, summed up each hour (docs/findings.md#the-day-so-far)
+      digest: this.store.setting(KEYS.digest) !== '0',
       // The biggest prompt of the last day, as the server counted it: how near the model's context window it comes
       biggestPrompt: this.db.prepare(`SELECT max(json_extract(usage, '$.prompt')) AS n FROM findings
                                         WHERE usage IS NOT NULL AND created_at >= ?`).get(this.now() - 86_400_000).n ?? null,
@@ -539,7 +546,7 @@ export class Findings {
    * @param {object} body - enabled, api, url, model, apiKey, webhook, keepDays, CONTEXT's numbers; or forgetKey.
    * @returns {object} settings().
    */
-  save({ enabled, api, url, model, apiKey, webhook, keepDays, forgetKey, againEngine, ...rest } = {}) {
+  save({ enabled, api, url, model, apiKey, webhook, keepDays, forgetKey, againEngine, digest, ...rest } = {}) {
     if (againEngine !== undefined && againEngine !== '') {
       if (!this.manager?.engines?.get?.(String(againEngine))?.prompts) throw fail('hear clips again with an engine that takes a prompt (whisper-server)');
     }
@@ -576,6 +583,7 @@ export class Findings {
     if (apiKey) this.store.setSetting(KEYS.apiKey, String(apiKey).slice(0, 500));
     if (forgetKey === true) this.store.setSetting(KEYS.apiKey, null);
     if (on !== undefined) this.store.setSetting(KEYS.enabled, on ? '1' : null);
+    if (digest !== undefined) this.store.setSetting(KEYS.digest, digest ? null : '0');
     for (const [k, n] of Object.entries(numbers)) this.store.setSetting(`findings.${k}`, n);
     if (againEngine !== undefined) this.store.setSetting(KEYS.againEngine, String(againEngine) || null);
     if (!this.enabled()) this.queue = [];
@@ -1123,7 +1131,7 @@ export class Findings {
    *   search, only matches, paging, how far back; or those made at or after `after` (ms), oldest made first.
    * @returns {object[]} Rows.
    */
-  results({ q, hits, before, since, after, limit, channel, radio } = {}) {
+  results({ q, hits, before, since, after, limit, channel, radio, ids } = {}) {
     const n = Math.min(Math.max(Number(limit) || 50, 1), 200);
     const where = ['f.status = \'done\''];
     const args = [];
@@ -1135,6 +1143,9 @@ export class Findings {
     // One channel, or one radio's: the Findings tab's and the Map's own choices
     if (channel) (where.push('t.channel_name = ?'), args.push(String(channel)));
     if (radio) (where.push('t.mac = ?'), args.push(String(radio)));
+    // Those an item of the day so far came from
+    const only = String(ids ?? '').split(',').map(Number).filter((n) => Number.isInteger(n) && n > 0).slice(0, 100);
+    if (only.length) (where.push(`t.id IN (${only.map(() => '?').join(', ')})`), args.push(...only));
     const search = String(q ?? '').trim();
     if (search) {
       // In what was found or in the transcript, or another radio's copy of it; a plate however it was spaced
@@ -1285,6 +1296,7 @@ export class Findings {
   forget() {
     this.queue = [];
     this.db.exec('DELETE FROM finding_hits; DELETE FROM finding_corrections; DELETE FROM finding_notes; DELETE FROM findings;');
+    this.digest.sweep();
     return this.settings();
   }
 
@@ -1299,6 +1311,7 @@ export class Findings {
     this.db.prepare(`DELETE FROM findings WHERE created_at < ?
                        OR transmission_id NOT IN (SELECT id FROM transmissions)`).run(cutoff);
     this.db.prepare('DELETE FROM finding_notes WHERE transmission_id NOT IN (SELECT transmission_id FROM findings)').run();
+    this.digest.sweep(cutoff);
   }
 
   /**

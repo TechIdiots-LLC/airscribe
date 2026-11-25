@@ -270,6 +270,32 @@ whole list is worth less than the terms the traffic actually uses.
 confident wrong plate or address. Each finding shows the transcript and plays the clip: check them before acting on
 anything. A bigger speech model (large-v3-turbo on a GPU) helps more than a bigger language model.
 
+## The day so far
+
+**Findings → The day so far** sums up the day, an hour at a time, and is rewritten as the day goes on.
+
+- **Each hour.** A few minutes after an hour is over, once its transmissions have been read (Findings waits
+  **Wait for other engines** for them, plus 5 minutes), its findings go to the model 60 at a time, a channel's
+  together. The model picks out what happened: one item for each call or conversation, a plain sentence, citing
+  the findings it came from. Routine traffic is left out. For ham traffic, the item says what was talked about.
+  A note on a finding goes with it.
+- **Grounded in the findings.** An item has to name at least one of the findings it was given, or it's dropped.
+  Its channel, radio and service are taken from those findings, not from what the model says.
+- **The overview.** After each hour, the day's overview is written again from all of the day's items: once for
+  every radio, and once for each radio heard that day. It's 3 to 6 sentences, the most serious first. With more
+  items than fit (about 10k tokens), those drawn from the most transmissions are kept.
+- **Late findings.** If a transmission of an hour already summed up is read late, that hour is summed up again.
+  Hours from the last 36 are looked at, up to 6 at a time, when nothing is waiting to be read.
+
+The tab shows the day's overview, then its hours, newest first, each item with its time, channel and service. A
+click on an item's transmissions opens the findings it came from, to read and play. Pick a day, a radio (its own
+overview) or a channel (its items only). How busy each hour and channel was is on Insights, not repeated here.
+Admins can **Update now**, and turn it off with **Sum up each hour** in Admin → Findings.
+
+On 2,500 findings a day that's about 2 questions an hour for the items, plus one overview per radio, a few
+seconds each. Days follow the AirScribe server's time zone: set the container's (`timedatectl set-timezone
+America/New_York`) or midnight comes at the wrong hour. Digests are kept as long as findings are.
+
 ## Watches
 
 A watch is a term: a plate, a street, a name, a phrase. Each transcript, and each field the model found, is checked:
@@ -344,9 +370,11 @@ The same, for scripts. Reading takes any signed-in user's token or session; the 
 | `POST /api/admin/findings/test` | `{text?}`: one through the model |
 | `GET /api/admin/findings/export` | `?hours=&channel=&radio=` (1 to 744 hours, 24 by default): the file above, as an attachment |
 | `POST /api/admin/findings/backfill` | `{hours}`: read the transmissions of the last `hours` |
-| `GET /api/admin/findings/results` | `?q=&hits=1&before=&limit=`: findings, newest first |
+| `GET /api/admin/findings/results` | `?q=&hits=1&before=&limit=&ids=`: findings, newest first; `ids` for those listed |
 | `GET`, `POST /api/admin/findings/watches`; `DELETE …/watches/:id` | the watch list |
 | `GET`, `POST /api/admin/findings/terms`; `PUT`, `DELETE …/terms/:id` | local terms, and their counts; `{term, meaning, channels}`; `{meaning, channels, status}` |
+| `GET /api/findings/digest` | `?day=&radio=&channel=`: the day so far, its overview and items by hour |
+| `POST /api/admin/findings/digest/run` | sum up the hours that are over, now |
 | `PUT /api/admin/findings/:id/note` | `{note}`: a note on a finding; empty takes it off |
 | `GET /api/admin/findings/terms/:id/seen` | the transmissions a term was said in |
 | `POST /api/admin/findings/terms/learn` | work out what the collected terms mean, now |

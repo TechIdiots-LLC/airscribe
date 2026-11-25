@@ -682,6 +682,8 @@ test('signed-in users read Findings, only an admin changes it, the public neithe
     assert.equal((await bob('GET', '/admin/findings/export')).status, 403, 'nor the export, which holds what was sent');
     assert.equal((await bob('GET', '/admin/findings/terms')).status, 403, 'nor the local terms');
     assert.equal((await bob('PUT', '/admin/findings/1/note', { note: 'x' })).status, 403, 'nor notes');
+    assert.equal((await bob('GET', '/findings/digest')).status, 200, 'a viewer reads the day so far');
+    assert.equal((await bob('POST', '/admin/findings/digest/run')).status, 403, 'but doesn’t run it');
     assert.equal((await bob('POST', '/admin/findings/terms', { term: 'Code 4', meaning: 'ok' })).status, 403);
     const alice = await as('alice', 'correct horse');
     const s = await alice('PUT', '/admin/findings', { url: 'http://llm.invalid:11434', model: 'qwen3:8b', apiKey: 'secret' });
