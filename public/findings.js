@@ -74,6 +74,7 @@ function render(s) {
   $('fd-model').value = s.model ?? '';
   $('fd-key').value = '';
   $('fd-key').placeholder = s.apiKey ? 'saved' : 'if the server wants one';
+  $('fd-key-forget').hidden = !s.apiKey;
   $('fd-webhook').value = s.webhook ?? '';
   $('fd-keep').value = s.keepDays;
   for (const k of CONTEXT) $(`fd-${k}`).value = s[k] ?? '';
@@ -266,6 +267,15 @@ async function loadTab({ list = true } = {}) {
     tabSay(e.message, true);
   }
 }
+
+$('fd-key-forget').onclick = async () => {
+  try {
+    render(await api('/admin/findings', { method: 'PUT', body: { forgetKey: true } }));
+    say('The API key is forgotten.');
+  } catch (e) {
+    say(e.message, true);
+  }
+};
 
 $('fd-save').onclick = async () => {
   try {

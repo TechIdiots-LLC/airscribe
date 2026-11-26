@@ -33,7 +33,7 @@ the model is told so (below).
 | Server | Ollama | Ollama's own API (`/api/chat`): the answer is held to a JSON schema, and a thinking model's thinking is turned off, which makes it several times quicker (gpt-oss can't stop thinking, so it's asked to think as little as it can). OpenAI-style: `/v1/chat/completions` with a `json_schema` response format. |
 | Address | | The server, `http://` or `https://`. |
 | Model | `qwen3:8b` | As the server names it. |
-| API key | none | Sent as `Authorization: Bearer`. Kept on this server and never shown again. |
+| API key | none | Sent as `Authorization: Bearer`. Kept on this server and never shown again; **Forget the key** next to it removes it. |
 | Webhook | none | Posted to for each watch match (below). |
 | Keep for | 30 days | Findings and matches older than this are deleted, hourly. So are those of a deleted transmission. |
 | Look back | 5 min | How far back the earlier transmissions given with each one go (1–30). |

@@ -2,6 +2,7 @@
 
 ## master
 ### ✨ Features and improvements
+- Admin → Findings → Forget the key removes a saved API key, for a server that doesn't want one (Ollama's own port rather than Open WebUI's)
 - _...Add new stuff here..._
 
 ### 🐞 Bug fixes
