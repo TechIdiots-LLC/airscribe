@@ -584,6 +584,13 @@ test('an OpenAI-style server is asked the OpenAI way', { skip: !sqlite }, async 
   assert.equal(seen[0].url, 'http://server.invalid/v1/chat/completions');
   assert.equal(seen[0].body.response_format.type, 'json_schema');
   assert.deepEqual([t.model, t.found.summary, t.found.plates], ['gpt-x', 'ok', ['XYZ9']]);
+  assert.equal(seen[0].body.reasoning_effort, undefined);
+  findings.save({ model: 'gpt-oss:20b' });
+  await findings.test();
+  assert.equal(seen[1].body.reasoning_effort, 'low', 'gpt-oss always thinks: as little as it can');
+  findings.save({ api: 'ollama' });
+  await findings.test().catch(() => {});
+  assert.equal(seen[2].body.think, 'low', 'Ollama’s way of saying it');
   assert.throws(() => findings.save({ api: 'other' }), /ollama or openai/);
   assert.throws(() => findings.save({ url: 'ftp://x' }), /http:\/\/ or https:\/\//);
 });

@@ -671,11 +671,12 @@ export class Findings {
     const headers = { 'Content-Type': 'application/json', ...(key ? { Authorization: `Bearer ${key}` } : {}) };
     const ollama = this.get('api') === 'ollama';
     // Ollama's own API holds the answer to the schema and can turn a model's thinking off; an OpenAI-style
-    // server is asked for the schema the way OpenAI's API asks
+    // server is asked for the schema the way OpenAI's API asks. gpt-oss always thinks: as little as it can
+    const always = /gpt-oss/i.test(model);
     const [path, body] = ollama
-      ? ['/api/chat', { model, messages, stream: false, think: false, format: schema, options: { temperature: 0 } }]
+      ? ['/api/chat', { model, messages, stream: false, think: always ? 'low' : false, format: schema, options: { temperature: 0 } }]
       : ['/v1/chat/completions', {
-          model, messages, temperature: 0,
+          model, messages, temperature: 0, ...(always ? { reasoning_effort: 'low' } : {}),
           response_format: { type: 'json_schema', json_schema: { name, schema } },
         }];
     let res;

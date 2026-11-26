@@ -6,6 +6,7 @@
 
 ### 🐞 Bug fixes
 - Findings → The day so far sums up the latest hours first, so today's fill in soon after an update or a while off rather than after the last 36 hours'. An hour the model fails on waits 30 minutes instead of stopping every hour after it
+- Findings with gpt-oss asks it to think as little as it can: it can't turn its thinking off, as AirScribe asks other models to
 - _...Add new stuff here..._
 
 ## 0.7.0
