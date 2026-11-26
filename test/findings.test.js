@@ -591,6 +591,17 @@ test('an OpenAI-style server is asked the OpenAI way', { skip: !sqlite }, async 
   findings.save({ api: 'ollama' });
   await findings.test().catch(() => {});
   assert.equal(seen[2].body.think, 'low', 'Ollama’s way of saying it');
+  assert.equal(seen[1].body.max_tokens, 2048, 'an answer is only so long');
+  assert.equal(seen[2].body.options.num_predict, 2048);
+  // A model going round in circles is stopped there, and said to be
+  const looping = new Findings({ store: new Store(':memory:', 'base'),
+    fetch: async () => Response.json({ message: { content: '{"summary":"x x x' }, done_reason: 'length' }) });
+  looping.save({ api: 'ollama', url: 'http://server.invalid', model: 'm' });
+  await assert.rejects(looping.test(), /wrote 2048 tokens without finishing/);
+  const silent = new Findings({ store: new Store(':memory:', 'base'),
+    fetch: async () => { throw Object.assign(new Error('aborted'), { name: 'TimeoutError' }); } });
+  silent.save({ api: 'ollama', url: 'http://server.invalid', model: 'm' });
+  await assert.rejects(silent.test(), /server.invalid didn’t answer within 2 minutes/);
   assert.throws(() => findings.save({ api: 'other' }), /ollama or openai/);
   assert.throws(() => findings.save({ url: 'ftp://x' }), /http:\/\/ or https:\/\//);
 });

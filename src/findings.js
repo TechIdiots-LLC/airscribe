@@ -45,6 +45,7 @@ export const CONTEXT = {
   againTimes: { def: 1, min: 0, max: 2, what: 'hear a clip again 0 to 2 times' },
 };
 const OVERLAP_MS = 1000;             // two radios' clips of one call: one can start or end a second off
+const ANSWER_MAX = 2048;           // tokens a model may write, thinking included: an answer is a few hundred
 const TIMEOUT_MS = 120_000;         // a model loading onto the card for the first call takes a while
 const QUEUE_MAX = 5000;
 const SWEEP_MS = 60 * 60 * 1000;
@@ -661,7 +662,7 @@ export class Findings {
    * @param {{system?: string, schema?: object, name?: string}} [o] - The instructions and schema; Findings' own by default.
    * @returns {Promise<{reply: unknown, usage: object}>} The parsed answer, and what it took.
    */
-  async ask(user, { system = SYSTEM, schema = SCHEMA, name = 'findings' } = {}) {
+  async ask(user, { system = SYSTEM, schema = SCHEMA, name = 'findings', most = ANSWER_MAX } = {}) {
     const t0 = this.now();
     const url = this.get('url');
     const model = this.get('model');
@@ -674,9 +675,10 @@ export class Findings {
     // server is asked for the schema the way OpenAI's API asks. gpt-oss always thinks: as little as it can
     const always = /gpt-oss/i.test(model);
     const [path, body] = ollama
-      ? ['/api/chat', { model, messages, stream: false, think: always ? 'low' : false, format: schema, options: { temperature: 0 } }]
+      ? ['/api/chat', { model, messages, stream: false, think: always ? 'low' : false, format: schema,
+          options: { temperature: 0, num_predict: most } }]
       : ['/v1/chat/completions', {
-          model, messages, temperature: 0, ...(always ? { reasoning_effort: 'low' } : {}),
+          model, messages, temperature: 0, max_tokens: most, ...(always ? { reasoning_effort: 'low' } : {}),
           response_format: { type: 'json_schema', json_schema: { name, schema } },
         }];
     let res;
@@ -685,11 +687,16 @@ export class Findings {
         method: 'POST', headers, body: JSON.stringify(body), signal: AbortSignal.timeout(TIMEOUT_MS),
       });
     } catch (e) {
+      if (e.name === 'TimeoutError') throw new Error(`${url} didn’t answer within ${TIMEOUT_MS / 60_000} minutes`);
       throw new Error(`can’t reach ${url}: ${e.cause?.message ?? e.message}`);
     }
     const reply = await res.json().catch(() => null);
     if (!res.ok) throw new Error(`${url} answered ${res.status}: ${reply?.error?.message ?? reply?.error ?? res.statusText}`);
     const content = ollama ? reply?.message?.content : reply?.choices?.[0]?.message?.content;
+    // Stopped at the most it may write: a model going round in circles, not an answer
+    if ((ollama ? reply?.done_reason : reply?.choices?.[0]?.finish_reason) === 'length') {
+      throw new Error(`the model wrote ${most} tokens without finishing its answer`);
+    }
     const n = (v) => (Number.isInteger(v) && v >= 0 ? v : undefined);
     const usage = ollama
       ? { prompt: n(reply?.prompt_eval_count), answer: n(reply?.eval_count) }

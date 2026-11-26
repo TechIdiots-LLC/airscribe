@@ -30,7 +30,7 @@ the model is told so (below).
 
 | Setting | | |
 | --- | --- | --- |
-| Server | Ollama | Ollama's own API (`/api/chat`): the answer is held to a JSON schema, and a thinking model's thinking is turned off, which makes it several times quicker (gpt-oss can't stop thinking, so it's asked to think as little as it can). OpenAI-style: `/v1/chat/completions` with a `json_schema` response format. |
+| Server | Ollama | Ollama's own API (`/api/chat`): the answer is held to a JSON schema, and a thinking model's thinking is turned off, which makes it several times quicker (gpt-oss can't stop thinking, so it's asked to think as little as it can). An answer may be at most 2048 tokens, thinking included (8192 for an hour of the day so far): a model that goes round in circles is stopped there, and the error says so. OpenAI-style: `/v1/chat/completions` with a `json_schema` response format. |
 | Address | | The server, `http://` or `https://`. |
 | Model | `qwen3:8b` | As the server names it. |
 | API key | none | Sent as `Authorization: Bearer`. Kept on this server and never shown again; **Forget the key** next to it removes it. |

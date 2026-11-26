@@ -164,7 +164,7 @@ export class Digest {
         return `#${r.id} [${r.channel_name ?? 'channel unknown'}, ${clock(r.started_at)}] ${f.summary}${more ? ` (${more})` : ''}`;
       };
       const user = `The hour from ${clock(hour)} to ${clock(hour + HOUR)} on ${dayOf(hour)}.\n\nFindings:\n${chunk.map(line).join('\n')}`;
-      const { reply } = await this.findings.ask(user, { system: HOUR_SYSTEM, schema: HOUR_SCHEMA, name: 'hour' });
+      const { reply } = await this.findings.ask(user, { system: HOUR_SYSTEM, schema: HOUR_SCHEMA, name: 'hour', most: 8192 });
       for (const it of Array.isArray(reply?.items) ? reply.items : []) {
         const text = String(it?.text ?? '').trim().slice(0, 400);
         const ids = [...new Set((Array.isArray(it?.findings) ? it.findings : []).map(Number).filter((n) => byId.has(n)))];

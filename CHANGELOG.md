@@ -9,6 +9,7 @@
 - Findings → The day so far sums up the latest hours first, so today's fill in soon after an update or a while off rather than after the last 36 hours'. An hour the model fails on waits 30 minutes instead of stopping every hour after it
 - Findings with gpt-oss asks it to think as little as it can: it can't turn its thinking off, as AirScribe asks other models to
 - Admin, Findings and Channels show an error when a proxy in front of AirScribe gives up waiting (a 502 or 504), rather than a blank line
+- Findings stops a model's answer at 2048 tokens (8192 for an hour of the day so far), so one going round in circles fails in seconds instead of holding the server for minutes; and a model that doesn't answer in time is said to be that, not "can't reach"
 - _...Add new stuff here..._
 
 ## 0.7.0
