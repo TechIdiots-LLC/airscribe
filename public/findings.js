@@ -18,6 +18,11 @@ function withToken(path) {
   return token ? `${path}${path.includes('?') ? '&' : '?'}token=${encodeURIComponent(token)}` : path;
 }
 
+/** An error with no message of AirScribe's: often a proxy in front of it that stopped waiting. */
+const unanswered = (res) => (res.status === 502 || res.status === 504
+  ? `no answer in time (${res.status}): a proxy in front of AirScribe may have stopped waiting`
+  : res.statusText || `the server answered ${res.status}`);
+
 async function api(path, opts = {}) {
   const res = await fetch(withToken(`/api${path}`), {
     ...opts,
@@ -25,7 +30,7 @@ async function api(path, opts = {}) {
     body: opts.body && JSON.stringify(opts.body),
   });
   const body = await res.json().catch(() => ({}));
-  if (!res.ok) throw Object.assign(new Error(body.error || res.statusText), { status: res.status });
+  if (!res.ok) throw Object.assign(new Error(body.error || unanswered(res)), { status: res.status });
   return body;
 }
 
