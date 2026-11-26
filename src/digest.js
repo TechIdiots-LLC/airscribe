@@ -8,7 +8,8 @@
 const HOUR = 3_600_000;
 const CHUNK = 60;              // findings in one question
 const LOOK_BACK_H = 36;        // hours looked at for ones still to sum up
-const PER_RUN = 6;             // hours summed up in one go, oldest first
+const PER_RUN = 6;             // hours summed up in one go, the latest first
+const RETRY_MS = 30 * 60_000;  // an hour that failed waits this long before it's tried again
 const OVERVIEW_CHARS = 40_000; // about 10k tokens of items for an overview
 const RUN_MS = 5 * 60_000;
 
@@ -74,6 +75,7 @@ export class Digest {
     this.db = findings.db;
     this.running = null;
     this.lastError = null;
+    this.failed = new Map();   // hour → when it last failed
     this.db.exec(`
       -- Each hour summed up: how many findings it had then, so one read late is summed up again
       CREATE TABLE IF NOT EXISTS digest_hours (
@@ -128,7 +130,7 @@ export class Digest {
   /**
    * The hours to sum up: over, with what was heard in them read (Findings waits for the other engines), and not
    * summed up yet, or summed up before more of them was read.
-   * @returns {number[]} Their starts, oldest first.
+   * @returns {number[]} Their starts, the latest first: today's fill in first after a while away.
    */
   due() {
     const now = this.now();
@@ -138,7 +140,7 @@ export class Digest {
     const counts = new Map();
     for (const r of this.rows(from, until)) counts.set(hourOf(r.started_at), (counts.get(hourOf(r.started_at)) ?? 0) + 1);
     const done = new Map(this.db.prepare('SELECT hour, count FROM digest_hours WHERE hour >= ?').all(from).map((r) => [r.hour, r.count]));
-    return [...counts].filter(([h, n]) => !done.has(h) || n > done.get(h)).map(([h]) => h).sort((a, b) => a - b);
+    return [...counts].filter(([h, n]) => !done.has(h) || n > done.get(h)).map(([h]) => h).sort((a, b) => b - a);
   }
 
   /**
@@ -239,29 +241,40 @@ export class Digest {
 
   /**
    * Sum up the hours that are due, then write their days' overviews again: for every radio, and each that was
-   * heard that day. One at a time.
+   * heard that day. One at a time. An hour that fails stops the run and waits a while, so it can't hold up the rest.
    * @returns {Promise<{hours: number, items: number, days: string[]}>}
    */
   run() {
     this.running ??= (async () => {
-      const hours = this.due().slice(0, PER_RUN);
+      const hours = this.due().filter((h) => !(this.failed.get(h) > this.now() - RETRY_MS)).slice(0, PER_RUN);
       let items = 0;
+      let summed = 0;
       const days = new Set();
+      let failure = null;
       try {
         for (const h of hours) {
-          items += await this.sumHour(h);
+          try {
+            items += await this.sumHour(h);
+          } catch (e) {
+            this.failed.set(h, this.now());
+            failure = e;
+            break;
+          }
+          this.failed.delete(h);
+          summed++;
           days.add(dayOf(h));
         }
         for (const day of days) {
           const radios = [...new Set(this.items(day).map((it) => it.mac).filter(Boolean))];
           for (const scope of ['', ...radios]) await this.overview(day, scope);
         }
+        if (failure) throw failure;
         this.lastError = null;
       } catch (e) {
         this.lastError = { at: this.now(), error: e.message };
         throw e;
       }
-      return { hours: hours.length, items, days: [...days] };
+      return { hours: summed, items, days: [...days] };
     })().finally(() => { this.running = null; });
     return this.running;
   }

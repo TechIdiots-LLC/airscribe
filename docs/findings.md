@@ -299,7 +299,8 @@ anything. A bigger speech model (large-v3-turbo on a GPU) helps more than a bigg
   every radio, and once for each radio heard that day. It's 3 to 6 sentences, the most serious first. With more
   items than fit (about 10k tokens), those drawn from the most transmissions are kept.
 - **Late findings.** If a transmission of an hour already summed up is read late, that hour is summed up again.
-  Hours from the last 36 are looked at, up to 6 at a time, when nothing is waiting to be read.
+  Hours from the last 36 are looked at, up to 6 at a time, the latest first, every 5 minutes when nothing is
+  waiting to be read. An hour the model fails on is tried again 30 minutes later; the tab shows the error.
 
 The tab shows the day's overview, then its hours, newest first, each item with its time, channel and service. A
 click on an item's transmissions opens the findings it came from, to read and play. Pick a day, a radio (its own

@@ -80,3 +80,44 @@ test('the day so far: each hour summed up once it’s read, then the day’s ove
   assert.equal(findings.digest.day({ day: '2026-11-25' }).hours.length, 0);
   assert.equal(dayOf(hourOf(h13 + 1234)), '2026-11-25');
 });
+
+test('the day so far: the latest hours first, and one that fails waits rather than holding up the rest', { skip: !sqlite }, async () => {
+  const { Store } = await import('../src/store.js');
+  const { Findings } = await import('../src/findings.js');
+  const store = new Store(':memory:', 'base');
+  let now = new Date(2026, 10, 25, 16, 20).getTime();
+  let broken = null;   // the hour whose question the model fails
+  const fetch = async (url, opts) => {
+    const body = JSON.parse(opts.body);
+    const system = body.messages[0].content;
+    if (system.startsWith('You sum up an hour')) {
+      if (broken && body.messages[1].content.startsWith(`The hour from ${broken}`)) return Response.json({ error: 'out of memory' }, { status: 500 });
+      return Response.json({ message: { content: JSON.stringify({ items: [] }) } });
+    }
+    if (system.startsWith('You write the overview')) return Response.json({ message: { content: '{"overview":"x"}' } });
+    return Response.json({ message: { content: JSON.stringify({ summary: body.messages[1].content.match(/New transmission:\n(.*)/)?.[1] ?? '' }) } });
+  };
+  const findings = new Findings({ store, manager: new EventEmitter(), primary: 'base', fetch, now: () => now });
+  findings.save({ enabled: true, url: 'http://llm.invalid:11434', waitMinutes: 0, findingsCount: 0 });
+  const hours = [13, 14, 15].map((h) => new Date(2026, 10, 25, h, 0).getTime());
+  for (const h of hours) {
+    const id = store.addTransmission({ mac: 'AA', startedAt: h + 600_000, durationMs: 4000, audioFile: `${h}.wav`, channelName: 'Fire' });
+    store.saveTranscript(id, 'base', { status: 'done', text: 'engine 3 respond to elm street' });
+    await findings.read(id);
+  }
+  assert.deepEqual(findings.digest.due(), [...hours].reverse(), 'the latest first');
+
+  broken = '15:00';
+  await assert.rejects(findings.digest.run(), /out of memory/);
+  assert.match(findings.digest.day().lastError.error, /out of memory/);
+  const r = await findings.digest.run();
+  assert.equal(r.hours, 2, 'the others, while it waits');
+  assert.deepEqual(findings.digest.due(), [hours[2]]);
+  assert.equal(findings.digest.day().lastError, null);
+  assert.equal((await findings.digest.run()).hours, 0, 'not tried again at once');
+
+  broken = null;
+  now += 31 * 60_000;
+  assert.equal((await findings.digest.run()).hours, 1, 'tried again a while later');
+  assert.deepEqual(findings.digest.due(), []);
+});
