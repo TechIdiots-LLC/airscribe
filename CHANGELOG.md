@@ -2,7 +2,6 @@
 
 ## master
 ### ✨ Features and improvements
-- Admin → Findings → Forget the key removes a saved API key, for a server that doesn't want one (Ollama's own port rather than Open WebUI's)
 - Admin → Findings → Roads brings in towns, named places (businesses, schools) and addresses with the roads: from the map's tiles (towns and places), from OpenStreetMap, or from a file. A file can be addresses alone, OpenAddresses-style (number, street, city), and leaves the roads as they were. `tools/roads-from-osm.sh` now exports all of them
 - Findings gives the model the towns and businesses said near the channel ("Family Dolar" comes back as Family Dollar, "Grimfield" as Brimfield), looks at a town's roads when one a way off is named, and checks the house numbers said against the addresses: "1616 Roxbury Street isn't there (its numbers run 16 to 120)". A house number that's really the time said, on a street without that number, is taken out as the time
 - The Map's Roads mentioned puts a dot at the house when an address's number is among those imported, and at a named place mentioned (a business, a school); an address ending in a town is looked for around that town rather than the channel
@@ -10,12 +9,18 @@
 - _...Add new stuff here..._
 
 ### 🐞 Bug fixes
+- Findings gives the model the likeliest roads first: a road said by its whole name ("Walnut Street") is no longer crowded out by "A Street", "The Boulevard" and every "Main …" variant, and the new transmission's roads come before those of the earlier ones
+- _...Add new stuff here..._
+
+## 0.7.1
+### ✨ Features and improvements
+- Admin → Findings → Forget the key removes a saved API key, for a server that doesn't want one (Ollama's own port rather than Open WebUI's)
+
+### 🐞 Bug fixes
 - Findings → The day so far sums up the latest hours first, so today's fill in soon after an update or a while off rather than after the last 36 hours'. An hour the model fails on waits 30 minutes instead of stopping every hour after it
 - Findings with gpt-oss asks it to think as little as it can: it can't turn its thinking off, as AirScribe asks other models to
 - Admin, Findings and Channels show an error when a proxy in front of AirScribe gives up waiting (a 502 or 504), rather than a blank line
 - Findings stops a model's answer at 2048 tokens (8192 for an hour of the day so far), so one going round in circles fails in seconds instead of holding the server for minutes; and a model that doesn't answer in time is said to be that, not "can't reach"
-- Findings gives the model the likeliest roads first: a road said by its whole name ("Walnut Street") is no longer crowded out by "A Street", "The Boulevard" and every "Main …" variant, and the new transmission's roads come before those of the earlier ones
-- _...Add new stuff here..._
 
 ## 0.7.0
 ### ✨ Features and improvements
