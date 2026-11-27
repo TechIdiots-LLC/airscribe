@@ -97,7 +97,7 @@ cp "$deb" "$root/tmp/airscribe.deb"
 in_root apt-get update -q
 in_root apt-get -y -q -o Dpkg::Options::=--force-confold dist-upgrade
 # curl: for checking it answers. bluez: BlueZ's tools, for a container given the host's Bluetooth (docs/proxmox.md)
-in_root apt-get install -y -q --no-install-recommends ca-certificates /tmp/airscribe.deb curl bluez locales
+in_root apt-get install -y -q --no-install-recommends ca-certificates /tmp/airscribe.deb curl bluez locales osmium-tool
 rm -f "$root/tmp/airscribe.deb"
 # pct enter brings the host's LANG, en_US.UTF-8 on Proxmox, and without it every perl tool (apt among them)
 # warns that the locale failed

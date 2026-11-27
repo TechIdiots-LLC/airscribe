@@ -461,6 +461,15 @@ and addresses come together, from one of:
   placed channels, from [Overpass](https://wiki.openstreetmap.org/wiki/Overpass_API) (`overpass-api.de`, or the
   settings file's `findings.overpass`). Only the area's box is sent. It takes a minute or two for a county. Channels
   spread over more than about 150 km are too much for one fetch: use a file.
+- **Download and read an extract**: give the address of an OpenStreetMap extract, such as a state's
+  `…-latest.osm.pbf` from [Geofabrik](https://download.geofabrik.de/), and AirScribe downloads it into
+  `<dataDir>/osm/`, cuts the area within the given distance of the placed channels out of it with
+  [osmium](https://osmcode.org/osmium-tool/), and reads its roads, towns, named places and addresses: the same as
+  `tools/roads-from-osm.sh` below, without a PC in between. It needs osmium on the server (`apt install
+  osmium-tool`; the package recommends it, and the LXC template has it; the settings file's `findings.osmium`
+  names another). The download is kept: reading again within a day, after placing another channel, uses it
+  rather than fetching it again. A state's extract is a few hundred MB and takes a few minutes; the channels may
+  be any distance apart. Read it again now and then to keep up with OpenStreetMap; Geofabrik updates daily.
 - **Import a file**: GeoJSON, one feature a line (GeoJSONSeq) or a FeatureCollection, with OpenStreetMap's tags as
   each feature's properties: lines tagged `highway` are roads; points and areas tagged `place` (city, town,
   village, suburb, neighbourhood…) are towns, those with a `name` and `amenity`, `shop`, `leisure`, `office`,
@@ -488,6 +497,7 @@ addresses. Roads, places and addresses from OpenStreetMap are © OpenStreetMap c
 | `GET /api/admin/findings/roads` | how many, from where, an import under way, the last failure |
 | `POST /api/admin/findings/roads/tiles` | `{km}`: read from the map's tiles, in the background |
 | `POST /api/admin/findings/roads/fetch` | `{km}`: fetch from Overpass, in the background |
+| `POST /api/admin/findings/roads/extract` | `{url, km}`: download an `.osm.pbf` extract and read it with osmium, in the background |
 | `PUT /api/admin/findings/roads?name=` | the file as the body (`application/octet-stream`) |
 | `DELETE /api/admin/findings/roads` | delete them |
 | `GET /api/admin/findings/map` | `?hours=&also=`: the roads mentioned, as GeoJSON with what was said about each |

@@ -99,12 +99,17 @@ function renderRoads(r) {
   const src = r.source;
   const from = !src ? '' : src.from === 'file' ? `imported from ${src.name}`
     : src.from === 'tiles' ? `read from the map’s tiles (${new URL(src.tilejson).host}) for ${src.km} km around the channels`
+    : src.from === 'extract' ? `read from ${src.url.split('/').pop()} for ${src.km} km around the channels`
     : `fetched from OpenStreetMap for ${src.km} km around the channels`;
-  const doing = { file: 'Importing', tiles: `Reading the map’s tiles, ${r.busy?.tiles},` }[r.busy?.from] ?? 'Fetching from OpenStreetMap';
   const n = (v) => Number(v ?? 0).toLocaleString();
+  const mb = (v) => (Number(v ?? 0) / 1048576).toFixed(0);
+  const extract = { downloading: `Downloading the extract, ${mb(r.busy?.downloaded)}${r.busy?.total ? ` of ${mb(r.busy.total)}` : ''} MB,`,
+    cutting: 'Cutting the channels’ area out of the extract', reading: 'Reading the extract' }[r.busy?.step];
+  const doing = { file: 'Importing', tiles: `Reading the map’s tiles, ${r.busy?.tiles},`, extract }[r.busy?.from] ?? 'Fetching from OpenStreetMap';
   // Places and addresses, when they came from somewhere else than the roads (an address file)
-  const other = (s, what) => (s && (!src || s.at !== src.at)
-    ? ` ${what} ${s.from === 'file' ? `imported from ${s.name}` : `from ${s.from === 'tiles' ? 'the map’s tiles' : 'OpenStreetMap'}`}, ${new Date(s.at).toLocaleString()}.` : '');
+  const whence = (s) => (s.from === 'file' ? `imported from ${s.name}`
+    : `from ${{ tiles: 'the map’s tiles', extract: 'the extract' }[s.from] ?? 'OpenStreetMap'}`);
+  const other = (s, what) => (s && (!src || s.at !== src.at) ? ` ${what} ${whence(s)}, ${new Date(s.at).toLocaleString()}.` : '');
   const text = r.busy
     ? `${doing}… ${n(r.busy.read)} roads, ${n(r.busy.places)} places and towns, ${n(r.busy.addresses)} addresses so far.`
     : r.ways || r.places || r.addresses
@@ -114,8 +119,9 @@ function renderRoads(r) {
       : 'No roads yet.';
   $('fd-roads-status').textContent = r.lastError && !r.busy ? `${text} The last try failed: ${r.lastError.error}` : text;
   $('fd-roads-status').className = r.lastError && !r.busy ? 'tx-text error' : 'meta';
-  for (const id of ['fd-roads-tiles', 'fd-roads-fetch', 'fd-roads-import', 'fd-roads-clear']) $(id).disabled = Boolean(r.busy);
+  for (const id of ['fd-roads-tiles', 'fd-roads-fetch', 'fd-roads-import', 'fd-roads-extract', 'fd-roads-clear']) $(id).disabled = Boolean(r.busy);
   roadsReady = Boolean(r.ways || r.places || r.addresses);
+  if (r.extractUrl && !$('fd-roads-extract-url').value) $('fd-roads-extract-url').value = r.extractUrl;
   clearTimeout(roadsTimer);
   if (r.busy) roadsTimer = setTimeout(() => api('/admin/findings/roads').then(renderRoads, (e) => say(e.message, true)), 2000);
 }
@@ -132,6 +138,16 @@ $('fd-roads-tiles').onclick = async () => {
 $('fd-roads-fetch').onclick = async () => {
   try {
     await api('/admin/findings/roads/fetch', { method: 'POST', body: { km: Number($('fd-roads-km').value) } });
+    renderRoads(await api('/admin/findings/roads'));
+  } catch (e) {
+    say(e.message, true);
+  }
+};
+
+$('fd-roads-extract').onclick = async () => {
+  try {
+    await api('/admin/findings/roads/extract', { method: 'POST',
+      body: { url: $('fd-roads-extract-url').value.trim(), km: Number($('fd-roads-km').value) } });
     renderRoads(await api('/admin/findings/roads'));
   } catch (e) {
     say(e.message, true);

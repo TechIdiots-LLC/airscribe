@@ -8,7 +8,13 @@
  * (osmium's export of an OpenStreetMap extract, say). An import is written beside the last one and swapped in
  * at the end, so the roads in use never stop being whole.
  */
+import { spawn } from 'node:child_process';
+import { createWriteStream } from 'node:fs';
+import { mkdir, rename, rm, stat } from 'node:fs/promises';
+import { join } from 'node:path';
 import { createInterface } from 'node:readline';
+import { Readable } from 'node:stream';
+import { pipeline } from 'node:stream/promises';
 import { features as tileFeatures, tileOf } from './mvt.js';
 import * as mapPlaces from './places.js';
 import { VERSION } from './updates.js';
@@ -30,6 +36,11 @@ const CACHE_MAX = 2000;
 
 // The keys a named place is fetched by from Overpass (places.js reads them)
 const OSM_PLACE_KEYS = 'amenity|shop|leisure|tourism|office|healthcare|craft|historic|aeroway|emergency|club';
+// What osmium keeps of an extract: tools/roads-from-osm.sh keeps the same
+export const OSM_FILTER = ['w/highway', 'nwr/place', 'nwr/addr:housenumber', ...OSM_PLACE_KEYS.split('|').map((k) => `nwr/${k}`),
+  'nwr/building=school,hospital,church,college,university,fire_station'];
+const EXTRACT_FRESH_MS = 24 * 3600_000;   // an extract downloaded this recently is read again, not fetched
+const EXTRACT_MS = 2 * 3600_000;          // a state's extract is a few hundred MB
 // Not roads anyone is sent to
 const SKIP = /^(footway|path|cycleway|steps|bridleway|corridor|proposed|construction|abandoned|disused|platform|elevator|bus_stop|raceway|via_ferrata|bus_guideway|escape|emergency_bay|rest_area|services)$/;
 
@@ -360,9 +371,14 @@ export class Roads {
    * @param {{url: string}[]} [o.styles] - The Map's base maps (map.styles), where those tiles are found.
    * @param {typeof fetch} [o.fetch] - For tests.
    * @param {() => number} [o.now] - The clock, for tests.
+   * @param {string} [o.dataDir] - Where an extract is downloaded to (an osm folder in it).
+   * @param {string|string[]} [o.osmium] - The osmium program: the settings file's findings.osmium; a list is a
+   *   program and its first arguments.
    */
-  constructor({ store, overpass, tiles, styles = [], fetch = globalThis.fetch, now = () => Date.now() }) {
+  constructor({ store, overpass, tiles, styles = [], fetch = globalThis.fetch, now = () => Date.now(), dataDir = null, osmium = 'osmium' }) {
     this.store = store;
+    this.dataDir = dataDir;
+    this.osmiumCmd = Array.isArray(osmium) ? osmium : [osmium];
     this.db = store.db;
     this.overpass = overpass || OVERPASS;
     this.tiles = tiles || null;
@@ -419,7 +435,9 @@ export class Roads {
       addresses: count('SELECT count(*) AS n FROM addresses WHERE gen = ?', this.gen('addresses')),
       addressesSource: JSON.parse(this.store.setting('addresses.source') ?? 'null'),
       busy: this.busy && { from: this.busy.from, startedAt: this.busy.startedAt, read: this.busy.read, tiles: this.busy.tiles,
-        downloaded: this.busy.downloaded, places: this.busy.places, addresses: this.busy.addresses },
+        places: this.busy.places, addresses: this.busy.addresses,
+        step: this.busy.step, downloaded: this.busy.downloaded, total: this.busy.total },
+      extractUrl: this.store.setting('roads.extractUrl') ?? null,
       lastError: this.lastError ?? null,
       overpass: this.overpass,
     };
@@ -544,51 +562,158 @@ export class Roads {
    * @param {string} [name] - What it was called.
    * @returns {Promise<object>} stats().
    */
-  async importStream(input, name = 'a file', from = 'file') {
-    this.begin(from);
+  async importStream(input, name = 'a file') {
+    this.begin('file');
+    try {
+      await this.read(input);
+    } catch (e) {
+      return this.finish(null, e);
+    }
+    return this.finish({ from: 'file', name: String(name).slice(0, 200) });
+  }
+
+  /** Read GeoJSON into the import underway, as importStream() describes. */
+  async read(input) {
     let mode = null;
     let whole = '';
     const batch = new Batch((b) => this.write(b));
     let n = 0;
-    try {
-      for await (const raw of createInterface({ input, crlfDelay: Infinity })) {
-        n++;
-        if (mode === 'whole') {
-          whole += `${raw}\n`;
-          if (whole.length > WHOLE_MAX) throw fail('a FeatureCollection that big can’t be read whole: export it as GeoJSONSeq (one feature a line)', 413);
-          continue;
-        }
-        const line = raw.replace(/^\x1e/, '').trim();
-        if (!line) continue;
-        let f = null;
-        try {
-          f = JSON.parse(line);
-        } catch { /* not a line of its own */ }
-        if (mode === null) mode = f?.type === 'Feature' ? 'seq' : 'whole';
-        if (mode === 'whole') {
-          whole = `${raw}\n`;
-          continue;
-        }
-        if (f?.type !== 'Feature') throw fail(`line ${n} isn’t a GeoJSON feature`);
-        batch.feature(f);
-      }
+    for await (const raw of createInterface({ input, crlfDelay: Infinity })) {
+      n++;
       if (mode === 'whole') {
-        let doc;
-        try {
-          doc = JSON.parse(whole);
-        } catch {
-          throw fail('that isn’t GeoJSON: a FeatureCollection, or one feature a line');
-        }
-        whole = '';
-        const features = doc?.type === 'FeatureCollection' ? doc.features : doc?.type === 'Feature' ? [doc] : null;
-        if (!Array.isArray(features)) throw fail('that isn’t GeoJSON: a FeatureCollection, or one feature a line');
-        for (const f of features) batch.feature(f);
+        whole += `${raw}\n`;
+        if (whole.length > WHOLE_MAX) throw fail('a FeatureCollection that big can’t be read whole: export it as GeoJSONSeq (one feature a line)', 413);
+        continue;
       }
-      batch.flush();
-    } catch (e) {
-      return this.finish(null, e);
+      const line = raw.replace(/^\x1e/, '').trim();
+      if (!line) continue;
+      let f = null;
+      try {
+        f = JSON.parse(line);
+      } catch { /* not a line of its own */ }
+      if (mode === null) mode = f?.type === 'Feature' ? 'seq' : 'whole';
+      if (mode === 'whole') {
+        whole = `${raw}\n`;
+        continue;
+      }
+      if (f?.type !== 'Feature') throw fail(`line ${n} isn’t a GeoJSON feature`);
+      batch.feature(f);
     }
-    return this.finish({ from, name: String(name).slice(0, 200) });
+    if (mode === 'whole') {
+      let doc;
+      try {
+        doc = JSON.parse(whole);
+      } catch {
+        throw fail('that isn’t GeoJSON: a FeatureCollection, or one feature a line');
+      }
+      whole = '';
+      const features = doc?.type === 'FeatureCollection' ? doc.features : doc?.type === 'Feature' ? [doc] : null;
+      if (!Array.isArray(features)) throw fail('that isn’t GeoJSON: a FeatureCollection, or one feature a line');
+      for (const f of features) batch.feature(f);
+    }
+    batch.flush();
+  }
+
+  /**
+   * Download an OpenStreetMap extract (a Geofabrik .osm.pbf), cut the area around the placed channels out of it
+   * with osmium, and import its roads, towns, named places and addresses, in the background. The download is kept
+   * a day, so placing another channel and reading again doesn't fetch it again.
+   * @param {{url?: string, km?: number}} o - The extract's address; how far around the channels.
+   * @returns {Promise<{started: true}>} Under way; stats() says how it went.
+   */
+  async fetchExtract({ url, km: radius = NEAR_KM } = {}) {
+    const r = Number(radius);
+    if (!Number.isFinite(r) || r < 1 || r > 60) throw fail('read roads 1 to 60 km around the channels');
+    let u;
+    try {
+      u = new URL(String(url ?? ''));
+    } catch {
+      u = null;
+    }
+    if (!u || !/^https?:$/.test(u.protocol) || !/\.osm\.pbf$/i.test(u.pathname)) {
+      throw fail('give the address of an .osm.pbf extract, such as one of download.geofabrik.de’s');
+    }
+    if (!this.dataDir) throw fail('there’s no data folder to download it into', 500);
+    const places = this.places();
+    if (!places.length) throw fail('place a channel on the map first: the roads read are those around the channels');
+    if (this.busy) throw fail('roads are being read already', 409);
+    await this.osmium(['--version']).catch((e) => {
+      throw fail(e.code === 'ENOENT' ? 'reading an extract needs osmium on the server: apt install osmium-tool' : e.message);
+    });
+    const boxes = places.map((p) => around(p, r));
+    const box = [Math.min(...boxes.map((b) => b[0])), Math.min(...boxes.map((b) => b[1])),
+      Math.max(...boxes.map((b) => b[2])), Math.max(...boxes.map((b) => b[3]))].map((v) => Number(v.toFixed(5)));
+    this.store.setSetting('roads.extractUrl', u.href);
+    this.begin('extract');
+    const busy = this.busy;
+    busy.step = 'downloading';
+    const about = { from: 'extract', url: u.href, km: r, box };
+    (async () => {
+      const dir = join(this.dataDir, 'osm');
+      const file = join(dir, 'extract.osm.pbf');
+      const area = join(dir, 'area.osm.pbf');
+      const kept = join(dir, 'kept.osm.pbf');
+      try {
+        await mkdir(dir, { recursive: true });
+        const had = JSON.parse(this.store.setting('roads.extractFile') ?? 'null');
+        const fresh = had?.url === u.href && had.at > this.now() - EXTRACT_FRESH_MS && await stat(file).then(() => true, () => false);
+        if (!fresh) {
+          let res;
+          try {
+            res = await this.fetch(u.href, { headers: { 'User-Agent': `AirScribe/${VERSION}` }, signal: AbortSignal.timeout(EXTRACT_MS) });
+          } catch (err) {
+            throw new Error(`can’t reach ${u.host}: ${err.cause?.message ?? err.message}`);
+          }
+          if (!res.ok || !res.body) throw new Error(`${u.host} answered ${res.status}`);
+          busy.total = Number(res.headers.get('content-length')) || null;
+          busy.downloaded = 0;
+          const body = Readable.fromWeb(res.body);
+          body.on('data', (c) => { busy.downloaded += c.length; });
+          await pipeline(body, createWriteStream(`${file}.part`));
+          await rename(`${file}.part`, file);
+          this.store.setSetting('roads.extractFile', JSON.stringify({ url: u.href, at: this.now() }));
+        }
+        busy.step = 'cutting';
+        await this.osmium(['extract', '--overwrite', '--bbox', box.join(','), '-o', area, file]);
+        await this.osmium(['tags-filter', '--overwrite', '-o', kept, area, ...OSM_FILTER]);
+        busy.step = 'reading';
+        await this.osmium(['export', '-f', 'geojsonseq', '--geometry-types=point,linestring,polygon', '-o', '-', kept],
+          (out) => this.read(out));
+      } catch (err) {
+        try { this.finish(about, err); } catch { /* kept in lastError */ }
+        console.error(`[roads] ${err.message}`);
+        return;
+      } finally {
+        await rm(area, { force: true }).catch(() => {});
+        await rm(kept, { force: true }).catch(() => {});
+      }
+      try { this.finish(about); } catch (err) { console.error(`[roads] ${err.message}`); }
+    })();
+    return { started: true };
+  }
+
+  /**
+   * Run osmium; with `read`, its output goes to that as it comes.
+   * @param {string[]} args - Its arguments.
+   * @param {(out: import('node:stream').Readable) => Promise<void>} [read] - Takes its output.
+   * @returns {Promise<void>} Settled when it's done; rejected with the end of what it said when it fails.
+   */
+  osmium(args, read) {
+    const [cmd, ...pre] = this.osmiumCmd;
+    return new Promise((resolve, reject) => {
+      const child = spawn(cmd, [...pre, ...args], { stdio: ['ignore', read ? 'pipe' : 'ignore', 'pipe'] });
+      let said = '';
+      child.stderr.on('data', (c) => { said = (said + c).slice(-500); });
+      let readErr = null;
+      const reading = read ? read(child.stdout).catch((e) => { readErr = e; child.kill(); }) : Promise.resolve();
+      child.on('error', reject);
+      child.on('close', async (code) => {
+        await reading;
+        if (readErr) reject(readErr);
+        else if (code !== 0) reject(new Error(`osmium ${args[0]} failed: ${said.trim().split('\n').at(-1) || `exit ${code}`}`));
+        else resolve();
+      });
+    });
   }
 
   /**

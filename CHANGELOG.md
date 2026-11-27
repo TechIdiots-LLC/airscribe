@@ -6,6 +6,7 @@
 - Admin → Findings → Roads brings in towns, named places (businesses, schools) and addresses with the roads: from the map's tiles (towns and places), from OpenStreetMap, or from a file. A file can be addresses alone, OpenAddresses-style (number, street, city), and leaves the roads as they were. `tools/roads-from-osm.sh` now exports all of them
 - Findings gives the model the towns and businesses said near the channel ("Family Dolar" comes back as Family Dollar, "Grimfield" as Brimfield), looks at a town's roads when one a way off is named, and checks the house numbers said against the addresses: "1616 Roxbury Street isn't there (its numbers run 16 to 120)". A house number that's really the time said, on a street without that number, is taken out as the time
 - The Map's Roads mentioned puts a dot at the house when an address's number is among those imported, and at a named place mentioned (a business, a school); an address ending in a town is looked for around that town rather than the channel
+- Admin → Findings → Roads → Download and read: give an OpenStreetMap extract's address (a state's `.osm.pbf` from Geofabrik) and AirScribe downloads it, cuts the channels' area out with osmium and reads its roads, towns, places and addresses, with no PC step. The package now recommends `osmium-tool`, and the LXC template has it
 - _...Add new stuff here..._
 
 ### 🐞 Bug fixes

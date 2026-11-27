@@ -137,6 +137,47 @@ test('places, towns and addresses import beside the roads, and are found near th
   assert.deepEqual([roads.stats().places, roads.stats().addresses], [0, 0]);
 });
 
+test('an extract is downloaded, cut to the channels’ area with osmium, and read', { skip: !sqlite }, async () => {
+  const { mkdtemp, readFile, rm: remove } = await import('node:fs/promises');
+  const { tmpdir } = await import('node:os');
+  const { join: joinPath } = await import('node:path');
+  const { Store } = await import('../src/store.js');
+  const { Roads } = await import('../src/roads.js');
+  const dir = await mkdtemp(joinPath(tmpdir(), 'airscribe-extract-'));
+  process.env.FAKE_OSMIUM_LOG = joinPath(dir, 'osmium.log');
+  try {
+    const store = new Store(':memory:', 'base');
+    store.setChannelPlace('Holden PD', HOME.lat, HOME.lon);
+    const body = [...TOWN, ...PLACES].map((f) => JSON.stringify(f)).join('\n');
+    let downloads = 0;
+    const fetch = async (url) => (downloads++, new Response(body, { headers: { 'content-length': String(Buffer.byteLength(body)) } }));
+    const { fileURLToPath } = await import('node:url');
+    const osmium = [process.execPath, fileURLToPath(new URL('./fixtures/fake-osmium.mjs', import.meta.url))];
+    const roads = new Roads({ store, fetch, dataDir: dir, osmium });
+    await assert.rejects(roads.fetchExtract({ url: 'https://example.invalid/area.zip' }), /\.osm\.pbf extract/);
+    await assert.rejects(new Roads({ store, fetch, dataDir: dir, osmium: joinPath(dir, 'no-osmium') })
+      .fetchExtract({ url: 'https://example.invalid/area-latest.osm.pbf' }), /needs osmium/);
+    const wait = async () => { while (roads.stats().busy) await new Promise((r) => setTimeout(r, 5)); };
+    await roads.fetchExtract({ url: 'https://example.invalid/area-latest.osm.pbf', km: 10 });
+    await wait();
+    const s = roads.stats();
+    assert.equal(s.lastError, null);
+    assert.deepEqual([s.ways, s.towns, s.places, s.addresses, s.source.from, s.extractUrl],
+      [7, 2, 1, 4, 'extract', 'https://example.invalid/area-latest.osm.pbf']);
+    const runs = (await readFile(process.env.FAKE_OSMIUM_LOG, 'utf8')).trim().split('\n').map((l) => JSON.parse(l));
+    const cut = runs.find((a) => a[0] === 'extract');
+    assert.match(cut[cut.indexOf('--bbox') + 1], /^-71\.9\d+,42\.2\d+,-71\.7\d+,42\.4\d+$/, 'the channels’ area, 10 km around');
+    assert.ok(runs.find((a) => a[0] === 'tags-filter').includes('nwr/addr:housenumber'));
+    // Read again the same day: not downloaded again
+    await roads.fetchExtract({ url: 'https://example.invalid/area-latest.osm.pbf', km: 10 });
+    await wait();
+    assert.equal(downloads, 1);
+  } finally {
+    delete process.env.FAKE_OSMIUM_LOG;
+    await remove(dir, { recursive: true, force: true });
+  }
+});
+
 test('Findings gives the model the places said and checks the house numbers', { skip: !sqlite }, async () => {
   const { store, roads } = await setUp();
   const { Findings } = await import('../src/findings.js');

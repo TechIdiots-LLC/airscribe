@@ -74,7 +74,7 @@ Architecture: all
 Maintainer: TechIdiots LLC <noreply@techidiots.net>
 Installed-Size: $size
 Depends: nodejs (>= 22.13), python3 (>= 3.10), ffmpeg, adduser, passwd
-Recommends: bluez, curl
+Recommends: bluez, curl, osmium-tool
 Suggests: python3-venv, intel-opencl-icd
 Section: hamradio
 Priority: optional

@@ -501,6 +501,11 @@
       <input type="file" id="fd-roads-file" accept=".geojson,.geojsonseq,.geojsonl,.json,.jsonl,.ndjson" hidden>
       <button id="fd-roads-clear" class="link">Delete roads</button>
     </div>
+    <div class="row wrap">
+      <label>OpenStreetMap extract <input id="fd-roads-extract-url" type="url" size="48"
+        placeholder="https://download.geofabrik.de/…-latest.osm.pbf"></label>
+      <button id="fd-roads-extract" title="Downloads it to the server and cuts the area around the channels out with osmium: roads, towns, places and addresses">Download and read</button>
+    </div>
     <h4>Local terms</h4>
     <p class="meta">What codes and words mean on these channels (“Code 4”, “Q5”, “Section 12”). When a transmission
       says one, the model is told what it means. <strong>Known</strong> terms are yours. Codes said on the air, and

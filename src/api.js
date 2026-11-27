@@ -960,6 +960,7 @@ export function createApp({ manager, store, sidecar, config, dataDir, updates, c
       api.get('/admin/findings/roads', admin, answer(() => roads.stats()));
       api.post('/admin/findings/roads/fetch', admin, answer((req) => roads.fetchOsm({ km: req.body?.km })));
       api.post('/admin/findings/roads/tiles', admin, answer((req) => roads.fetchTiles({ km: req.body?.km })));
+      api.post('/admin/findings/roads/extract', admin, answer((req) => roads.fetchExtract({ url: req.body?.url, km: req.body?.km })));
       // The file is the body, read as it arrives: GeoJSONSeq, or a FeatureCollection
       api.put('/admin/findings/roads', admin, answer((req) => {
         if (req.is('application/json')) throw refuse('send the file as the body, as application/octet-stream', 415);
