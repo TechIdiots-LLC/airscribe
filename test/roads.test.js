@@ -82,6 +82,21 @@ test('roads import, and a name is found near the channel, misheard or not', { sk
   assert.equal(roads.stats().busy, null);
 });
 
+test('the roads given to the model are the likeliest, the new transmission’s first', { skip: !sqlite }, async () => {
+  const { roads } = await setUp();
+  const at = (i) => [[-71.85 + i * 0.001, 42.35], [-71.849 + i * 0.001, 42.35]];
+  const names = ['A Street', 'The Boulevard', 'My Way', 'Circle', 'North Street', 'Main Street', 'Main Avenue', 'Main Circle',
+    'Main Court', 'Main Terrace', 'Walnut Street', 'Holly Lane', 'Burncoat Street'];
+  await roads.importStream(seq(names.map((n, i) => line(n, at(i)))));
+  const hint = (text, o) => roads.hint(text, HOME, o);
+  assert.deepEqual(hint('258 walnut street, a 90 year old on my way to the circle'), ['Walnut Street', 'Circle'],
+    'a name said whole first; never A Street, My Way or The Boulevard from "a", "my", "the"');
+  assert.deepEqual(hint('the north street call, main street at holly'),
+    ['Main Street', 'North Street', 'Holly Lane', 'Main Avenue', 'Main Circle', 'Main Court', 'Main Terrace']);
+  assert.deepEqual(hint('227 burncot street', { context: 'main street and walnut', max: 2 }), ['Burncoat Street', 'Main Street'],
+    'a mishearing of the new one before the earlier ones’ names, and only as many as asked');
+});
+
 test('roads are fetched from Overpass around the placed channels', { skip: !sqlite }, async () => {
   const { store } = await setUp();
   const { Roads } = await import('../src/roads.js');

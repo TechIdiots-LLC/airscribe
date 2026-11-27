@@ -875,8 +875,8 @@ export class Findings {
       const amateur = ch?.service === 'amateur';
       // Not to a ham channel: a chat about antennas sounds like a dozen roads ("My Way", "Guys Way"), and the model
       // reported them
-      const hint = (s) => (amateur ? [] : this.roads?.hint(s, this.roads.where(t.channel_name)) ?? []);
-      const roads = hint([...context.map((c) => c.text), text].join(' '));
+      const hint = (s, o) => (amateur ? [] : this.roads?.hint(s, this.roads.where(t.channel_name), o) ?? []);
+      const roads = hint(firsts.join(' '), { context: context.map((c) => c.text).join(' ') });
       // A plate heard again counts when it finishes one begun ("plate Adam Boy Charlie one" then ABC123)
       const begun = platesIn(firsts, { cuedOnly: amateur });
       const open = firsts.some((s) => readPlates(s).unclear);

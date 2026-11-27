@@ -129,6 +129,56 @@ export function distance(a, b, max) {
 /** How far a misheard name can be from the real one: none for a short one, which would match anything. */
 const slack = (b) => (b.length >= 8 ? 2 : b.length >= 5 ? 1 : 0);
 
+// ---- Names said -------------------------------------------------------------
+
+// Words said all the time: "the" isn't The Boulevard, "a" isn't A Street, "my" isn't My Way
+const COMMON = new Set(['a', 'an', 'the', 'my', 'our', 'your', 'his', 'her', 'their', 'its', 'i', 'me', 'we', 'you',
+  'he', 'she', 'it', 'they', 'is', 'be', 'go', 'do', 'so', 'no', 'yes', 'ok', 'all', 'any', 'one', 'this', 'that',
+  'what', 'who', 'how', 'here', 'there', 'on', 'in', 'at', 'to', 'of', 'and', 'or', 'for', 'up', 'out', 'off', 'by']);
+// A name only an earlier transmission says ranks after every one the new transmission says
+const CONTEXT_RANK = 10;
+
+/** The runs of one to four words in what was said, words() of each. */
+function grams(text) {
+  const t = words(text).split(' ').filter(Boolean);
+  const out = new Set();
+  for (let n = 1; n <= 4; n++) for (let i = 0; i + n <= t.length; i++) out.add(t.slice(i, i + n).join(' '));
+  return out;
+}
+
+/**
+ * How likely a road near is the one said, lower likelier: 0 its name said whole, 1 said without its kind, 2 or 3
+ * a mishearing away, 4 one of several with a base said whole for another (Main Circle when "Main Street" was), 5 a
+ * name only of a kind ("Circle"); null not said, or a name only of common words ("My Way").
+ * @param {{key: string, base: string|null}} r - A name, from near().
+ * @param {Set<string>} said - grams() of what was said.
+ * @param {Set<string>} whole - The bases of the names said whole.
+ * @returns {number|null}
+ */
+function rankOf(r, said, whole) {
+  const b = r.base;
+  const t = (b ?? r.key).split(' ');
+  // "A Street", "The Boulevard", "My Way": said in every other sentence ("on my way")
+  if (t.every((w) => COMMON.has(w))) return null;
+  // "Circle" alone; not North Street
+  const plain = t.length === 1 && (TYPES.has(t[0]) || DIRS.has(t[0]));
+  if (said.has(r.key)) return plain ? 5 : 0;
+  if (!b || plain || b.length < 3) return null;
+  if (said.has(b)) return whole.has(b) ? 4 : 1;
+  const max = slack(b);
+  const n = b.split(' ').length;
+  if (!max || n > 3) return null;
+  let d = null;
+  for (const g of said) {
+    // "street" said isn't a mishearing of Streeter Road
+    if (g.split(' ').length !== n || g.split(' ').every((w) => TYPES.has(w) || DIRS.has(w))) continue;
+    const e = distance(g, b, max);
+    if (e <= max && (d === null || e < d)) d = e;
+    if (d === 1) break;
+  }
+  return d === null ? null : 1 + d;
+}
+
 // ---- Distances ------------------------------------------------------------
 
 /** Kilometres between two places, near enough over a county. */
@@ -620,36 +670,26 @@ export class Roads {
 
   /**
    * The roads near a channel whose names, or something like them, are in what was said: given to the model so
-   * it can write a misheard road as the one that's there.
-   * @param {string} text - The transmissions.
+   * it can write a misheard road as the one that's there. Likeliest first, as rankOf() has it, and the new
+   * transmission's before those only the earlier ones say, so the few sent are the ones that matter.
+   * @param {string} text - The new transmission: its readings.
    * @param {{lat: number, lon: number}|null} at - Where the channel is.
-   * @param {number} [max] - How many.
+   * @param {{max?: number, context?: string}} [o] - How many; and the earlier transmissions, for the names they say.
    * @returns {string[]} Road names.
    */
-  hint(text, at, max = 25) {
+  hint(text, at, { max = 25, context = '' } = {}) {
     if (!at) return [];
-    const t = words(text).split(' ').filter(Boolean);
-    const grams = [new Set(), new Set(), new Set(), new Set()];
-    for (let n = 1; n <= 3; n++) for (let i = 0; i + n <= t.length; i++) grams[n].add(t.slice(i, i + n).join(' '));
-    const scored = [];
-    for (const r of this.near(at)) {
-      const b = r.base;
-      let score = null;
-      if (grams[Math.min(3, r.key.split(' ').length)]?.has(r.key) || (b && grams[Math.min(3, b.split(' ').length)].has(b))) score = 0;
-      else if (b && slack(b) && b.split(' ').length <= 3) {
-        const max = slack(b);
-        for (const g of grams[b.split(' ').length]) {
-          // "street" said isn't a mishearing of Streeter Road
-          if (g.split(' ').every((w) => TYPES.has(w) || DIRS.has(w))) continue;
-          const d = distance(g, b, max);
-          if (d <= max && (score === null || d < score)) score = d;
-          if (score === 1) break;
-        }
+    const near = this.near(at);
+    const best = new Map();
+    for (const [said, after] of [[grams(text), 0], [grams(context), CONTEXT_RANK]]) {
+      // A name said whole ("Main Street") makes the others with its base (Main Circle) less likely
+      const whole = new Set(near.filter((r) => r.base && said.has(r.key)).map((r) => r.base));
+      for (const r of near) {
+        const rank = rankOf(r, said, whole);
+        if (rank !== null && !(best.get(r.name) <= rank + after)) best.set(r.name, rank + after);
       }
-      if (score !== null) scored.push({ name: r.name, score });
     }
-    const names = [...new Set(scored.sort((x, y) => x.score - y.score || x.name.localeCompare(y.name)).map((x) => x.name))];
-    return names.slice(0, max);
+    return [...best].sort((x, y) => x[1] - y[1] || x[0].localeCompare(y[0])).slice(0, max).map(([name]) => name);
   }
 
   /**
