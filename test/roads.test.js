@@ -145,14 +145,22 @@ test('Findings gives the model the places said and checks the house numbers', { 
   const findings = new Findings({ store, roads, primary: 'base', fetch: async (url, o) => {
     prompts.push(JSON.parse(o.body).messages[1].content);
     return Response.json({ message: { content: JSON.stringify({ summary: 'x', incident: '', service: 'fire',
-      addresses: ['16 Roxbury Street'], roads: ['Roxbury Street'], plates: [], vehicles: [], people: [], units: [] }) } });
+      addresses: ['18 Roxbury Street', 'Family Dollar'], roads: ['Roxbury Street'], plates: [], vehicles: [], people: [], units: [] }) } });
   } });
   findings.save({ enabled: true, url: 'http://llm.invalid:11434' });
   const id = store.addTransmission({ mac: 'AA:BB', startedAt: Date.now(), durationMs: 4000, audioFile: 'a.wav', channelName: 'Holden PD' });
-  store.saveTranscript(id, 'base', { status: 'done', text: 'received 1616 roxbury street general fire alarm, right by family dolar' });
+  store.saveTranscript(id, 'base', { status: 'done', text: 'received 1616 roxbury street, correction 18 roxbury street, right by family dolar' });
   await findings.read(id);
   assert.match(prompts[0], /Places near this channel with names like words said:\nFamily Dollar \(variety store, Main Street\)\n/);
-  assert.match(prompts[0], /Addresses said, checked against the map: 1616 Roxbury Street isn't \(its numbers run 16 to 20\)/);
+  assert.match(prompts[0], /Addresses said, checked against the map: 1616 Roxbury Street isn't \(its numbers run 16 to 20\); 18 Roxbury Street is there/);
+
+  // On the Map: the road, a pin at the house, and the shop
+  const m = findings.map({ hours: 1 });
+  const byName = Object.fromEntries(Object.values(m.places).map((p) => [p.name, p]));
+  assert.deepEqual(Object.keys(byName).sort(), ['18 Roxbury Street', 'Family Dollar', 'Roxbury Street']);
+  assert.deepEqual([byName['18 Roxbury Street'].kind, byName['Family Dollar'].kind], ['address', 'place']);
+  const pin = m.features.features.find((f) => f.properties.kind === 'address');
+  assert.deepEqual(pin.geometry.coordinates, [-71.858, 42.3452]);
 });
 
 test('roads are fetched from Overpass around the placed channels', { skip: !sqlite }, async () => {

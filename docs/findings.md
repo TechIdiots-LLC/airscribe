@@ -433,6 +433,9 @@ With towns, named places and addresses imported beside the roads ([getting them]
   reports the one that's there. Only streets with addresses imported are checked: no addresses, no line.
 - **A house number that's the time said** ("1720. On arrival…" read as "1720 Lancaster Street") is taken out as a
   time when Lancaster Street has no 1720, though it has a road's kind ([times said](#times-said)).
+- **On the Map,** an address whose house is among those imported gets a small dot at the house, beside its road;
+  a named place found ("Family Dollar", "Walmart on Route 20") gets a dot ringed dark; and an address ending in a
+  town ("26 East Hill Road, Brimfield") is looked for around that town, not the channel.
 
 A road is found by its name, its other names (`alt_name`, `old_name`, …) and its number. "Route 9", "Rt 9", "State
 Route 9" and "Highway 9" all find a road numbered `MA 9`, and "I-290" and "Interstate 290" find `I 290`. A

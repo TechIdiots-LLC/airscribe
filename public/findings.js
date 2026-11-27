@@ -553,9 +553,9 @@ document.addEventListener('airscribe:signed-in', (e) => {
 
 // ---- Roads mentioned, on the Map --------------------------------------------------
 // Each road a finding mentions, near its channel, lit: redder the more recent, dashed where the name was only
-// like one there (misheard, maybe); a dot where an address names a corner. Clicking one lists what was said
-// about it. And the Map's Findings tab: what was found in the same hours, each able to frame its roads. For the
-// signed-in, as the rest of Findings is.
+// like one there (misheard, maybe); a dot where an address names a corner, a house found or a named place.
+// Clicking one lists what was said about it. And the Map's Findings tab: what was found in the same hours, each
+// able to frame its roads. For the signed-in, as the rest of Findings is.
 
 const SRC = 'fd-roads';
 const LAYERS = ['fd-roads-line', 'fd-roads-maybe', 'fd-roads-corner'];
@@ -604,8 +604,10 @@ function addLayers() {
     layout: { 'line-cap': 'round', 'line-join': 'round' }, paint: { 'line-color': RECENT, 'line-opacity': FADE, 'line-width': width } });
   m.addLayer({ id: 'fd-roads-maybe', type: 'line', source: SRC, filter: ['all', road, ['==', ['get', 'level'], 'fuzzy']],
     layout: { 'line-join': 'round' }, paint: { 'line-color': RECENT, 'line-opacity': FADE, 'line-width': width, 'line-dasharray': [1.5, 1.2] } });
-  m.addLayer({ id: 'fd-roads-corner', type: 'circle', source: SRC, filter: ['==', ['get', 'kind'], 'corner'],
-    paint: { 'circle-radius': 7, 'circle-color': RECENT, 'circle-opacity': FADE, 'circle-stroke-color': '#fff', 'circle-stroke-width': 2,
+  // Corners, houses and named places: a house's dot smaller, a place's ringed dark
+  m.addLayer({ id: 'fd-roads-corner', type: 'circle', source: SRC, filter: ['in', ['get', 'kind'], ['literal', ['corner', 'address', 'place']]],
+    paint: { 'circle-radius': ['match', ['get', 'kind'], 'address', 5, 7], 'circle-color': RECENT, 'circle-opacity': FADE,
+      'circle-stroke-color': ['match', ['get', 'kind'], 'place', '#222', '#fff'], 'circle-stroke-width': 2,
       'circle-stroke-opacity': FADE } });
 }
 
@@ -655,7 +657,7 @@ async function loadRoads() {
       for (const c of g.type === 'Point' ? [g.coordinates] : g.coordinates.flat()) b.extend(c);
     }
     if (!b.isEmpty()) m.fitBounds(b, { padding: 60, maxZoom: 16 });
-    else roadNote('None of the roads it mentions were found near its channel.');
+    else roadNote('None of the roads or places it mentions were found near its channel.');
   }
   focusId = null;
 }
@@ -670,7 +672,8 @@ function onRoadClick(e) {
   if (!keys.length) return;
   const body = el('div', { className: 'ch-popup road-popup' }, ...keys.map((key) => {
     const p = mentioned.places[key];
-    const heard = p.level === 'fuzzy' ? `heard as “${p.said.join('”, “')}”: the nearest road with a name like it` : '';
+    const heard = p.level === 'fuzzy'
+      ? `heard as “${p.said.join('”, “')}”: the nearest ${p.kind === 'place' ? 'place' : 'road'} with a name like it` : '';
     return el('div', {},
       el('strong', {}, p.name),
       heard ? el('div', { className: 'meta' }, heard) : '',

@@ -1237,8 +1237,9 @@ export class Findings {
   map({ hours = 24, also, channel, radio } = {}) {
     const h = Number(hours);
     if (!Number.isFinite(h) || h <= 0 || h > 24 * 3650) throw fail('give a number of hours');
-    const out = { ways: this.roads?.stats().ways ?? 0, features: { type: 'FeatureCollection', features: [] }, places: {}, transmissions: {} };
-    if (!out.ways) return out;
+    const st = this.roads?.stats();
+    const out = { ways: st?.ways ?? 0, features: { type: 'FeatureCollection', features: [] }, places: {}, transmissions: {} };
+    if (!out.ways && !st?.places && !st?.addresses) return out;
     const rows = this.db.prepare(`
       SELECT t.id, t.started_at, t.channel_name, f.result FROM findings f JOIN transmissions t ON t.id = f.transmission_id
        WHERE f.status = 'done' AND (t.started_at >= ? OR t.id = ?) AND (? IS NULL OR t.channel_name = ?)
@@ -1262,9 +1263,9 @@ export class Findings {
       const service = serviceOf(found.service);
       const at = this.roads.where(r.channel_name);
       const located = new Map();
-      const find = (s) => {
-        const k = words(s);
-        if (!located.has(k)) located.set(k, this.roads.locate(s, at));
+      const find = (s, here = at) => {
+        const k = `${words(s)}|${here ? `${here.lat},${here.lon}` : '-'}`;
+        if (!located.has(k)) located.set(k, this.roads.locate(s, here));
         return located.get(k);
       };
       let any = false;
@@ -1273,10 +1274,35 @@ export class Findings {
         any = true;
         note(`road:${m.ids[0]}`, { kind: 'road', name: m.name, level: m.level, lines: m.lines, anywhere: Boolean(m.all), service }, r, m.said);
       };
-      for (const s of found.roads ?? []) road(find(s));
+      const point = (kind, name, level, at2, said) => {
+        any = true;
+        note(`${kind}:${at2.join(',')}`, { kind, name, level, point: at2, service }, r, said);
+      };
+      // A named place said where a road was looked for ("Family Dollar", "Center School")
+      const placeFor = (s, here, said) => {
+        const p = here && this.roads.findPlace(s, here, 'place');
+        if (p) point('place', p.name, p.level, p.point, said);
+      };
+      for (const s of found.roads ?? []) {
+        const m = find(s);
+        if (m) road(m);
+        else placeFor(s, at, s);
+      }
       for (const a of found.addresses ?? []) {
-        const parts = addressRoads(a).map(find);
+        // "26 East Hill Road, Brimfield": the town said is where its road is looked for
+        const segs = String(a).split(',').map((s) => s.trim()).filter(Boolean);
+        let here = at;
+        const town = segs.length > 1 && at ? this.roads.findPlace(segs.at(-1), at, 'town') : null;
+        if (town) (here = { lon: town.point[0], lat: town.point[1] }, segs.pop());
+        const rest = segs.join(', ');
+        const names = addressRoads(rest);
+        const parts = names.map((s) => find(s, here));
         parts.forEach(road);
+        names.forEach((s, i) => parts[i] || placeFor(s, here, a));
+        // A house: its number, on the one road it names
+        const number = /^\s*(\d+[a-z]?)\b/i.exec(rest)?.[1];
+        const house = number && parts.length === 1 && parts[0] ? this.roads.house(number, parts[0], here) : null;
+        if (house) point('address', `${number} ${parts[0].name}`, 'exact', house, a);
         const [p, q] = parts;
         const corner = p && q && p.ids[0] !== q.ids[0] ? this.roads.corner(p, q) : null;
         if (corner) note(`corner:${corner.join(',')}`, { kind: 'corner', name: `${p.name} and ${q.name}`, level: 'exact', point: corner, service }, r, a);
