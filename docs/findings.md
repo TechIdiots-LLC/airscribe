@@ -406,8 +406,9 @@ With the roads around the channels in **Admin → Findings → Roads**, Findings
   a name said whole ("Walnut Street"), then one said without its kind ("Holly"), then one a mishearing away
   ("Burncot" for Burncoat Street), then the others sharing a name said whole (Main Circle when "Main Street" was).
   Names only the earlier transmissions say come after all of the new one's. A name of common words alone ("A
-  Street", "The Boulevard", "My Way") is never sent for "a", "the" or "my". The channel's name goes with them. A ham channel gets none: a chat about antennas sounded like 25 roads ("My Way", "Guys Way"),
-  and the model reported some.
+  Street", "The Boulevard", "My Way") is never sent for "a", "the" or "my". The channel's name goes with them. A
+  ham channel gets none: a chat about antennas sounded like 25 roads ("My Way", "Guys Way"), and the model reported
+  some.
 - **The roads mentioned light up on the Map.** On the Map's **Findings** tab, a signed-in user has **Roads on the map** (on unless
   unticked) and chooses how far back; the tab lists what was found in that time, and **Show** frames the roads one mentions. Each road a finding names is drawn where it runs near the transmission's channel, in the colour
   of the service that last mentioned it (police blue, fire red, EMS yellow, public works orange, amateur purple, other
@@ -421,24 +422,32 @@ name said without its kind ("Elm") finds Elm Street. Of the roads with that name
 taken, with any that carry on from it: Main Street in this town, not the next. A channel not placed on the map is
 taken to be in the middle of those that are.
 
-**Getting them.** One of:
+**Getting them.** Roads, towns and named places (businesses, schools, halls)
+and addresses come together, from one of:
 
 - **From the map's tiles**: the roads within the given distance of the placed channels, read from the
   [OpenMapTiles](https://openmaptiles.org/schema/#transportation_name) tiles the Map's base maps draw (zoom 14, the
-  `transportation_name` layer: each road's name, number and class). AirScribe finds them through the base maps in
+  `transportation_name` layer: each road's name, number and class; and the `poi` and `place` layers' named places
+  and towns). The tiles' `housenumber` layer has no street for its numbers, so tiles bring no addresses: import
+  them from a file. AirScribe finds them through the base maps in
   `map.styles`: the first with a vector source that has that layer. The settings file's `findings.roadTiles` names
   a TileJSON instead. They're the same roads an OpenMapTiles router uses (MaplibreNativeRouting's offline profiles
   read the same two layers), so one planet build serves the map, navigation and this. Tiles cut a road at their
   edges; pieces of one name whose ends lie on each other are joined again. A county takes a few hundred tiles and
   well under a minute. Tiles have only a road's `name` and `ref`, not OpenStreetMap's other names (`alt_name`,
   `old_name`), so a road locals still call by an old name is found only from an OpenStreetMap fetch or file.
-- **Fetch from OpenStreetMap**: the named roads within the given distance of the placed channels, from
-  [Overpass](https://wiki.openstreetmap.org/wiki/Overpass_API) (`overpass-api.de`, or the settings file's
-  `findings.overpass`). Only the area's box is sent. It takes a minute or two for a county. Channels spread over
-  more than about 150 km are too much for one fetch: use a file.
+- **Fetch from OpenStreetMap**: the named roads, towns, named places and addresses within the given distance of the
+  placed channels, from [Overpass](https://wiki.openstreetmap.org/wiki/Overpass_API) (`overpass-api.de`, or the
+  settings file's `findings.overpass`). Only the area's box is sent. It takes a minute or two for a county. Channels
+  spread over more than about 150 km are too much for one fetch: use a file.
 - **Import a file**: GeoJSON, one feature a line (GeoJSONSeq) or a FeatureCollection, with OpenStreetMap's tags as
-  each feature's properties. `tools/roads-from-osm.sh` makes one from any `.osm.pbf`, a state extract or the whole
-  planet, with [osmium](https://osmcode.org/osmium-tool/), and can send it to AirScribe:
+  each feature's properties: lines tagged `highway` are roads; points and areas tagged `place` (city, town,
+  village, suburb, neighbourhood…) are towns, those with a `name` and `amenity`, `shop`, `leisure`, `office`,
+  `healthcare` and the like are named places, and those with `addr:housenumber` and `addr:street` are addresses.
+  An address file of its own works too, with OpenAddresses' `number`, `street` and `city`: a state's address
+  points are often far more complete than OpenStreetMap's. `tools/roads-from-osm.sh` makes a file from any
+  `.osm.pbf`, a state extract or the whole planet, with [osmium](https://osmcode.org/osmium-tool/), and can send it
+  to AirScribe:
 
   ```sh
   # WEST,SOUTH,EAST,NORTH: the area, a bit beyond the channels
@@ -449,7 +458,9 @@ taken to be in the middle of those that are.
   Run after each planet download, it keeps the roads current. From the planet, the cut takes a while; a state
   extract is quicker.
 
-Either way, the new roads replace the old only once they're all in. Roads are © OpenStreetMap contributors (ODbL).
+Either way, the new ones replace the old only once they're all in, and each of roads, places and addresses only
+when the import has some: an address file leaves the roads and places as they were, and the tiles leave the
+addresses. Roads, places and addresses from OpenStreetMap are © OpenStreetMap contributors (ODbL).
 
 | | |
 | --- | --- |

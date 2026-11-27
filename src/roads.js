@@ -9,11 +9,14 @@
  * at the end, so the roads in use never stop being whole.
  */
 import { createInterface } from 'node:readline';
-import { lineFeatures, tileOf } from './mvt.js';
+import { features as tileFeatures, tileOf } from './mvt.js';
+import * as mapPlaces from './places.js';
 import { VERSION } from './updates.js';
 
 export const OVERPASS = 'https://overpass-api.de/api/interpreter';
 const NEAR_KM = 25;           // the roads a channel's transmissions are about: within this of it
+const TOWN_KM = 60;           // the towns a channel's transmissions may name: a county dispatch's are far apart
+const HOUSE_KM = 0.3;         // a house of the road's name this far from its stretch is on another of that name
 const MAX_SPAN_DEG = 1.5;     // the largest area fetched from Overpass in one go; bigger is a file's job
 const SAME_ROAD_KM = 1.5;     // two stretches of a name this much further than the nearest are another road
 const CROSSING_KM = 0.05;     // two roads this close have a corner
@@ -25,10 +28,14 @@ const BATCH = 2000;
 const WHOLE_MAX = 256 * 1024 * 1024;   // a FeatureCollection is parsed whole: no bigger than this
 const CACHE_MAX = 2000;
 
+// The keys a named place is fetched by from Overpass (places.js reads them)
+const OSM_PLACE_KEYS = 'amenity|shop|leisure|tourism|office|healthcare|craft|historic|aeroway|emergency|club';
 // Not roads anyone is sent to
 const SKIP = /^(footway|path|cycleway|steps|bridleway|corridor|proposed|construction|abandoned|disused|platform|elevator|bus_stop|raceway|via_ferrata|bus_guideway|escape|emergency_bay|rest_area|services)$/;
 
 const fail = (message, status = 400) => Object.assign(new Error(message), { status });
+// What an import can hold, each swapped in on its own
+const KINDS = ['roads', 'places', 'addresses'];
 
 // ---- Names ----------------------------------------------------------------
 
@@ -179,6 +186,30 @@ function rankOf(r, said, whole) {
   return d === null ? null : 1 + d;
 }
 
+/**
+ * How likely a town or named place is the one said, as rankOf() for roads: 0 its name said, 1 or 2 a mishearing
+ * away; null not said, or a name too plain to tell ("The Store", "AB").
+ * @param {string} key - words() of its name.
+ * @param {Set<string>} said - grams() of what was said.
+ * @returns {number|null}
+ */
+function placeRank(key, said) {
+  const k = key.replace(/^the /, '');
+  const t = k.split(' ');
+  if (k.length < 3 || t.length > 4 || t.every((w) => COMMON.has(w) || TYPES.has(w) || DIRS.has(w))) return null;
+  if (said.has(key) || said.has(k)) return 0;
+  const max = slack(k.replace(/ /g, ''));
+  if (!max) return null;
+  let d = null;
+  for (const g of said) {
+    if (g.split(' ').length !== t.length) continue;
+    const e = distance(g, k, max);
+    if (e <= max && (d === null || e < d)) d = e;
+    if (d === 1) break;
+  }
+  return d === null ? null : d;
+}
+
 // ---- Distances ------------------------------------------------------------
 
 /** Kilometres between two places, near enough over a county. */
@@ -265,6 +296,60 @@ export const fromTile = (p, lines) => road({
 export const fromOverpass = (e) => (e?.type === 'way' && Array.isArray(e.geometry)
   ? road(e.tags, [e.geometry.map((c) => [c.lon, c.lat])]) : null);
 
+/**
+ * What an import gathers, written a batch at a time. Tiles and Overpass list a place more than once (a tile's
+ * buffer, a shop that's an address too): `once` keeps each once.
+ */
+class Batch {
+  constructor(write, { once = false } = {}) {
+    this.out = write;
+    this.seen = once ? new Set() : null;
+    this.clear();
+  }
+
+  clear() {
+    this.roads = [];
+    this.places = [];
+    this.addresses = [];
+  }
+
+  first(k) {
+    if (!this.seen) return true;
+    if (this.seen.has(k)) return false;
+    this.seen.add(k);
+    return true;
+  }
+
+  road(r) {
+    if (r) this.roads.push(r);
+    this.check();
+  }
+
+  other({ place, addresses }) {
+    // To about 10 m: neighbouring tiles put their copies a pixel apart
+    const at = (x) => `${x.lon.toFixed(4)},${x.lat.toFixed(4)}`;
+    if (place && this.first(`p|${place.kind}|${place.key}|${at(place)}`)) this.places.push(place);
+    for (const a of addresses) if (this.first(`a|${a.key}|${a.number}|${at(a)}`)) this.addresses.push(a);
+    this.check();
+  }
+
+  feature(f) {
+    this.road(fromFeature(f));
+    this.other(mapPlaces.fromFeature(f));
+  }
+
+  check() {
+    if (this.roads.length + this.places.length + this.addresses.length >= BATCH) this.flush();
+  }
+
+  flush() {
+    if (this.roads.length || this.places.length || this.addresses.length) {
+      this.out({ roads: this.roads, places: this.places, addresses: this.addresses });
+    }
+    this.clear();
+  }
+}
+
 export class Roads {
   /**
    * @param {object} o - Dependencies.
@@ -297,23 +382,44 @@ export class Roads {
       CREATE TABLE IF NOT EXISTS road_names (road_id INTEGER NOT NULL, key TEXT NOT NULL, base TEXT);
       CREATE INDEX IF NOT EXISTS road_names_key ON road_names(key);
       CREATE INDEX IF NOT EXISTS road_names_base ON road_names(base);
-      CREATE INDEX IF NOT EXISTS road_names_road ON road_names(road_id);`);
+      CREATE INDEX IF NOT EXISTS road_names_road ON road_names(road_id);
+      -- Towns and named places (docs/findings.md#places-and-addresses); kind is 'town' or 'place'
+      CREATE TABLE IF NOT EXISTS places (
+        id INTEGER PRIMARY KEY AUTOINCREMENT, gen INTEGER NOT NULL, kind TEXT NOT NULL,
+        name TEXT NOT NULL, key TEXT NOT NULL, class TEXT, street TEXT, lon REAL NOT NULL, lat REAL NOT NULL);
+      CREATE INDEX IF NOT EXISTS places_box ON places(gen, kind, lat);
+      CREATE INDEX IF NOT EXISTS places_key ON places(key);
+      -- House numbers: key is words() of the street
+      CREATE TABLE IF NOT EXISTS addresses (
+        gen INTEGER NOT NULL, number TEXT NOT NULL, street TEXT NOT NULL, key TEXT NOT NULL, town TEXT,
+        lon REAL NOT NULL, lat REAL NOT NULL);
+      CREATE INDEX IF NOT EXISTS addresses_street ON addresses(key, number);
+      CREATE INDEX IF NOT EXISTS addresses_gen ON addresses(gen);`);
   }
 
-  gen() {
-    return Number(this.store.setting('roads.gen') ?? 0);
+  /** The import in use of roads, places or addresses: each is swapped in on its own. */
+  gen(kind = 'roads') {
+    return Number(this.store.setting(`${kind}.gen`) ?? 0);
   }
 
   /** What's imported, and an import underway. */
   stats() {
     const g = this.gen();
     const about = JSON.parse(this.store.setting('roads.source') ?? 'null');
+    const count = (sql, ...a) => this.db.prepare(sql).get(...a).n;
+    const pg = this.gen('places');
     return {
-      ways: this.db.prepare('SELECT count(*) AS n FROM roads WHERE gen = ?').get(g).n,
-      names: this.db.prepare(`SELECT count(DISTINCT n.key) AS n FROM road_names n JOIN roads r ON r.id = n.road_id
-                               WHERE r.gen = ?`).get(g).n,
+      ways: count('SELECT count(*) AS n FROM roads WHERE gen = ?', g),
+      names: count(`SELECT count(DISTINCT n.key) AS n FROM road_names n JOIN roads r ON r.id = n.road_id
+                     WHERE r.gen = ?`, g),
       source: about,
-      busy: this.busy && { from: this.busy.from, startedAt: this.busy.startedAt, read: this.busy.read, tiles: this.busy.tiles },
+      places: count("SELECT count(*) AS n FROM places WHERE gen = ? AND kind = 'place'", pg),
+      towns: count("SELECT count(*) AS n FROM places WHERE gen = ? AND kind = 'town'", pg),
+      placesSource: JSON.parse(this.store.setting('places.source') ?? 'null'),
+      addresses: count('SELECT count(*) AS n FROM addresses WHERE gen = ?', this.gen('addresses')),
+      addressesSource: JSON.parse(this.store.setting('addresses.source') ?? 'null'),
+      busy: this.busy && { from: this.busy.from, startedAt: this.busy.startedAt, read: this.busy.read, tiles: this.busy.tiles,
+        downloaded: this.busy.downloaded, places: this.busy.places, addresses: this.busy.addresses },
       lastError: this.lastError ?? null,
       overpass: this.overpass,
     };
@@ -324,23 +430,39 @@ export class Roads {
   /** Start an import; one at a time. */
   begin(from) {
     if (this.busy) throw fail(`roads are being ${this.busy.from === 'file' ? 'imported' : 'fetched'} already`, 409);
-    const gen = this.gen() + 1;
-    this.db.prepare('DELETE FROM road_names WHERE road_id IN (SELECT id FROM roads WHERE gen >= ?)').run(gen);
-    this.db.prepare('DELETE FROM roads WHERE gen >= ?').run(gen);
-    this.busy = { from, gen, startedAt: this.now(), read: 0 };
+    const gen = Math.max(...KINDS.map((k) => this.gen(k))) + 1;
+    this.drop('>=', gen);
+    this.busy = { from, gen, startedAt: this.now(), read: 0, places: 0, addresses: 0 };
     this.lastError = null;
     return this.busy;
   }
 
-  /** Write some roads into the import underway: no await inside, so nothing else's writes join in. */
-  write(list) {
+  /** Delete what an import wrote, of every kind: gens `op` gen. */
+  drop(op, gen, kinds = KINDS) {
+    if (kinds.includes('roads')) {
+      this.db.prepare(`DELETE FROM road_names WHERE road_id IN (SELECT id FROM roads WHERE gen ${op} ?)`).run(gen);
+      this.db.prepare(`DELETE FROM roads WHERE gen ${op} ?`).run(gen);
+    }
+    if (kinds.includes('places')) this.db.prepare(`DELETE FROM places WHERE gen ${op} ?`).run(gen);
+    if (kinds.includes('addresses')) this.db.prepare(`DELETE FROM addresses WHERE gen ${op} ?`).run(gen);
+  }
+
+  /**
+   * Write into the import underway: no await inside, so nothing else's writes join in.
+   * @param {object[]|{roads?: object[], places?: object[], addresses?: object[]}} what - road()s; or those, and
+   *   places.place()s and places.addresses().
+   */
+  write(what) {
+    const { roads = [], places: named = [], addresses: houses = [] } = Array.isArray(what) ? { roads: what } : what;
     const { gen } = this.busy;
     const ins = this.db.prepare(`INSERT INTO roads (gen, name, ref, kind, coords, a, b, minlon, minlat, maxlon, maxlat)
                                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`);
     const nm = this.db.prepare('INSERT INTO road_names (road_id, key, base) VALUES (?, ?, ?)');
+    const pl = this.db.prepare('INSERT INTO places (gen, kind, name, key, class, street, lon, lat) VALUES (?, ?, ?, ?, ?, ?, ?, ?)');
+    const ad = this.db.prepare('INSERT INTO addresses (gen, number, street, key, town, lon, lat) VALUES (?, ?, ?, ?, ?, ?, ?)');
     this.db.exec('BEGIN');
     try {
-      for (const r of list) {
+      for (const r of roads) {
         for (const line of r.lines) {
           const xs = line.map((c) => c[0]);
           const ys = line.map((c) => c[1]);
@@ -349,35 +471,46 @@ export class Roads {
           for (const k of r.keys) nm.run(id, k, base(k));
         }
       }
+      for (const p of named) pl.run(gen, p.kind, p.name, p.key, p.class, p.street, p.lon, p.lat);
+      for (const a of houses) ad.run(gen, a.number, a.street, a.key, a.town, a.lon, a.lat);
       this.db.exec('COMMIT');
     } catch (e) {
       this.db.exec('ROLLBACK');
       throw e;
     }
-    this.busy.read += list.length;
+    this.busy.read += roads.length;
+    this.busy.places += named.length;
+    this.busy.addresses += houses.length;
   }
 
-  /** Swap the import in, or throw it away. */
+  /**
+   * Swap the import in, or throw it away. Each kind it has replaces that kind's last import; a kind it hasn't (an
+   * address file has no roads) keeps the one there.
+   */
   finish(about, error) {
     const { gen } = this.busy;
     this.busy = null;
     if (error) {
-      this.db.prepare('DELETE FROM road_names WHERE road_id IN (SELECT id FROM roads WHERE gen = ?)').run(gen);
-      this.db.prepare('DELETE FROM roads WHERE gen = ?').run(gen);
+      this.drop('=', gen);
       this.lastError = { at: this.now(), error: error.message };
       throw error;
     }
-    const ways = this.db.prepare('SELECT count(*) AS n FROM roads WHERE gen = ?').get(gen).n;
-    if (!ways) {
-      this.lastError = { at: this.now(), error: 'there were no named roads in it' };
-      throw fail('there were no named roads in it: nothing was changed');
+    const n = {
+      roads: this.db.prepare('SELECT count(*) AS n FROM roads WHERE gen = ?').get(gen).n,
+      places: this.db.prepare('SELECT count(*) AS n FROM places WHERE gen = ?').get(gen).n,
+      addresses: this.db.prepare('SELECT count(*) AS n FROM addresses WHERE gen = ?').get(gen).n,
+    };
+    if (!n.roads && !n.places && !n.addresses) {
+      this.lastError = { at: this.now(), error: 'there were no named roads, places or addresses in it' };
+      throw fail('there were no named roads, places or addresses in it: nothing was changed');
     }
     this.db.exec('BEGIN');
     try {
-      this.store.setSetting('roads.gen', gen);
-      this.store.setSetting('roads.source', JSON.stringify({ ...about, at: this.now(), ways }));
-      this.db.prepare('DELETE FROM road_names WHERE road_id IN (SELECT id FROM roads WHERE gen < ?)').run(gen);
-      this.db.prepare('DELETE FROM roads WHERE gen < ?').run(gen);
+      for (const k of KINDS.filter((x) => n[x])) {
+        this.store.setSetting(`${k}.gen`, gen);
+        this.store.setSetting(`${k}.source`, JSON.stringify({ ...about, at: this.now(), ...(k === 'roads' ? { ways: n.roads } : { count: n[k] }) }));
+        this.drop('<', gen, [k]);
+      }
       this.db.exec('COMMIT');
     } catch (e) {
       this.db.exec('ROLLBACK');
@@ -411,11 +544,11 @@ export class Roads {
    * @param {string} [name] - What it was called.
    * @returns {Promise<object>} stats().
    */
-  async importStream(input, name = 'a file') {
-    this.begin('file');
+  async importStream(input, name = 'a file', from = 'file') {
+    this.begin(from);
     let mode = null;
     let whole = '';
-    let batch = [];
+    const batch = new Batch((b) => this.write(b));
     let n = 0;
     try {
       for await (const raw of createInterface({ input, crlfDelay: Infinity })) {
@@ -437,11 +570,7 @@ export class Roads {
           continue;
         }
         if (f?.type !== 'Feature') throw fail(`line ${n} isn’t a GeoJSON feature`);
-        batch.push(fromFeature(f));
-        if (batch.length >= BATCH) {
-          this.write(batch.filter(Boolean));
-          batch = [];
-        }
+        batch.feature(f);
       }
       if (mode === 'whole') {
         let doc;
@@ -453,13 +582,13 @@ export class Roads {
         whole = '';
         const features = doc?.type === 'FeatureCollection' ? doc.features : doc?.type === 'Feature' ? [doc] : null;
         if (!Array.isArray(features)) throw fail('that isn’t GeoJSON: a FeatureCollection, or one feature a line');
-        batch = features.map(fromFeature);
+        for (const f of features) batch.feature(f);
       }
-      for (let i = 0; i < batch.length; i += BATCH) this.write(batch.slice(i, i + BATCH).filter(Boolean));
+      batch.flush();
     } catch (e) {
       return this.finish(null, e);
     }
-    return this.finish({ from: 'file', name: String(name).slice(0, 200) });
+    return this.finish({ from, name: String(name).slice(0, 200) });
   }
 
   /**
@@ -480,7 +609,11 @@ export class Roads {
     }
     this.begin('openstreetmap');
     const [w, s, e, n] = box.map((v) => v.toFixed(5));
-    const query = `[out:json][timeout:240];way["highway"][~"^(name|ref)$"~"."](${s},${w},${n},${e});out tags geom qt;`;
+    const bbox = `(${s},${w},${n},${e})`;
+    const query = `[out:json][timeout:240];way["highway"][~"^(name|ref)$"~"."]${bbox};out tags geom qt;`
+      + `nwr["place"]["name"]${bbox};out tags center qt;`
+      + `nwr["name"][~"^(${OSM_PLACE_KEYS})$"~"."]${bbox};out tags center qt;`
+      + `nwr["addr:housenumber"]["addr:street"]${bbox};out tags center qt;`;
     const about = { from: 'openstreetmap', server: this.overpass, km: r, box: box.map((v) => Number(v.toFixed(5))) };
     (async () => {
       let elements;
@@ -498,8 +631,12 @@ export class Roads {
         }
         if (!res.ok) throw new Error(`${this.overpass} answered ${res.status}: ${(await res.text().catch(() => '')).slice(0, 200)}`);
         elements = (await res.json()).elements ?? [];
-        const list = elements.map(fromOverpass).filter(Boolean);
-        for (let i = 0; i < list.length; i += BATCH) this.write(list.slice(i, i + BATCH));
+        const batch = new Batch((b) => this.write(b), { once: true });
+        for (const el of elements) {
+          if (el.geometry) batch.road(fromOverpass(el));
+          else batch.other(mapPlaces.fromOverpass(el));
+        }
+        batch.flush();
       } catch (err) {
         try { this.finish(about, err); } catch { /* kept in lastError */ }
         console.error(`[roads] ${err.message}`);
@@ -579,6 +716,7 @@ export class Roads {
       const queue = [...want.values()];
       let done = 0;
       let failed = 0;
+      const batch = new Batch((b) => this.write(b), { once: true });
       const worker = async () => {
         for (let t = queue.shift(); t; t = queue.shift()) {
           let feats = [];
@@ -586,13 +724,17 @@ export class Roads {
             const res = await this.fetch(tileUrl(t), { headers: { 'User-Agent': `AirScribe/${VERSION}` }, signal: AbortSignal.timeout(30_000) });
             if (res.status !== 204 && res.status !== 404) {
               if (!res.ok) throw new Error(`${res.status}`);
-              feats = lineFeatures(Buffer.from(await res.arrayBuffer()), { z, ...t }, ['transportation_name']);
+              feats = tileFeatures(Buffer.from(await res.arrayBuffer()), { z, ...t }, ['transportation_name', 'poi', 'place']);
             }
           } catch {
             failed++;
           }
           // Written between fetches, with nothing awaited inside: nothing else's writes join in
-          this.write(feats.map((f) => fromTile(f.props, f.lines)).filter(Boolean));
+          for (const f of feats) {
+            if (f.lines && f.layer === 'transportation_name') batch.road(fromTile(f.props, f.lines));
+            else if (f.points) for (const p of f.points) batch.other(mapPlaces.fromTile(f.layer, f.props, p.map((v) => Math.round(v * 1e6) / 1e6)));
+          }
+          batch.flush();
           busy.tiles = `${++done} of ${want.size}`;
         }
       };
@@ -609,11 +751,11 @@ export class Roads {
     return { started: true, tiles: want.size, from: url };
   }
 
-  /** Delete every road. */
+  /** Delete every road, place and address. */
   clear() {
     if (this.busy) throw fail('roads are being imported: wait for that to finish', 409);
-    this.db.exec('DELETE FROM road_names; DELETE FROM roads;');
-    this.store.setSetting('roads.source', null);
+    this.db.exec('DELETE FROM road_names; DELETE FROM roads; DELETE FROM places; DELETE FROM addresses;');
+    for (const k of KINDS) this.store.setSetting(`${k}.source`, null);
     this.cache.clear();
     return this.stats();
   }
@@ -690,6 +832,137 @@ export class Roads {
       }
     }
     return [...best].sort((x, y) => x[1] - y[1] || x[0].localeCompare(y[0])).slice(0, max).map(([name]) => name);
+  }
+
+  // ---- Places, towns and addresses ---------------------------------------------
+
+  /**
+   * The towns, or the named places, within `r` km of a place.
+   * @param {'town'|'place'} kind - Which.
+   * @param {{lat: number, lon: number}} at - The place.
+   * @param {number} [r] - How far.
+   * @returns {{name: string, key: string, class: string, street: string|null, lon: number, lat: number, km: number}[]}
+   */
+  placesNear(kind, at, r = kind === 'town' ? TOWN_KM : NEAR_KM) {
+    return this.remember(`places|${kind}|${at.lat.toFixed(3)},${at.lon.toFixed(3)},${r}`, () => {
+      const [w, s, e, n] = around(at, r);
+      return this.db.prepare(`SELECT name, key, class, street, lon, lat FROM places
+                               WHERE gen = ? AND kind = ? AND lat BETWEEN ? AND ? AND lon BETWEEN ? AND ?`)
+        .all(this.gen('places'), kind, s, n, w, e)
+        .map((p) => ({ ...p, km: km(at, p) })).filter((p) => p.km <= r).sort((a, b) => a.km - b.km);
+    });
+  }
+
+  /**
+   * The towns and named places near a channel whose names, or something like them, were said: for the model, so a
+   * misheard business or town comes back as the one that's there. Likeliest first, then nearest.
+   * @param {string} text - The new transmission: its readings.
+   * @param {{lat: number, lon: number}|null} at - Where the channel is.
+   * @param {{max?: number}} [o] - How many.
+   * @returns {{kind: 'town'|'place', name: string, class: string, street: string|null, lon: number, lat: number,
+   *   rank: number}[]}
+   */
+  placeHint(text, at, { max = 12 } = {}) {
+    if (!at) return [];
+    const said = grams(text);
+    const out = [];
+    for (const kind of ['town', 'place']) {
+      for (const p of this.placesNear(kind, at)) {
+        const rank = placeRank(p.key, said);
+        if (rank !== null) out.push({ kind, name: p.name, class: p.class, street: p.street, lon: p.lon, lat: p.lat, rank, km: p.km });
+      }
+    }
+    const seen = new Set();
+    return out.sort((a, b) => a.rank - b.rank || a.km - b.km)
+      .filter((p) => !seen.has(`${p.kind}|${p.name}`) && seen.add(`${p.kind}|${p.name}`)).slice(0, max);
+  }
+
+  /**
+   * The town or named place a name means, near a place: the nearest one with that name, or with one a mishearing
+   * from it.
+   * @param {string} said - As the model wrote it.
+   * @param {{lat: number, lon: number}|null} at - Where the channel is.
+   * @param {'town'|'place'} kind - Which.
+   * @returns {{name: string, level: 'exact'|'fuzzy', point: [number, number], km: number}|null}
+   */
+  findPlace(said, at, kind) {
+    const key = words(said).replace(/^the /, '');
+    if (!at || !key) return null;
+    let best = null;
+    for (const p of this.placesNear(kind, at)) {
+      const k = p.key.replace(/^the /, '');
+      const max = slack(k.replace(/ /g, ''));
+      const d = k === key ? 0 : max && Math.abs(k.length - key.length) <= max ? distance(k, key, max) : max + 1;
+      if (d <= max && (!best || d < best.d)) best = { d, p };
+      if (d === 0) break;
+    }
+    return best && { name: best.p.name, level: best.d ? 'fuzzy' : 'exact', point: [best.p.lon, best.p.lat], km: best.p.km };
+  }
+
+  /**
+   * The house numbers a street has near a place, from the addresses imported.
+   * @param {string} street - Its name, as words() or as written.
+   * @param {{lat: number, lon: number}} at - Near where.
+   * @param {number} [r] - How far.
+   * @returns {{number: string, lon: number, lat: number, km: number}[]} Nearest first; [] when none are known.
+   */
+  housesOn(street, at, r = NEAR_KM) {
+    const key = words(street);
+    return this.remember(`houses|${key}|${at.lat.toFixed(3)},${at.lon.toFixed(3)},${r}`, () =>
+      this.db.prepare('SELECT number, lon, lat FROM addresses WHERE key = ? AND gen = ?').all(key, this.gen('addresses'))
+        .map((a) => ({ ...a, km: km(at, a) })).filter((a) => a.km <= r).sort((a, b) => a.km - b.km));
+  }
+
+  /**
+   * A house: the address with that number on a road found by locate(), the one nearest the road's stretch.
+   * @param {string} number - Its number.
+   * @param {{name: string, lines: number[][][]}} road - From locate().
+   * @param {{lat: number, lon: number}} at - Where the channel is.
+   * @returns {[number, number]|null} [lon, lat], or null.
+   */
+  house(number, road, at) {
+    const n = mapPlaces.houseNumber(number);
+    if (!n || !at) return null;
+    let best = null;
+    for (const h of this.housesOn(road.name, at)) {
+      if (h.number !== n) continue;
+      const d = Math.min(...road.lines.map((l) => toLine(h, l)));
+      if (d <= HOUSE_KM && (!best || d < best.d)) best = { d, at: [h.lon, h.lat] };
+    }
+    return best?.at ?? null;
+  }
+
+  /**
+   * The house numbers said before a road near the channel, checked against the addresses imported: whether each is
+   * there, and the street's numbers when it isn't. Only streets with addresses imported are checked.
+   * @param {string[]} texts - The new transmission's readings.
+   * @param {string[]} roadNames - The roads near it said (hint()).
+   * @param {{lat: number, lon: number}|null} at - Where the channel is.
+   * @returns {{number: string, road: string, there: boolean, low?: number, high?: number}[]}
+   */
+  checkAddresses(texts, roadNames, at) {
+    if (!at || !roadNames.length) return [];
+    const roads = roadNames.map((name) => ({ name, key: words(name), base: base(words(name)) }));
+    const out = new Map();
+    for (const text of texts) {
+      const t = words(text).split(' ').filter(Boolean);
+      t.forEach((w, i) => {
+        const n = mapPlaces.houseNumber(w);
+        if (!n) return;
+        // The road named in the next few words: "16 Roxbury Street", "16 Roxbury", "1616 Roxbury Street"
+        const after = t.slice(i + 1, i + 6).join(' ');
+        const r = roads.find((x) => after === x.key || after.startsWith(`${x.key} `))
+          ?? roads.find((x) => x.base && (after === x.base || after.startsWith(`${x.base} `)));
+        if (!r || out.has(`${n}|${r.key}`)) return;
+        const houses = this.housesOn(r.key, at);
+        if (!houses.length) return;
+        const there = houses.some((h) => h.number === n);
+        const nums = houses.map((h) => parseInt(h.number, 10)).filter(Number.isFinite);
+        out.set(`${n}|${r.key}`, { number: n, road: r.name, key: r.key, there,
+          ...(there ? {} : { low: Math.min(...nums), high: Math.max(...nums) }) });
+      });
+    }
+    return [...out.values()];
   }
 
   /**

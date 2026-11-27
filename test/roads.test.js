@@ -97,11 +97,57 @@ test('the roads given to the model are the likeliest, the new transmission’s f
     'a mishearing of the new one before the earlier ones’ names, and only as many as asked');
 });
 
+// Towns, a shop and houses around the same channel, as osmium exports them; and an address file of its own
+const point = (props, [lon, lat]) => ({ type: 'Feature', properties: props, geometry: { type: 'Point', coordinates: [lon, lat] } });
+const PLACES = [
+  line('Roxbury Street', [[-71.86, 42.345], [-71.85, 42.345]]),
+  point({ name: 'Holden', place: 'town' }, [-71.85, 42.352]),
+  point({ name: 'Brimfield', place: 'town' }, [-72.2, 42.12]),
+  point({ name: 'Family Dollar', shop: 'variety_store', 'addr:street': 'Main Street', 'addr:housenumber': '12' }, [-71.851, 42.35]),
+  ...['16', '18', '20'].map((n, i) => point({ 'addr:housenumber': n, 'addr:street': 'Roxbury Street' }, [-71.859 + i * 0.001, 42.3452])),
+];
+
+test('places, towns and addresses import beside the roads, and are found near the channel', { skip: !sqlite }, async () => {
+  const { roads } = await setUp();
+  await roads.importStream(seq([...TOWN, ...PLACES]), 'area.geojsonseq');
+  const s = roads.stats();
+  assert.deepEqual([s.ways, s.places, s.towns, s.addresses], [7, 1, 2, 4]);
+  assert.equal(s.addressesSource.name, 'area.geojsonseq');
+
+  // An address file replaces the addresses, and leaves the roads and places as they were
+  const more = [point({ number: '22', street: 'ROXBURY ST', city: 'HOLDEN' }, [-71.855, 42.3452])];
+  await roads.importStream(seq(more), 'addresses.geojson');
+  assert.deepEqual([roads.stats().ways, roads.stats().places, roads.stats().addresses], [7, 1, 1]);
+  await roads.importStream(seq(PLACES), 'area.geojsonseq');
+
+  assert.deepEqual(roads.placeHint('we’re right by family dolar off high street', HOME).map((p) => [p.name, p.kind, p.rank]),
+    [['Family Dollar', 'place', 1]], 'misheard; the Holden town said nowhere');
+  assert.equal(roads.placeHint('126 or 26 east elr road grimfield', HOME)[0].name, 'Brimfield', 'a town 30 km off, misheard');
+  assert.deepEqual(roads.placeHint('the store on main street', HOME), [], 'nothing named that');
+  assert.equal(roads.findPlace('Family Dollar', HOME, 'place').level, 'exact');
+  assert.deepEqual(roads.findPlace('Grimfield', HOME, 'town').point, [-72.2, 42.12]);
+
+  const checked = roads.checkAddresses(['received 1616 roxbury street general fire alarm', '16 roxbury street'], ['Roxbury Street'], HOME);
+  assert.deepEqual(checked.map((c) => [c.number, c.there, c.low, c.high]), [['1616', false, 16, 20], ['16', true, undefined, undefined]]);
+  assert.deepEqual(roads.checkAddresses(['16 elm street'], ['Elm Street'], HOME), [], 'no houses on Elm Street imported: not checked');
+  assert.deepEqual(roads.house('18', roads.locate('Roxbury St', HOME), HOME), [-71.858, 42.3452]);
+  assert.equal(roads.house('99', roads.locate('Roxbury St', HOME), HOME), null);
+
+  roads.clear();
+  assert.deepEqual([roads.stats().places, roads.stats().addresses], [0, 0]);
+});
+
 test('roads are fetched from Overpass around the placed channels', { skip: !sqlite }, async () => {
   const { store } = await setUp();
   const { Roads } = await import('../src/roads.js');
   const asked = [];
-  const elements = TOWN.map((f, i) => ({ type: 'way', id: i, tags: f.properties, geometry: f.geometry.coordinates.map(([lon, lat]) => ({ lon, lat })) }));
+  const elements = [
+    ...TOWN.map((f, i) => ({ type: 'way', id: i, tags: f.properties, geometry: f.geometry.coordinates.map(([lon, lat]) => ({ lon, lat })) })),
+    { type: 'node', id: 1, lat: 42.352, lon: -71.85, tags: { name: 'Holden', place: 'town' } },
+    // A shop that's an address too comes in both answers
+    { type: 'way', id: 9, center: { lat: 42.35, lon: -71.851 }, tags: { name: 'Family Dollar', shop: 'variety_store', 'addr:housenumber': '12', 'addr:street': 'Main Street' } },
+    { type: 'way', id: 9, center: { lat: 42.35, lon: -71.851 }, tags: { name: 'Family Dollar', shop: 'variety_store', 'addr:housenumber': '12', 'addr:street': 'Main Street' } },
+  ];
   const roads = new Roads({ store, overpass: 'https://overpass.invalid/api', fetch: async (url, o) => {
     asked.push({ url, query: new URLSearchParams(o.body).get('data') });
     return Response.json({ elements });
@@ -113,6 +159,8 @@ test('roads are fetched from Overpass around the placed channels', { skip: !sqli
   assert.equal(asked[0].url, 'https://overpass.invalid/api');
   assert.match(asked[0].query, /way\["highway"\]\[~"\^\(name\|ref\)\$"~"\."\]\(42\.2\d+,-71\.9\d+,42\.4\d+,-71\.7\d+\)/);
   assert.deepEqual([roads.stats().ways, roads.stats().source.from, roads.stats().source.km], [6, 'openstreetmap', 10]);
+  assert.deepEqual([roads.stats().towns, roads.stats().places, roads.stats().addresses], [1, 1, 1], 'each once');
+  assert.match(asked[0].query, /nwr\["addr:housenumber"\]\["addr:street"\]/);
   // The channels too far apart: a file's job
   store.setChannelPlace('Far', 44, -69);
   assert.throws(() => roads.fetchOsm({ km: 25 }), /spread too widely/);
@@ -179,6 +227,7 @@ function mvt(layers) {
     const at = (arr, v) => (arr.includes(v) ? arr.indexOf(v) : arr.push(v) - 1);
     const feats = l.features.map((f) => {
       const tags = Object.entries(f.props).flatMap(([k, v]) => [at(keys, k), at(values, v)]);
+      if (f.point) return bytes(2, [...packed(2, tags), ...varint(3 * 8), 1, ...packed(4, [9, zz(f.point[0]), zz(f.point[1])])]);
       let [x, y] = f.line[0];
       const geom = [9, zz(x), zz(y), ((f.line.length - 1) << 3) | 2];
       for (const [px, py] of f.line.slice(1)) (geom.push(zz(px - x), zz(py - y)), [x, y] = [px, py]);
@@ -203,6 +252,8 @@ test('roads are read from the OpenMapTiles tiles the Map’s base maps use', { s
         { props: { ref: '31', network: 'us-state', route_1_network: 'US:MA', class: 'secondary' }, line: [[100, 100], [900, 3000]] },
         { props: { name: 'Elm Path', class: 'path' }, line: [[200, 200], [300, 300]] },
       ] },
+      { name: 'poi', features: [{ props: { name: 'Family Dollar', class: 'shop', subclass: 'variety_store' }, point: [2000, 2000] }] },
+      { name: 'place', features: [{ props: { name: 'Holden', class: 'town' }, point: [2048, 2048] }] },
     ])],
     [`${x + 1}/${y}`, mvt([{ name: 'transportation_name', features: [
       { props: { name: 'Elm Street', class: 'minor' }, line: [[-60, 2048], [1000, 2048]] },
@@ -236,6 +287,7 @@ test('roads are read from the OpenMapTiles tiles the Map’s base maps use', { s
   while (roads.stats().busy) await new Promise((r) => setTimeout(r, 5));
   const s = roads.stats();
   assert.deepEqual([s.source.from, s.source.zoom, s.ways, s.lastError], ['tiles', 14, 3, null], 'the footpath is left out');
+  assert.deepEqual([s.places, s.towns, s.addresses], [1, 1, 0], 'the poi and place layers too; tiles have no streets for their house numbers');
   const elm = roads.locate('Elm St', HOME);
   assert.equal(elm.lines.length, 2, 'the two tiles’ pieces are one road');
   assert.equal(roads.locate('Route 31', HOME).name, 'MA 31', 'a bare ref, numbered as its network has it');

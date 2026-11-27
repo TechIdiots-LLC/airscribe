@@ -101,15 +101,21 @@ function renderRoads(r) {
     : src.from === 'tiles' ? `read from the map’s tiles (${new URL(src.tilejson).host}) for ${src.km} km around the channels`
     : `fetched from OpenStreetMap for ${src.km} km around the channels`;
   const doing = { file: 'Importing', tiles: `Reading the map’s tiles, ${r.busy?.tiles},` }[r.busy?.from] ?? 'Fetching from OpenStreetMap';
+  const n = (v) => Number(v ?? 0).toLocaleString();
+  // Places and addresses, when they came from somewhere else than the roads (an address file)
+  const other = (s, what) => (s && (!src || s.at !== src.at)
+    ? ` ${what} ${s.from === 'file' ? `imported from ${s.name}` : `from ${s.from === 'tiles' ? 'the map’s tiles' : 'OpenStreetMap'}`}, ${new Date(s.at).toLocaleString()}.` : '');
   const text = r.busy
-    ? `${doing}… ${r.busy.read.toLocaleString()} roads so far.`
-    : r.ways ? `${r.ways.toLocaleString()} stretches of road with ${r.names.toLocaleString()} names, ${from}, ` +
-      `${new Date(src.at).toLocaleString()}. Roads © OpenStreetMap contributors.`
-    : 'No roads yet.';
+    ? `${doing}… ${n(r.busy.read)} roads, ${n(r.busy.places)} places and towns, ${n(r.busy.addresses)} addresses so far.`
+    : r.ways || r.places || r.addresses
+      ? `${n(r.ways)} stretches of road with ${n(r.names)} names, ${n(r.places)} named places, ${n(r.towns)} towns and parts of town, ` +
+        `${n(r.addresses)} addresses${src ? `, ${from}, ${new Date(src.at).toLocaleString()}` : ''}.` +
+        `${other(r.placesSource, 'Places')}${other(r.addressesSource, 'Addresses')} © OpenStreetMap contributors.`
+      : 'No roads yet.';
   $('fd-roads-status').textContent = r.lastError && !r.busy ? `${text} The last try failed: ${r.lastError.error}` : text;
   $('fd-roads-status').className = r.lastError && !r.busy ? 'tx-text error' : 'meta';
   for (const id of ['fd-roads-tiles', 'fd-roads-fetch', 'fd-roads-import', 'fd-roads-clear']) $(id).disabled = Boolean(r.busy);
-  roadsReady = Boolean(r.ways);
+  roadsReady = Boolean(r.ways || r.places || r.addresses);
   clearTimeout(roadsTimer);
   if (r.busy) roadsTimer = setTimeout(() => api('/admin/findings/roads').then(renderRoads, (e) => say(e.message, true)), 2000);
 }

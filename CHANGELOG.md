@@ -3,6 +3,7 @@
 ## master
 ### ✨ Features and improvements
 - Admin → Findings → Forget the key removes a saved API key, for a server that doesn't want one (Ollama's own port rather than Open WebUI's)
+- Admin → Findings → Roads brings in towns, named places (businesses, schools) and addresses with the roads: from the map's tiles (towns and places), from OpenStreetMap, or from a file. A file can be addresses alone, OpenAddresses-style (number, street, city), and leaves the roads as they were. `tools/roads-from-osm.sh` now exports all of them
 - _...Add new stuff here..._
 
 ### 🐞 Bug fixes

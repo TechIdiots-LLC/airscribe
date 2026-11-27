@@ -484,12 +484,14 @@
     <p class="meta" id="fd-status" role="status"></p>
     <div id="fd-tested"></div>
     <h4>Roads</h4>
-    <p class="meta">The roads around the channels, from OpenStreetMap. With each transmission, the model is given those
-      near its channel whose names sound like something said, so a road speech recognition misheard comes back as the
-      one that’s there; and the roads mentioned light up on the Map (<strong>Roads mentioned</strong>).
-      Read them from the map’s own tiles (OpenMapTiles), fetch them from OpenStreetMap, for the area around the
-      channels placed on the map, or import a GeoJSON file made from an OpenStreetMap extract (docs/findings.md#roads).
-      Only the area is sent to get them, nothing heard.</p>
+    <p class="meta">The roads, towns, named places (businesses, schools) and addresses around the channels, from
+      OpenStreetMap. With each transmission, the model is given those near its channel whose names sound like
+      something said, so a road or place speech recognition misheard comes back as the one that’s there, and the
+      house numbers said are checked; and what was mentioned lights up on the Map (<strong>Roads mentioned</strong>).
+      Read them from the map’s own tiles (OpenMapTiles: no addresses), fetch them from OpenStreetMap, for the area
+      around the channels placed on the map, or import a GeoJSON file made from an OpenStreetMap extract, or of
+      addresses alone (OpenAddresses’ number, street and city) (docs/findings.md#roads). Only the area is sent to get
+      them, nothing heard.</p>
     <p class="meta" id="fd-roads-status"></p>
     <div class="row wrap">
       <label>Within <input id="fd-roads-km" type="number" min="1" max="60" step="1" value="25" size="3"> km of the channels</label>

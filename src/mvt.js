@@ -1,6 +1,6 @@
 /**
- * Mapbox Vector Tiles, read: just enough of the format (protobuf, spec 2.1) to take the line features and their
- * properties out of chosen layers, in longitude and latitude. Used for Findings' roads, from the same OpenMapTiles
+ * Mapbox Vector Tiles, read: just enough of the format (protobuf, spec 2.1) to take the line and point features and
+ * their properties out of chosen layers, in longitude and latitude. Used for Findings' roads, from the same OpenMapTiles
  * tiles the Map draws (docs/findings.md#roads).
  */
 
@@ -107,7 +107,16 @@ function lines(cmds) {
  * @param {string[]} want - The layers.
  * @returns {{layer: string, props: object, lines: number[][][]}[]} Each feature, [[lon, lat], ...] a line.
  */
-export function lineFeatures(buf, { z, x, y }, want) {
+export function lineFeatures(buf, at, want) {
+  return features(buf, at, want).filter((f) => f.lines);
+}
+
+/**
+ * The line and point features of some layers of a tile, in longitude and latitude.
+ * @returns {{layer: string, props: object, lines?: number[][][], points?: number[][]}[]} Each feature: a line's
+ *   [[lon, lat], ...], or a point's (or several's) [lon, lat].
+ */
+export function features(buf, { z, x, y }, want) {
   const out = [];
   const n = 2 ** z;
   const tile = new Pbf(buf);
@@ -146,10 +155,11 @@ export function lineFeatures(buf, { z, x, y }, want) {
         else if (ff === 4) geom = fp.packed();
         else fp.skip(ft);
       }
-      if (type !== 2) continue;   // lines only
+      if (type !== 1 && type !== 2) continue;   // points and lines, not polygons
       const props = {};
       for (let i = 0; i + 1 < tags.length; i += 2) props[keys[tags[i]]] = values[tags[i + 1]];
-      out.push({ layer: name, props, lines: lines(geom).map((l) => l.map(([px, py]) => [lon(px), lat(py)])) });
+      const geo = lines(geom).map((l) => l.map(([px, py]) => [lon(px), lat(py)]));
+      out.push(type === 2 ? { layer: name, props, lines: geo } : { layer: name, props, points: geo.flat() });
     }
   }
   return out;
