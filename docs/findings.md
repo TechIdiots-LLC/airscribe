@@ -416,13 +416,31 @@ With the roads around the channels in **Admin → Findings → Roads**, Findings
   maybe) is dashed. Where an address names two roads that meet ("Main St and Route 9"), the corner gets a dot.
   Clicking one lists what was said about it, with the clip. **On the map** beside a finding goes there.
 
+### Places and addresses
+
+With towns, named places and addresses imported beside the roads ([getting them](#roads)):
+
+- **Places said go to the model too**, after the roads: towns and parts of town within 60 km of the channel, and
+  businesses, schools and the like within 25 km, whose names were said or are a mishearing away ("Family Dolar"
+  for Family Dollar, "Grimfield" for Brimfield), at most 12, each with what it is and its street: "Family Dollar
+  (variety store, High Street)". The model writes a business as a named place in the addresses, not a road, and a
+  town after its street.
+- **A town said a few kilometres off has its roads looked at too.** A county dispatch sends units to the next town:
+  "East Hill Road, Brimfield" on a channel placed in Sturbridge gets Brimfield's roads first, then the channel's.
+- **House numbers said are checked.** A number said just before a road near the channel ("1616 Roxbury Street") is
+  looked up on that street, and the model is told: "Addresses said, checked against the map: 16 Roxbury Street is
+  there; 1616 Roxbury Street isn't (its numbers run 16 to 120)". Where two numbers were said for one place, it
+  reports the one that's there. Only streets with addresses imported are checked: no addresses, no line.
+- **A house number that's the time said** ("1720. On arrival…" read as "1720 Lancaster Street") is taken out as a
+  time when Lancaster Street has no 1720, though it has a road's kind ([times said](#times-said)).
+
 A road is found by its name, its other names (`alt_name`, `old_name`, …) and its number. "Route 9", "Rt 9", "State
 Route 9" and "Highway 9" all find a road numbered `MA 9`, and "I-290" and "Interstate 290" find `I 290`. A
 name said without its kind ("Elm") finds Elm Street. Of the roads with that name, the stretch nearest the channel is
 taken, with any that carry on from it: Main Street in this town, not the next. A channel not placed on the map is
 taken to be in the middle of those that are.
 
-**Getting them.** Roads, towns and named places (businesses, schools, halls)
+**Getting them.** Roads, towns and named places (businesses, schools, halls: [what they're for](#places-and-addresses))
 and addresses come together, from one of:
 
 - **From the map's tiles**: the roads within the given distance of the placed channels, read from the

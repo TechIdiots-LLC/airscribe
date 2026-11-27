@@ -47,3 +47,13 @@ test('an address, road or unit that is only a time is taken out', () => {
   const none = { addresses: ['Route 1447'] };
   assert.equal(withoutTimes(none, []), none);
 });
+
+test('a house number that is the time, on a street that has no such number, is the time', () => {
+  const times = timesIn(['1720. on arrival, two-story townhouse on lancaster street'], at(17, 20));
+  const found = withoutTimes({ addresses: ['1720 Lancaster Street', '11 Lancaster Street'], roads: ['Lancaster Street'] },
+    times, new Set(['1720 lancaster street']));
+  assert.deepEqual(found.addresses, ['11 Lancaster Street']);
+  assert.deepEqual(found.roads, ['Lancaster Street'], 'the road was said');
+  assert.deepEqual(withoutTimes({ addresses: ['1720 Lancaster Street'] }, times).addresses, ['1720 Lancaster Street'],
+    'no addresses imported to say otherwise: kept');
+});

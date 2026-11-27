@@ -137,6 +137,24 @@ test('places, towns and addresses import beside the roads, and are found near th
   assert.deepEqual([roads.stats().places, roads.stats().addresses], [0, 0]);
 });
 
+test('Findings gives the model the places said and checks the house numbers', { skip: !sqlite }, async () => {
+  const { store, roads } = await setUp();
+  const { Findings } = await import('../src/findings.js');
+  await roads.importStream(seq([...TOWN, ...PLACES]));
+  const prompts = [];
+  const findings = new Findings({ store, roads, primary: 'base', fetch: async (url, o) => {
+    prompts.push(JSON.parse(o.body).messages[1].content);
+    return Response.json({ message: { content: JSON.stringify({ summary: 'x', incident: '', service: 'fire',
+      addresses: ['16 Roxbury Street'], roads: ['Roxbury Street'], plates: [], vehicles: [], people: [], units: [] }) } });
+  } });
+  findings.save({ enabled: true, url: 'http://llm.invalid:11434' });
+  const id = store.addTransmission({ mac: 'AA:BB', startedAt: Date.now(), durationMs: 4000, audioFile: 'a.wav', channelName: 'Holden PD' });
+  store.saveTranscript(id, 'base', { status: 'done', text: 'received 1616 roxbury street general fire alarm, right by family dolar' });
+  await findings.read(id);
+  assert.match(prompts[0], /Places near this channel with names like words said:\nFamily Dollar \(variety store, Main Street\)\n/);
+  assert.match(prompts[0], /Addresses said, checked against the map: 1616 Roxbury Street isn't \(its numbers run 16 to 20\)/);
+});
+
 test('roads are fetched from Overpass around the placed channels', { skip: !sqlite }, async () => {
   const { store } = await setUp();
   const { Roads } = await import('../src/roads.js');

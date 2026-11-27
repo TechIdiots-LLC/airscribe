@@ -54,7 +54,16 @@ const LISTS = ['addresses', 'roads', 'plates', 'vehicles', 'people', 'units'];
 /** Who is talking, as the model tells it: the Map colours roads by it. */
 export const SERVICES = ['police', 'fire', 'ems', 'works', 'amateur', 'other'];
 
+const TOWN_APART_KM = 3;            // a town said this far from the channel has its own roads looked at too
+
 const fail = (message, status = 400) => Object.assign(new Error(message), { status });
+
+/** A place for the model's list: "Family Dollar (variety store, High Street)", "Brimfield (town)". */
+export function placeSaid(p) {
+  const what = p.kind === 'town' ? (['suburb', 'neighbourhood', 'quarter'].includes(p.class) ? 'part of town' : p.class)
+    : String(p.class ?? 'place').replace(/_/g, ' ');
+  return `${p.name} (${what}${p.street ? `, ${p.street}` : ''})`;
+}
 
 /** What the model is asked to answer with: a JSON schema, for the servers that can hold it to one. */
 export const SCHEMA = {
@@ -124,6 +133,12 @@ over what was found or heard. Where it says how something was misheard ("grey, n
 transmission the same way.
 When roads near the channel are listed and the transmission means one of them (speech recognition often mishears a
 road's name), write it as listed. Don't report a listed road the transmission doesn't mention.
+When places near the channel are listed (towns and parts of town, businesses, schools) and the transmission means
+one of them, write it as listed: a business or school is a named place in addresses ("Family Dollar on High
+Street"), never a road; a town said goes after the street it's on ("26 East Hill Road, Brimfield").
+Addresses checked, when listed after the transmission, say whether a house number said is on that street here. One
+that isn't was misheard, or isn't a house number (a time, a unit): where two were said for one place, report the
+one that's there.
 A transmission marked as heard through static came in weak: its transcript is more likely to be wrong, or words made
 up from noise. Report from it only what reads clearly, and nothing that seems invented.
 Local terms, when listed after the transmission, say what a code or word means on this server's channels: use
@@ -619,10 +634,11 @@ export class Findings {
    * @param {{channel?: string|null, roads?: string[], static?: boolean, others?: object[]}} [about] - The channel's
    *   name, roads near it that sound like something said, whether the new one came through static, and other
    *   channels' transmissions just before ({channel, ago, text, static}), and other readings of the new one: another
-   *   engine's ({text}) or another radio's ({channel, text}).
+   *   engine's ({text}) or another radio's ({channel, text}); places near it said (Roads.placeHint) and the house
+   *   numbers said, checked (Roads.checkAddresses).
    * @returns {string} The user message.
    */
-  message(text, context = [], { channel = null, roads = [], static: noisy = false, others = [], readings = [], findings = [], plates = [], times = [], service = null, terms = [], note = null } = {}) {
+  message(text, context = [], { channel = null, roads = [], static: noisy = false, others = [], readings = [], findings = [], plates = [], times = [], service = null, terms = [], note = null, places = [], addresses = [] } = {}) {
     const said = (c) => (typeof c === 'string' ? c : `${c.static ? '(heard through static) ' : ''}${c.text}`);
     const where = (c) => `[${c.channel ?? 'channel unknown'}, ${c.ago < 60_000 ? 'under a minute' : `${Math.round(c.ago / 60_000)} min`} before] `;
     const found = (f) => [f.found.summary, ...LISTS.filter((k) => f.found[k]?.length).map((k) => `${k}: ${f.found[k].join(', ')}`),
@@ -630,6 +646,7 @@ export class Findings {
     return [
       channel ? `Channel: ${channel}${service ? ` (${SERVICE_SAID[service]})` : ''}\n` : '',
       roads.length ? `Roads near this channel with names like words said:\n${roads.join('; ')}\n` : '',
+      places.length ? `Places near this channel with names like words said:\n${places.map(placeSaid).join('; ')}\n` : '',
       findings.length ? `Earlier findings:\n${findings.map((f) => `- finding ${f.id} ${where(f)}${found(f)}`).join('\n')}\n` : '',
       others.length ? `Meanwhile on other channels:\n${others.map((c) => `- ${where(c)}${said(c)}`).join('\n')}\n` : '',
       context.length ? `Earlier on this channel:\n${context.map((c) => `- ${said(c)}`).join('\n')}\n` : '',
@@ -640,6 +657,8 @@ export class Findings {
         .join('\n')}` : '',
       plates.length ? `\nPlates spelled out in it: ${plates.join(', ')}` : '',
       times.length ? `\nTimes said in it: ${times.map((x) => `${x.said} (${x.clock})`).join(', ')}` : '',
+      addresses.length ? `\nAddresses said, checked against the map: ${addresses.map((a) => (a.there
+        ? `${a.number} ${a.road} is there` : `${a.number} ${a.road} isn't (its numbers run ${a.low} to ${a.high})`)).join('; ')}` : '',
       ...termLines(terms),
       note ? `\nA person's note on this transmission, from reading it before: ${note}` : '',
     ].filter(Boolean).join('\n');
@@ -875,8 +894,17 @@ export class Findings {
       const amateur = ch?.service === 'amateur';
       // Not to a ham channel: a chat about antennas sounds like a dozen roads ("My Way", "Guys Way"), and the model
       // reported them
-      const hint = (s, o) => (amateur ? [] : this.roads?.hint(s, this.roads.where(t.channel_name), o) ?? []);
+      const at = amateur ? null : this.roads?.where(t.channel_name) ?? null;
+      const spots = at ? this.roads.placeHint(firsts.join(' '), at) : [];
+      // A town said a way off: its roads too, first (a county dispatch sending a unit to the next town)
+      const town = spots.find((p) => p.kind === 'town' && p.rank <= 1 && p.km > TOWN_APART_KM);
+      const hint = (s, o = {}) => {
+        if (!at) return [];
+        const here = this.roads.hint(s, at, o);
+        return town ? [...new Set([...this.roads.hint(s, { lat: town.lat, lon: town.lon }, o), ...here])].slice(0, 25) : here;
+      };
       const roads = hint(firsts.join(' '), { context: context.map((c) => c.text).join(' ') });
+      const checked = at ? this.roads.checkAddresses(firsts, roads, town ? { lat: town.lat, lon: town.lon } : at) : [];
       // A plate heard again counts when it finishes one begun ("plate Adam Boy Charlie one" then ABC123)
       const begun = platesIn(firsts, { cuedOnly: amateur });
       const open = firsts.some((s) => readPlates(s).unclear);
@@ -886,12 +914,13 @@ export class Findings {
       const times = timesIn(firsts, t.started_at);
       sent = this.message(text, context, {
         channel: t.channel_name, service: ch?.service, roads, static: isStatic(t.snr_db), others, readings, findings, plates, times, terms,
-        note: this.noteOf(id)?.note ?? null,
+        places: spots, addresses: checked, note: this.noteOf(id)?.note ?? null,
       });
       ({ found, usage } = await this.send(sent));
       // Only what this transmission said: a road the model put right counts if it's one near that sounds like it
       near = hint(firsts.join(' '));
-      found = withoutTimes(withPlates(onlyHeard(found, heardIn(firsts, near)), plates, { cued: firsts.some(cuedIn), amateur }), times);
+      const missing = new Set(checked.filter((c) => !c.there).map((c) => `${c.number} ${c.key}`));
+      found = withoutTimes(withPlates(onlyHeard(found, heardIn(firsts, near)), plates, { cued: firsts.some(cuedIn), amateur }), times, missing);
       // The channel's service over a guess: phonetic letters read as a ham, or "other" on a dispatch channel. A
       // service the model names on a channel of another (police on a fire channel) can be right, so it stays
       if (ch && (ch.service === 'amateur' || ['amateur', 'other'].includes(found.service))) found.service = ch.service;

@@ -55,12 +55,14 @@ export function timesIn(texts, at) {
 
 /**
  * An answer with the addresses, roads and units that are only a time said taken out ("Route 1447" from "in route
- * 1447"), as `unheard` with why: 'time'. One with a road's kind in it ("1447 Main Street") stays.
+ * 1447"), as `unheard` with why: 'time'. One with a road's kind in it ("1447 Main Street") stays, unless the
+ * addresses imported say that street has no such number ("1720 Lancaster Street" for "1720. On arrival").
  * @param {object} found - The answer.
  * @param {{number: string}[]} times - timesIn() of its readings.
+ * @param {Set<string>} [missing] - Addresses checked and not there, as "1720 lancaster street" (Roads.checkAddresses).
  * @returns {object} The answer.
  */
-export function withoutTimes(found, times) {
+export function withoutTimes(found, times, missing = new Set()) {
   if (!times.length) return found;
   const numbers = new Set(times.map((t) => t.number));
   const unheard = [...(found.unheard ?? [])];
@@ -69,7 +71,8 @@ export function withoutTimes(found, times) {
     out[k] = (found[k] ?? []).filter((v) => {
       const t = words(v).split(' ');
       const n = t.filter((w) => /^\d+$/.test(w));
-      const time = n.length > 0 && n.every((w) => numbers.has(String(Number(w)))) && !t.some((w) => TYPES.has(w));
+      const nowhere = k === 'addresses' && n.length === 1 && missing.has(`${Number(n[0])} ${t.filter((w) => !/^\d+$/.test(w)).join(' ')}`);
+      const time = n.length > 0 && n.every((w) => numbers.has(String(Number(w)))) && (!t.some((w) => TYPES.has(w)) || nowhere);
       if (time) unheard.push({ field: k, value: v, why: 'time' });
       return !time;
     });

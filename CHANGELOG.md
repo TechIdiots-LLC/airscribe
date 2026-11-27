@@ -4,6 +4,7 @@
 ### ✨ Features and improvements
 - Admin → Findings → Forget the key removes a saved API key, for a server that doesn't want one (Ollama's own port rather than Open WebUI's)
 - Admin → Findings → Roads brings in towns, named places (businesses, schools) and addresses with the roads: from the map's tiles (towns and places), from OpenStreetMap, or from a file. A file can be addresses alone, OpenAddresses-style (number, street, city), and leaves the roads as they were. `tools/roads-from-osm.sh` now exports all of them
+- Findings gives the model the towns and businesses said near the channel ("Family Dolar" comes back as Family Dollar, "Grimfield" as Brimfield), looks at a town's roads when one a way off is named, and checks the house numbers said against the addresses: "1616 Roxbury Street isn't there (its numbers run 16 to 120)". A house number that's really the time said, on a street without that number, is taken out as the time
 - _...Add new stuff here..._
 
 ### 🐞 Bug fixes
