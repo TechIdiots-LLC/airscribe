@@ -1,6 +1,6 @@
 {
   "name": "airscribe",
-  "version": "0.7.1",
+  "version": "0.8.0",
   "description": "Writes down what is on the air: connects to Bluetooth handheld radios, splits each transmission into its own clip, transcribes it, and serves the log over the web",
   "type": "module",
   "main": "src/index.js",
