@@ -9,7 +9,7 @@
  */
 
 /** Words too common to tell one channel's traffic from another's. */
-const STOP = new Set(`
+export const STOP = new Set(`
   a about above after again against all am an and any are aren't as at be because been before being below
   between both but by can can't cannot could couldn't did didn't do does doesn't doing don't down during each
   few for from further get got had hadn't has hasn't have haven't having he he'd he'll he's her here here's

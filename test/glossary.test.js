@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { codesIn, onChannel, says, termKey } from '../src/glossary.js';
+import { codesIn, onChannel, says, termKey, worthCollecting } from '../src/glossary.js';
 import { numerals } from '../src/plates.js';
 
 const sqlite = await import('node:sqlite').then(() => true, () => false);
@@ -25,6 +25,14 @@ test('the codes said on the air', () => {
     ['Code 4', 'Signal 23', 'Unit 26', '10-4']);
   assert.deepEqual(codesIn('engine 2 at 205 Main'), [], 'a bare number isn’t collected');
   assert.deepEqual(codesIn('631 Salisbury Street at Eisenberg, Unit 506. 80-year-old female'), [], 'an apartment isn’t a unit');
+});
+
+test('a term the model didn’t know is collected unless it’s a number, letters or plain words', () => {
+  const kept = ['Q5', 'Section 12', '209A', '10-13', '7-3', 'bolo', 'Mass PC', 'hold the fire', 'CO alarm'];
+  const left = ['1946', '$4.49', '27.9', 'nineteen fifty one', 'A', 'V', 'Sierra Alpha', 'Mass PC 7 Charlie 88',
+    'negative', 'clear', 'fire alarm clear', '73-year-old male', 'female party', 'how come I didn’t get a chair'];
+  assert.deepEqual(kept.filter((t) => !worthCollecting(t)), []);
+  assert.deepEqual(left.filter(worthCollecting), []);
 });
 
 test('an entry for some channels, with * for any characters', () => {

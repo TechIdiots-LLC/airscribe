@@ -5,7 +5,8 @@
  * model when a transmission says one; a guess is marked as one. See docs/findings.md#local-terms.
  */
 
-import { numerals } from './plates.js';
+import { STOP } from './insights.js';
+import { numerals, phonetic } from './plates.js';
 import { TYPES, distance } from './roads.js';
 
 /** Known: set by an admin. Guess: the model's, from how it was used. Candidate: heard, not yet worked out. */
@@ -25,8 +26,34 @@ const SOUNDS = {
 const CODE_WORDS = new Set(['code', 'signal', 'unit']);
 const TEN_CODE = /\b10-(\d{1,2})\b/g;
 
+// Said plainly on the air: on their own, or with each other, never a local term
+const PLAIN = new Set(`
+  affirmative negative received receive copy copied roger clear cleared clearing available returning return responding
+  respond route enroute scene arrival arriving quarters service standby break tone thanks thank please sir maam
+  male female party caller person subject patient year years old fire alarm police ambulance medical vehicle car
+`.trim().split(/\s+/));
+const STOPPED = new Set([...STOP].map((w) => w.replace(/'/g, '')));
+
 const fail = (message, status = 400) => Object.assign(new Error(message), { status });
 const numeric = (w) => /^\d+$/.test(w);
+
+/**
+ * Whether a term the model didn't know is worth collecting: not a number on its own (a time, an amount, a house
+ * number), a single letter, letters spelled out ("Sierra Alpha", a plate), a sentence, or only plain words
+ * ("negative", "fire alarm clear", "73-year-old male").
+ * @param {string} term - As the model wrote it.
+ * @returns {boolean}
+ */
+export function worthCollecting(term) {
+  const t = String(term ?? '').trim();
+  if (/^\$?\d+(?:[.,:]\d+)*$/.test(t)) return false;
+  const w = numerals(t);
+  if (w.join('').length < 2 || w.length > 4) return false;
+  // "10-13" and "7-3" are codes; "nineteen fifty one" is a time
+  if (w.every(numeric)) return /\d\s*-\s*\d/.test(t);
+  if (phonetic(t) === w.filter((x) => !numeric(x)).length) return false;
+  return !w.every((x) => numeric(x) || PLAIN.has(x) || STOPPED.has(x));
+}
 
 /** A term as words: "Code four", "code 4" and "CODE-4" are all "code 4"; "10-4" is "10 4". */
 export function termKey(term) {
@@ -231,7 +258,7 @@ export class Glossary {
   collect(texts, { id, channel = null, unknown = [] }) {
     const words = texts.map(numerals);
     const terms = new Map();
-    for (const t of [...texts.flatMap(codesIn), ...unknown]) {
+    for (const t of [...texts.flatMap(codesIn), ...unknown.filter(worthCollecting)]) {
       const key = termKey(t);
       if (key && key.length <= 40 && !terms.has(key) && words.some((w) => says(w, key))) terms.set(key, String(t).trim().slice(0, 60));
     }

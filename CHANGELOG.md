@@ -2,6 +2,7 @@
 
 ## master
 ### ✨ Features and improvements
+- Findings → Local terms no longer collects what the model didn't know when it isn't a term: a number on its own (a time, an amount), a single letter, letters spelled out ("Sierra Alpha"), a whole sentence, or everyday radio words ("negative", "fire alarm clear"). Codes like "10-13" and "7-3" are still collected
 - _...Add new stuff here..._
 
 ### 🐞 Bug fixes
