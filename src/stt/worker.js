@@ -54,6 +54,12 @@ export class WorkerEngine {
       // eslint-disable-next-line security/detect-child-process -- fixed script, argv array, no shell
       const child = spawn(this.c.python, args, { stdio: ['pipe', 'pipe', 'inherit'] });
       this.child = child;
+      // A worker that never says it's loaded is given up on, and the next clip starts another
+      const loading = setTimeout(() => {
+        reject(new Error(`${this.label} worker didn't load within ${this.startSeconds} s`));
+        this.restart();
+      }, this.startSeconds * 1000);
+      loading.unref?.();
       createInterface({ input: child.stdout }).on('line', (line) => {
         let msg;
         try {
@@ -62,6 +68,7 @@ export class WorkerEngine {
           return;
         }
         if (msg.event === 'ready') {
+          clearTimeout(loading);
           if (msg.device) console.log(`[stt] ${this.label} worker running on ${msg.device}`);
           return resolve();
         }
@@ -72,15 +79,42 @@ export class WorkerEngine {
       });
       child.on('error', reject);
       child.on('close', () => {
+        clearTimeout(loading);
         const err = new Error(`${this.label} worker exited`);
+        reject(err); // a no-op once this promise has settled
+        // One given up on and replaced: what's waiting is the new worker's
+        if (this.child !== child) return;
         for (const { reject: r } of this.pending.values()) r(err);
         this.pending.clear();
         this.child = null;
         this.ready = null; // the next clip starts a fresh worker
-        reject(err); // a no-op once this promise has settled
       });
     });
     return this.ready;
+  }
+
+  /** @returns {number} Seconds a worker may take to load its model. */
+  get startSeconds() {
+    return this.c.startSeconds ?? 300;
+  }
+
+  /** @returns {number} Seconds one clip may take. */
+  get clipSeconds() {
+    return this.c.timeoutSeconds ?? 120;
+  }
+
+  /**
+   * Kill the worker, failing what it was given; the next clip starts a fresh one.
+   * @param {Error} [err] - Why.
+   * @returns {void}
+   */
+  restart(err = new Error(`${this.label} worker restarted`)) {
+    const child = this.child;
+    for (const { reject: r } of this.pending.values()) r(err);
+    this.pending.clear();
+    this.child = null;
+    this.ready = null;
+    child?.kill('SIGKILL');
   }
 
   /**
@@ -89,12 +123,19 @@ export class WorkerEngine {
    */
   async transcribe(wavPath) {
     await this.start();
+    let hung;
     const text = await new Promise((resolve, reject) => {
       if (!this.child?.stdin.writable) return reject(new Error(`${this.label} worker not running`));
       const id = this.nextId++;
       this.pending.set(id, { resolve, reject });
       this.child.stdin.write(JSON.stringify({ id, wav: wavPath }) + '\n');
-    });
+      // A worker stuck on a clip holds up every clip behind it
+      hung = setTimeout(() => {
+        console.warn(`[stt] ${this.label} took over ${this.clipSeconds} s on a clip: restarting its worker`);
+        this.restart(new Error(`${this.label} took longer than ${this.clipSeconds} s`));
+      }, this.clipSeconds * 1000);
+      hung.unref?.();
+    }).finally(() => clearTimeout(hung));
     return { text };
   }
 

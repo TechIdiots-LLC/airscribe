@@ -107,6 +107,9 @@ const server = app.listen(config.port, config.host, () => {
   updates.markRunning();
   // Clips saved before static was measured, measured now from their audio
   manager.measureOlder().catch((e) => console.error(`[quality] ${e.message}`));
+  // What was waiting to be transcribed when it last stopped
+  const resumed = manager.resume();
+  if (resumed) console.log(`[stt] ${resumed} clips left untranscribed at the last stop, queued again`);
 });
 
 const shutdown = () => {

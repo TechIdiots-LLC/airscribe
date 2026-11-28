@@ -569,7 +569,8 @@ export class Manager extends EventEmitter {
    * @param {{id: number, engineName: string, wav: string}} job - The work.
    * @returns {Promise<void>}
    */
-  async runJob({ id, engineName, wav, prompt, as }) {
+  async runJob(job) {
+    const { id, engineName, wav, prompt, as } = job;
     const engine = this.engines.get(engineName);
     if (!engine || !this.store.hasTransmission(id)) return;
     let result;
@@ -577,6 +578,8 @@ export class Manager extends EventEmitter {
       const { text } = await (prompt ? engine.transcribe(wav, { prompt }) : engine.transcribe(wav));
       result = { status: 'done', text };
     } catch (e) {
+      // Tried once more, behind what's waiting: a worker that died or hung is started afresh
+      if (!job.again) return void this.jobs.push({ ...job, again: true });
       result = { status: 'error', error: e.message };
     }
     // Deleted while it was being read: there is nothing to attach the
@@ -661,6 +664,28 @@ export class Manager extends EventEmitter {
       if (wav) this.enqueue({ priority: 1, id: row.id, engineName, wav });
     }
     return rows.length;
+  }
+
+  /**
+   * Queue again what was waiting to be transcribed when the server stopped: the queue is only in memory. A clip
+   * whose audio is gone is marked failed, so it isn't shown as being transcribed forever.
+   * @param {{days?: number, now?: number}} [o] - How far back.
+   * @returns {number} How many were queued.
+   */
+  resume({ days = 2, now = Date.now() } = {}) {
+    let queued = 0;
+    for (const [priority, engineName] of [this.primary, ...this.extra].entries()) {
+      for (const row of this.store.unfinished(engineName, now - days * 86_400_000)) {
+        const wav = this.engineWavFor(row);
+        if (wav) {
+          this.enqueue({ priority: Math.min(priority, 1), id: row.id, engineName, wav });
+          queued++;
+        } else {
+          this.store.saveTranscript(row.id, engineName, { status: 'error', error: 'its audio is gone' });
+        }
+      }
+    }
+    return queued;
   }
 
   /**

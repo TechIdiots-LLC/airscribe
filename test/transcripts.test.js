@@ -25,6 +25,9 @@ class FakeStore {
   transcripts(id) { return [...(this.scripts.get(id)?.values() ?? [])]; }
   transmission(id) { return { ...this.rows.get(id), transcripts: this.transcripts(id) }; }
   hasTransmission(id) { return this.rows.has(id); }
+  unfinished(engine, since) {
+    return [...this.rows.values()].filter((r) => r.startedAt >= since && !this.scripts.get(r.id)?.has(engine));
+  }
   needingTranscript(engine) {
     return [...this.rows.values()].filter(
       (r) => this.scripts.get(r.id)?.get(engine)?.status !== 'done',
@@ -42,6 +45,7 @@ function make({ extra = [], order = [] } = {}) {
       order.push(name);
       if (delay) await new Promise((r) => setTimeout(r, delay));
       if (name === 'broken') throw new Error('model missing');
+      if (name === 'flaky' && order.filter((n) => n === 'flaky').length === 1) throw new Error('flaky worker exited');
       return { text: `${name} heard it` };
     },
   });
@@ -49,6 +53,7 @@ function make({ extra = [], order = [] } = {}) {
     ['base', engine('base')],
     ['tiny', engine('tiny')],
     ['broken', engine('broken')],
+    ['flaky', engine('flaky')],
   ]);
   const store = new FakeStore();
   const manager = new Manager({
@@ -171,4 +176,38 @@ test('a clip heard again is given its prompt, and kept beside the first', async 
   assert.throws(() => manager.hearAgain({ id, engineName: 'nope', prompt: '', as: 'x' }), /unknown engine/);
   store.rows.set(9, { id: 9, audio_file: 'gone.wav' });
   assert.equal(manager.hearAgain({ id: 9, engineName: 'whisper', prompt: '', as: 'x' }), false, 'its audio is gone');
+});
+
+test('a clip that fails is tried once more before its error is kept', async () => {
+  const order = [];
+  const { manager, store, dataDir } = make({ order });
+  const id = addClip(manager, store, dataDir);
+  const wav = join(dataDir, 'clips', 'AABBCCDDEEFF', 'c1.16k.wav');
+  manager.enqueue({ priority: 0, id, engineName: 'flaky', wav });
+  manager.enqueue({ priority: 0, id, engineName: 'broken', wav });
+  await manager.pump();
+  const by = Object.fromEntries(store.transcripts(id).map((t) => [t.engine, t]));
+  assert.deepEqual([by.flaky.status, by.flaky.text], ['done', 'flaky heard it'], 'the second try worked');
+  assert.equal(by.broken.status, 'error');
+  assert.deepEqual(order.filter((n) => n === 'broken').length, 2, 'twice, then given up');
+});
+
+test('at start, clips left untranscribed at the last stop are queued again', async () => {
+  const { manager, store, dataDir } = make({ extra: ['tiny'] });
+  const now = Date.now();
+  const left = addClip(manager, store, dataDir, 1);
+  const half = addClip(manager, store, dataDir, 2);
+  store.saveTranscript(half, 'base', { status: 'done', text: 'done before the stop' });
+  const old = addClip(manager, store, dataDir, 3);
+  store.rows.get(old).startedAt = now - 3 * 86_400_000;
+  const gone = store.addTransmission({ mac: MAC, startedAt: now, durationMs: 1000, audioFile: 'gone/missing.wav' });
+  assert.equal(manager.resume({ now }), 3, 'base for the first, tiny for both');
+  await manager.pump();
+  const got = (id) => store.transcripts(id).map((t) => `${t.engine}:${t.status}`).sort();
+  assert.deepEqual(got(left), ['base:done', 'tiny:done']);
+  assert.deepEqual(got(half), ['base:done', 'tiny:done']);
+  assert.equal(store.transcripts(half).find((t) => t.engine === 'base').text, 'done before the stop');
+  assert.deepEqual(got(old), [], 'not from days ago');
+  assert.deepEqual(store.transcripts(gone).map((t) => [t.engine, t.error]), [['base', 'its audio is gone'], ['tiny', 'its audio is gone']],
+    'given up on, not shown as transcribing forever');
 });

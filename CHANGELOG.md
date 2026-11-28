@@ -9,6 +9,7 @@
 
 ### 🐞 Bug fixes
 - Findings: with two radios on one frequency, a short call just before another ("Thank you.") no longer takes the other radio's copy of the next call as its own reading, which had it summed up as that call (a plate check) and left the real call without its second reading
+- Transcription: clips waiting when AirScribe stopped no longer stay "transcribing" for good. They're queued again at start (one whose audio is gone is marked failed), a failed clip is tried once more, and a sherpa-onnx or OpenVINO worker stuck on a clip (2 minutes) or on loading (5 minutes) is restarted instead of holding up every clip behind it
 - _...Add new stuff here..._
 
 ## 0.9.0

@@ -1,5 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
+import { fileURLToPath } from 'node:url';
 import { encodeWav, halveRate } from '../src/wav.js';
 import { createEngine } from '../src/stt/index.js';
 import { assertSafeToListen } from '../src/auth.js';
@@ -103,4 +104,28 @@ test('the mock default does not survive alongside a configured engine set', asyn
   // And a config that says nothing about stt still gets the mock default.
   writeFileSync(file, JSON.stringify({ port: 9000 }));
   assert.equal(loadConfig(file).stt.engine, 'mock');
+});
+
+test('a worker stuck on a clip, or never loading, is given up on and started afresh', async () => {
+  const { WorkerEngine } = await import('../src/stt/worker.js');
+  const script = fileURLToPath(new URL('./fixtures/fake-stt-worker.mjs', import.meta.url));
+  class Fake extends WorkerEngine {
+    workerArgs() { return [this.c.mode ?? '']; }
+  }
+  const quiet = console.warn;
+  console.warn = () => {};
+  const e = new Fake('fake', script, { python: process.execPath, modelDir: '.', timeoutSeconds: 0.5 });
+  try {
+    const first = (await e.transcribe('a.wav')).text;
+    await assert.rejects(e.transcribe('hang.wav'), /fake took longer than 0.5 s/);
+    const next = (await e.transcribe('b.wav')).text;
+    assert.match(next, /heard b\.wav/);
+    assert.notEqual(next.split(' in ')[1], first.split(' in ')[1], 'a new worker');
+    const never = new Fake('slow', script, { python: process.execPath, modelDir: '.', startSeconds: 0.5, mode: 'never-loads' });
+    await assert.rejects(never.transcribe('a.wav'), /slow worker didn.t load within 0.5 s/);
+    assert.equal(never.child, null);
+  } finally {
+    console.warn = quiet;
+    e.stop();
+  }
 });

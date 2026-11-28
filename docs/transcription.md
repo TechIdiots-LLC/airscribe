@@ -349,6 +349,15 @@ that suits this material from one that merely scores well on clean speech.
 
 ## Recovering clips that were never transcribed
 
+The queue is kept in memory, so clips still waiting when AirScribe stops are queued again when it starts: those
+of the last two days that an engine never finished, behind live traffic. One whose audio is gone is marked failed
+("its audio is gone") rather than left showing as being transcribed.
+
+A clip that fails is tried once more, after what's queued, before the error is kept. The sherpa-onnx and OpenVINO
+workers have the same limits as whisper-server, set in their own section: `startSeconds` (300) for loading the
+model and `timeoutSeconds` (120) for one clip. Past either, the worker is killed and the next clip starts a fresh
+one, so one stuck clip doesn't hold up the rest.
+
 A failed transcription does not lose the audio. When the cause is fixed — a
 missing module, a wrong model path — the clips can be worked through:
 

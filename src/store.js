@@ -919,6 +919,20 @@ export class Store {
       .all(engine, limit);
   }
 
+  /**
+   * Clips an engine never finished, since a time: queued when the server stopped. Data bursts aren't read.
+   * @param {string} engine - The engine.
+   * @param {number} since - Epoch ms.
+   * @param {number} [limit] - Most rows.
+   * @returns {object[]} Transmission rows, oldest first.
+   */
+  unfinished(engine, since, limit = 500) {
+    return this.db.prepare(`SELECT t.* FROM transmissions t
+                             WHERE t.started_at >= ? AND coalesce(t.data, 0) = 0
+                               AND NOT EXISTS (SELECT 1 FROM transcripts x WHERE x.transmission_id = t.id AND x.engine = ?)
+                             ORDER BY t.started_at LIMIT ?`).all(since, engine, limit);
+  }
+
   /** @returns {void} */
   close() {
     this.db.close();
