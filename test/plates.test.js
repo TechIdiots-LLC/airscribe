@@ -52,7 +52,11 @@ test('a tone, a name spelled out or a licence number isn’t a plate', () => {
     'Dexter, Mass. TL114.8',
     'A12. A12 shutting it down for the day.',
     'First name Robert, last name McGinnis, Mike, Charlie, India, November, November, India, Sierra, 528-74.',
+    // A reference read back after "number"
+    'Clear that motor vehicle stop. Location number 711640, Alpha Echo, 711640AE. Clear the gear.',
+    'Your log number is 2 6 4 1 Alpha Bravo, 2641AB.',
   ]) assert.deepEqual(plates(s), [], s);
+  assert.deepEqual(plates('Plate number 1 Adam Boy Charlie 23, that is 1ABC23'), ['1ABC23'], '"plate number" is still a plate');
 });
 
 test('of two readings of a plate, the one more engines spelled', () => {

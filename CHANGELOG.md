@@ -6,6 +6,7 @@
 - _...Add new stuff here..._
 
 ### 🐞 Bug fixes
+- Findings: a number read back after "location number", "log number", "case number" or "license number" is no longer taken for a plate ("Location number 711640 Alpha Echo, 711640AE" had been reported as plate 711640AE); "plate number" still is
 - _...Add new stuff here..._
 
 ## 0.10.0

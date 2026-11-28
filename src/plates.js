@@ -111,6 +111,13 @@ export function readPlates(text) {
       from = i + 1;
       while (from < t.length && from <= i + 3 && !part(t[from])) from++;
     } else if (!part(t[i])) continue;
+    // A number read out after "location number", "log number", "case number is": a reference, not a plate
+    else if (t[i - 1] === 'number' || (t[i - 1] === 'is' && t[i - 2] === 'number')) {
+      let end = twice(t, i)?.to ?? i;
+      while (end < t.length && part(t[end])) end++;
+      i = end - 1;
+      continue;
+    }
     // Or a word in: a stray letter before it ("H six Papa Tango Papa 38, that's 6 PTP 38")
     const stray = part(t[from]);
     const rep = twice(t, from) ?? (stray?.letter && stray.s.length === 1 && !stray.said ? twice(t, from + 1) : null);

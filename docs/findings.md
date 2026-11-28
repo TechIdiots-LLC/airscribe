@@ -142,7 +142,9 @@ From real traffic, a few more rules:
 - **Not a plate.** A run of letters and digits isn't a plate when:
   - it ends in a number with a point ("PL 114.8" is a repeater's tone);
   - it's too long ("Mike Charlie India November November India Sierra 528 74" spells a name, then a date of birth);
-  - it's one short thing said twice ("A12. A12").
+  - it's one short thing said twice ("A12. A12");
+  - it comes right after "number" with no "reg" or "plate" before it: "location number 711640 Alpha Echo", "log
+    number is…" and "license number" read back a reference, not a plate ("plate number" is still a plate).
 - **One plate, several readings.** When engines read the ends differently (6PTP38 and H6PTP38), the one more
   readings read is kept. When they're read as often, both are kept, since one may be cut short.
 - **Ham channels.** On a channel whose service is amateur, only a plate after "reg" or "plate" is read: a callsign
