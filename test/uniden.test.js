@@ -182,4 +182,6 @@ test('the frequencies near home of the services asked for, as the radio would be
   const air = u.stations(HOME, { miles: 30, services: ['air'] }).stations;
   assert.deepEqual(air.map((s) => [s.name, s.ok, s.channel?.mod]), [['Tower', true, 'AM']], 'the airband, as AM when the mode isn’t given');
   assert.equal(u.stations(HOME, { miles: 30 }).stations.length, 8, 'no services named: every one');
+  assert.deepEqual(u.tones([146970000, 449925000, 146520000, 154385000, 146940000], HOME), { 146970000: '114.8', 449925000: 'D023' },
+    'a ham repeater’s listed tone; none for simplex, nothing outside the ham bands, nothing listed only far away');
 });

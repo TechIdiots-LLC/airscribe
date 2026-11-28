@@ -138,14 +138,24 @@ test('channels tried on a radio a batch at a time, graded, and the region put ba
     [['Holden FD Dispatch', 'good'], ['Holden 70cm', 'static'], ['Paxton Fire Tac', 'quiet']], 'good first');
   assert.equal(s.results[0].sample.text, 'Engine 1 on scene');
   assert.equal(s.results[0].station.channel.rx_hz, 154385000, 'the station as found, to keep');
-  // Nothing left to try: the region put back as it was, the radio on its own
+  // The repeater that came to static, tried again listening only with its tone
   await trials.tick();
   s = trials.status(MAC);
+  assert.deepEqual([s.trial.batch, ...s.channels.map((c) => [c.key, c.toneSquelch])], [2, ['uniden:449925000:D023:tone', true]]);
+  assert.equal(radio.regions[1].find((c) => c.rx_hz === 449925000).rx_tone, 'D023');
+  tx(449925000, { text: 'Monitoring, go ahead', at: now + 60e3 });
+  tx(449925000, { text: 'Clear on the repeater', at: now + 120e3 });
+  now += 10 * 60e3;
+  // Graded early; nothing left to try: the region put back as it was, the radio on its own
+  s = await trials.next(MAC);
   assert.equal(s.trial.state, 'done');
+  const tone = s.results.find((r) => r.key === 'uniden:449925000:D023:tone');
+  assert.deepEqual([tone.verdict, tone.station.channel.rx_tone, tone.station.channel.tx_tone], ['good', 'D023', 'D023'],
+    'kept, it listens and transmits with its tone');
   assert.deepEqual(radio.regions[1].filter((c) => !c.empty).map((c) => c.name), ['Spare'], 'the region as it was');
   assert.equal(radio.state.get(MAC).region, 0);
   assert.deepEqual(Object.fromEntries(trials.verdicts(MAC)),
-    { 'uniden:154385000:100.0': 'good', 'uniden:449925000:D023': 'static', 'uniden:154280000:': 'quiet' });
+    { 'uniden:154385000:100.0': 'good', 'uniden:449925000:D023': 'static', 'uniden:449925000:D023:tone': 'good', 'uniden:154280000:': 'quiet' });
 
   // Forgotten, tried again; ended early, put back even after the radio was out of reach
   assert.deepEqual(trials.forget(MAC, 'uniden:154280000:'), { forgotten: 1 });
@@ -160,4 +170,5 @@ test('channels tried on a radio a batch at a time, graded, and the region put ba
   assert.equal(s.trial.state, 'done');
   assert.equal(s.results.find((r) => r.hz === 154280000).verdict, 'quiet', 'graded on what came in before it ended');
   assert.deepEqual(radio.regions[1].filter((c) => !c.empty).map((c) => c.name), ['Spare']);
+
 });

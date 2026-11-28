@@ -254,11 +254,26 @@ function row(slot) {
     el('td', {}, c.name || '(no name)', state ? el('span', { className: `pill ${state}` }, STATE[state]) : ''),
     el('td', { className: 'num' }, mhz(c.rx_hz)),
     el('td', { title: c.tx_disable ? 'Transmit is turned off on this channel' : '' }, tx),
-    el('td', {}, tones(c)),
+    toneCell(slot, c, state),
     el('td', {}, modeText(c)),
     el('td', {}, scan),
     heard(state === 'adding' ? null : shown.quality?.[c.name]),
     el('td', { className: 'acts' }, ...actions));
+}
+
+/**
+ * The Tone column: the channel's tones, or, for a ham channel listening with none, the tone Uniden's database lists
+ * for it, to listen (and transmit) with. Offered most where the channel is mostly static.
+ */
+function toneCell(slot, c, state) {
+  const listed = !c.rx_tone && !c.empty && state !== 'removing' && isHam(c.rx_hz) ? shown.tones?.[c.rx_hz] : null;
+  if (!listed) return el('td', {}, tones(c));
+  const noisy = shown.quality?.[c.name]?.tags?.includes('static');
+  const use = el('button', { className: 'link', title: `Uniden’s database lists ${listed} for this repeater. Listening only ` +
+    'with it keeps out noise and other users, and transmitting with it opens the repeater. A repeater that doesn’t ' +
+    'send its tone goes silent: put it back with Undo, or Edit.' }, noisy ? `static? use ${listed}` : `use ${listed}`);
+  use.onclick = () => setFields(slot, { rx_tone: listed, ...(c.tx_disable || c.tx_tone ? {} : { tx_tone: listed }) });
+  return el('td', {}, tones(c), tones(c) ? ' ' : '', use);
 }
 
 const TAG_SAYS = {
@@ -1001,7 +1016,8 @@ function renderTrial() {
     $('tr-state').className = t.error ? 'tx-text error' : 'meta';
     const head = el('tr', {}, ...['Name', 'MHz', 'Service', 'Heard', 'Words', 'Static', 'So far', 'Last words'].map((h) => el('th', {}, h)));
     $('tr-table').replaceChildren(el('thead', {}, head), el('tbody', {}, ...trial.channels.map((c) => el('tr', {},
-      el('td', {}, c.name, c.skipped ? el('span', { className: 'pill', title: 'Opened on static again and again with no words: its scan is off' }, 'skipped') : ''),
+      el('td', {}, c.name, c.toneSquelch ? el('span', { className: 'pill', title: 'Tried again listening only with its tone, after static the first time' }, 'with tone') : '',
+        c.skipped ? el('span', { className: 'pill', title: 'Opened on static again and again with no words: its scan is off' }, 'skipped') : ''),
       el('td', { className: 'num' }, mhz(c.hz)),
       el('td', {}, trial.services?.[c.service] ?? c.service ?? ''),
       el('td', { className: 'num' }, String(c.heard)),
@@ -1046,7 +1062,7 @@ function renderTrialResults() {
     };
     const hrs = r.hours >= 1 ? `${Math.round(r.hours * 10) / 10} h` : `${Math.round(r.hours * 60)} min`;
     return el('li', { className: r.verdict === 'good' || r.verdict === 'some' ? '' : 'off' },
-      el('label', {}, box, el('span', {}, [mhz(s.mhz * 1e6), s.name, s.tone].filter(Boolean).join(' · ')),
+      el('label', {}, box, el('span', {}, [mhz(s.mhz * 1e6), s.name, s.tone, s.toneSquelch ? 'listening only with its tone' : ''].filter(Boolean).join(' · ')),
         el('span', { className: `pill ${r.verdict}` }, VERDICT[r.verdict])),
       el('div', { className: 'meta' }, `${[trial.services?.[s.service] ?? s.service, s.where, s.km === null ? '' : miles(s.km)].filter(Boolean).join(' · ')} · ` +
         `${plural(r.heard, 'opening')} in ${hrs}: ${r.speech} with words, ${r.static} static `, again),

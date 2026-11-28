@@ -28,6 +28,12 @@ export function verdict({ heard = 0, static: noise = 0, speech = 0 }) {
   return 'quiet';
 }
 
+/** A ham repeater listened to only with its tone, as a station of its own: null when it has no tone, or isn't a ham's. */
+export function withTone(s) {
+  if (s.service !== 'ham' || !s.tone || !s.channel || s.channel.rx_tone) return null;
+  return { ...s, key: `${s.key}:tone`, toneSquelch: true, channel: { ...s.channel, rx_tone: s.tone } };
+}
+
 const fail = (message, status = 400) => Object.assign(new Error(message), { status });
 const int = (v, lo, hi, dflt) => {
   const n = Number(v ?? dflt);
@@ -188,10 +194,15 @@ export class Trials {
     const tried = new Set(this.db.prepare('SELECT key FROM trial_channels WHERE mac = ?').all(t.mac).map((r) => r.key));
     const skipHz = new Set(JSON.parse(t.home_hz ?? '[]'));
     const { stations } = this.uniden.stations(await this.home(), { miles: t.miles, services: JSON.parse(t.services) });
+    // A ham repeater that came to static or a few words is tried again listening only with its tone, which keeps
+    // out noise and other users if the repeater sends it
+    const noisy = new Set(this.db.prepare(`SELECT key FROM trial_channels c WHERE mac = ? AND verdict IN ('static', 'some')
+        AND id = (SELECT max(id) FROM trial_channels d WHERE d.mac = c.mac AND d.key = c.key)`).all(t.mac).map((r) => r.key));
     const batch = [];
-    for (const s of stations) {
+    for (const found of stations) {
       if (batch.length >= slots) break;
-      if (!s.ok || tried.has(s.key) || skipHz.has(s.channel.rx_hz)) continue;
+      const s = tried.has(found.key) && noisy.has(found.key) ? withTone(found) : found;
+      if (!s || !s.ok || tried.has(s.key) || skipHz.has(s.channel.rx_hz)) continue;
       skipHz.add(s.channel.rx_hz);
       batch.push(s);
     }
@@ -302,7 +313,7 @@ export class Trials {
         : null,
     };
     const channels = t?.state === 'running' ? this.batchChannels(t).map(({ station, ...c }) => ({
-      slot: c.slot, name: c.name, hz: c.hz, key: c.key, service: station.service, heard: c.heard, static: c.static,
+      slot: c.slot, name: c.name, hz: c.hz, key: c.key, service: station.service, toneSquelch: Boolean(station.toneSquelch), heard: c.heard, static: c.static,
       speech: c.speech, pending: c.pending, sample: c.sample, skipped: Boolean(c.skipped_at), verdict: verdict(c),
     })) : [];
     // The latest verdict on each frequency tried on this radio

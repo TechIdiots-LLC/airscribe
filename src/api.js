@@ -753,7 +753,10 @@ export function createApp({ manager, store, sidecar, config, dataDir, updates, c
     const mac = macOf(req);
     const read = await fromRadio(manager.readChannels(mac, regionOf(req.query.region)));
     const rows = store.channelQuality({ since: Date.now() - QUALITY_DAYS * 24 * 60 * 60 * 1000, mac });
-    return { ...read, qualityDays: QUALITY_DAYS, quality: Object.fromEntries([...rows].map(([name, r]) => [name, judge(r)])) };
+    // A ham channel listening with no tone: the one Uniden's database lists for it, to listen only with
+    const toneless = read.channels.filter((c) => !c.empty && c.rx_hz && !c.rx_tone).map((c) => c.rx_hz);
+    const tones = uniden?.count() && toneless.length ? uniden.tones(toneless, await homeOf({ radioreference, store })) : {};
+    return { ...read, qualityDays: QUALITY_DAYS, quality: Object.fromEntries([...rows].map(([name, r]) => [name, judge(r)])), tones };
   }));
   api.put('/radios/:mac/channels', admin, answer(async (req) => {
     const mac = macOf(req);

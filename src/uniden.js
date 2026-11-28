@@ -342,6 +342,34 @@ export class Uniden {
   }
 
   /**
+   * The tone the database lists for a ham frequency, at its nearest listing: what a repeater is accessed with, and
+   * often sends back, so listening only with it keeps out noise and other users.
+   * @param {number[]} hzs - Receive frequencies, in hertz.
+   * @param {{lat: number, lon: number}|null} home - Where the radios are; null for the listing most give.
+   * @returns {Object<number, string>} A tone ("114.8", "D023") for each frequency the database gives one, by hertz.
+   */
+  tones(hzs, home) {
+    const out = {};
+    const q = this.db.prepare(`SELECT lat, lon, audio FROM uniden_entries
+                                WHERE kind = 'freq' AND hz BETWEEN ? AND ? AND audio LIKE 'TONE=%' AND lat IS NOT NULL LIMIT 500`);
+    for (const hz of new Set(hzs.filter((h) => Number.isInteger(h) && isHam(h)))) {
+      const found = q.all(hz - 50, hz + 50).map((r) => ({
+        tone: /^TONE=C(\d{2,3}\.\d)$/i.exec(r.audio)?.[1] ?? /^TONE=(D\d{3})N?$/i.exec(r.audio)?.[1] ?? '',
+        km: home ? km(home, r) : 0,
+      })).filter((r) => r.tone && r.km <= NEAR_KM);
+      if (!found.length) continue;
+      if (home) {
+        out[hz] = found.sort((a, b) => a.km - b.km)[0].tone;
+      } else {
+        const n = new Map();
+        for (const r of found) n.set(r.tone, (n.get(r.tone) ?? 0) + 1);
+        out[hz] = [...n].sort((a, b) => b[1] - a[1])[0][0];
+      }
+    }
+    return out;
+  }
+
+  /**
    * Places a channel might be, from the database, best first.
    * @param {{name: string, hz: number|null, details?: object|null}} channel - The channel, and what a scanner said
    *   about its latest transmission (system, department, talkgroup).

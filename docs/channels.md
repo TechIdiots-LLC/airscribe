@@ -20,6 +20,12 @@ radio**:
 
 - **Scan:** each channel's box. Unticked, the radio skips the channel when it
   scans: the way to stop listening to a channel without removing it.
+- **Tone:** a ham channel listening with no tone shows the tone Uniden's
+  database lists for it (its nearest listing), as **use 114.8**, or **static?
+  use 114.8** when its Heard column says static. It sets the receive tone, and
+  the transmit tone if the channel transmits and has none. Many repeaters send
+  their access tone too, so listening only with it keeps out noise and other
+  users. A repeater that doesn't send it goes silent: **Undo**, or Edit it back.
 - **Edit:** the channel's name, receive frequency, mode (FM narrow, FM wide,
   AM), receive tone, and transmit (off, the same frequency, or another, with its
   tone and power).
@@ -62,7 +68,8 @@ counties is listed once, at its nearest.
   input. A repeater is written to transmit on the US band plan's usual offset
   (2 m: 145.1–145.5 and 146.61–146.97 MHz down 600 kHz, 147.0–147.39 up
   600 kHz; 70 cm: 442–445 MHz up 5 MHz, 447–450 down 5 MHz) with the listed tone
-  as its transmit tone, and no receive tone, so it's heard whatever it sends.
+  as its transmit tone, and no receive tone, so it's heard whatever it sends
+  (if that's mostly static, see **Tone** under [Changing them](#changing-them)).
   Anything else is simplex; a ham frequency with no listed mode is wide FM. Some
   areas pair repeaters the other way: check a repeater's offset against a
   repeater directory before transmitting through it.
@@ -118,6 +125,10 @@ out of reach, and one in reach may only ever open the squelch on noise.
 
   A channel that opens on static four times with no words has its scan turned
   off on the radio, so it stops holding up the rest of the batch.
+- **Tone squelch.** A ham repeater that came to static or some words is tried
+  again in a later batch listening only with its tone (marked **with tone**). If
+  it sends its tone, the noise stays out and the words come through; kept, it's
+  written with the tone both ways. Both results are listed.
 - **Keeping them.** **Tried on this radio** lists every frequency tried, good
   first, with its last words. Tick one to add it to the region on show, as it
   was found (a ham repeater with its band plan input and tone), then **Write to
