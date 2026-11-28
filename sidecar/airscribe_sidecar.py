@@ -257,6 +257,8 @@ class SimBackend:
             s["region"] = v
             s["settings"]["channel_a"] = s["settings"]["channel_b"] = 0
             emit({"event": "channels", "mac": mac, "region": v, "channels": self._table(s, v)})
+            # As a real radio's status poll reports it
+            emit({"event": "radio-status", "mac": mac, "region": v})
         else:
             raise ValueError(f"unknown control {action}")
         return self.radio_info(mac)
@@ -313,6 +315,8 @@ class SimBackend:
 
     def _run(self, mac, stop, scanner=False):
         emit({"event": "status", "mac": mac, "state": "connected", **({} if scanner else {"rssi": 9})})
+        if not scanner:
+            emit({"event": "radio-status", "mac": mac, "region": self._sim(mac)["region"]})
         n = CHUNK_MS * RATE // 1000
         phase = 0.0
         while not stop.is_set():
