@@ -2,17 +2,22 @@
 
 ## master
 ### ✨ Features and improvements
+- _...Add new stuff here..._
+
+### 🐞 Bug fixes
+- _...Add new stuff here..._
+
+## 0.10.0
+### ✨ Features and improvements
 - Findings → Local terms no longer collects what the model didn't know when it isn't a term: a number on its own (a time, an amount), a single letter, letters spelled out ("Sierra Alpha"), a whole sentence, or everyday radio words ("negative", "fire alarm clear"). Codes like "10-13" and "7-3" are still collected
 - Findings: an answer that runs past 2048 tokens (gpt-oss thinking too long, about 1 in 100 calls) is asked once more with twice the room, instead of being lost as an error
 - Findings → Local terms no longer collects a town's name misheard as a term: dispatch calling "Holden Fire" heard as "hold and fire" or "hold the fire". Towns near the channel and the channel's own name count
 - Channels → Try channels works in the empty channels of the region on show, and the radio stays on that region: it no longer moves between a spare region and its own on a schedule. Each channel is decided on its own: words twice keep it (written as found), static three times takes it out at once, and after the hours set (12 by default, up to 48 of listening) anything not good comes off. Each one taken out makes room for the next. Keep and Drop on each row; Put the radio on it if it was moved; Stop trying keeps the good ones. A trial under way at the upgrade has its region put back
-- _...Add new stuff here..._
 
 ### 🐞 Bug fixes
 - Findings: with two radios on one frequency, a short call just before another ("Thank you.") no longer takes the other radio's copy of the next call as its own reading, which had it summed up as that call (a plate check) and left the real call without its second reading
 - Transcription: clips waiting when AirScribe stopped no longer stay "transcribing" for good. They're queued again at start (one whose audio is gone is marked failed), a failed clip is tried once more, and a sherpa-onnx or OpenVINO worker stuck on a clip (2 minutes) or on loading (5 minutes) is restarted instead of holding up every clip behind it
 - Findings → The day so far: an item that only repeats one before it in its hour (the same plate check written out dozens of times) is left out, in hours already summed up too
-- _...Add new stuff here..._
 
 ## 0.9.0
 ### ✨ Features and improvements
