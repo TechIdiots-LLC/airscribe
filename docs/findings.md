@@ -302,6 +302,8 @@ anything. A bigger speech model (large-v3-turbo on a GPU) helps more than a bigg
   A note on a finding goes with it.
 - **Grounded in the findings.** An item has to name at least one of the findings it was given, or it's dropped.
   Its channel, radio and service are taken from those findings, not from what the model says.
+  One whose findings an earlier item of the hour already names is a repeat, and left out: a model going round
+  in circles can write the same plate check dozens of times.
 - **The overview.** After each hour, the day's overview is written again from all of the day's items: once for
   every radio, and once for each radio heard that day. It's 3 to 6 sentences, the most serious first. With more
   items than fit (about 10k tokens), those drawn from the most transmissions are kept.

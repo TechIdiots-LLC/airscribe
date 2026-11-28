@@ -1,10 +1,18 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
-import { dayOf, hourOf } from '../src/digest.js';
+import { dayOf, distinct, hourOf } from '../src/digest.js';
 
 const sqlite = await import('node:sqlite').then(() => true, () => false);
 const HOUR = 3_600_000;
+
+test('the day so far: an item that repeats one before it in its hour is left out', () => {
+  const it = (hour, findings, text) => ({ hour, findings, text });
+  const plate = it(9, [7], 'PD F2 West ran plate 7MZKA7.');
+  const call = it(9, [5, 6, 7], 'A car stopped on Main Street; plate 7MZKA7 came back clean.');
+  const kept = distinct([call, plate, it(9, [7], 'PD F1 East ran plate 7MZKA7.'), it(9, [8], 'Engine 2 cleared.'), it(10, [7], 'Again, next hour.')]);
+  assert.deepEqual(kept.map((k) => k.text), ['A car stopped on Main Street; plate 7MZKA7 came back clean.', 'Engine 2 cleared.', 'Again, next hour.']);
+});
 
 test('the day so far: each hour summed up once it’s read, then the day’s overview, every radio’s and each one’s', { skip: !sqlite }, async () => {
   const { Store } = await import('../src/store.js');

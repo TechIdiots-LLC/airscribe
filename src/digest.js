@@ -63,6 +63,21 @@ function dayBounds(day) {
   return [from, new Date(y, m - 1, d + 1).getTime()];
 }
 
+/**
+ * Items that say something new: one whose findings an earlier item of its hour already covers is a repeat (a model
+ * going round in circles wrote the same plate check a hundred times).
+ * @param {{hour: number, findings: number[]}[]} items - Oldest first.
+ * @returns {object[]} Those kept.
+ */
+export function distinct(items) {
+  const kept = [];
+  return items.filter((it) => {
+    const again = kept.some((k) => k.hour === it.hour && it.findings.every((f) => k.findings.includes(f)));
+    if (!again) kept.push(it);
+    return !again;
+  });
+}
+
 const clock = (ms) => new Date(ms).toTimeString().slice(0, 5);
 const fail = (message, status = 400) => Object.assign(new Error(message), { status });
 
@@ -174,7 +189,7 @@ export class Digest {
         const most = (k) => [...cited.reduce((m, r) => m.set(r[k], (m.get(r[k]) ?? 0) + 1), new Map())].sort((a, b) => b[1] - a[1])[0][0];
         const services = cited.map((r) => r.found.service).filter((s) => s && s !== 'other');
         items.push({
-          at: Math.min(...cited.map((r) => r.started_at)), channel: most('channel_name'), mac: most('mac'),
+          hour, at: Math.min(...cited.map((r) => r.started_at)), channel: most('channel_name'), mac: most('mac'),
           service: services[0] ?? cited[0].found.service ?? 'other', text, findings: ids,
         });
       }
@@ -184,7 +199,7 @@ export class Digest {
     this.db.exec('BEGIN');
     try {
       this.db.prepare('DELETE FROM digest_items WHERE hour = ?').run(hour);
-      for (const it of items) put.run(hour, it.at, it.channel, it.mac, it.service, it.text, JSON.stringify(it.findings));
+      for (const it of distinct(items)) put.run(hour, it.at, it.channel, it.mac, it.service, it.text, JSON.stringify(it.findings));
       this.db.prepare(`INSERT INTO digest_hours (hour, count, made_at) VALUES (?, ?, ?)
                        ON CONFLICT(hour) DO UPDATE SET count = excluded.count, made_at = excluded.made_at`)
         .run(hour, rows.length, this.now());
@@ -193,17 +208,18 @@ export class Digest {
       this.db.exec('ROLLBACK');
       throw e;
     }
-    return items.length;
+    return distinct(items).length;
   }
 
   /** A day's items, for one radio or every one, oldest first. */
   items(day, { radio, channel } = {}) {
     const [from, to] = dayBounds(day);
-    return this.db.prepare(`SELECT id, hour, at, channel, mac, service, text, findings FROM digest_items
+    // Repeats kept before they were left out, left out
+    return distinct(this.db.prepare(`SELECT id, hour, at, channel, mac, service, text, findings FROM digest_items
                              WHERE at >= ? AND at < ? AND (? IS NULL OR mac = ?) AND (? IS NULL OR channel = ?)
                              ORDER BY at, id`)
       .all(from, to, radio || null, radio || null, channel || null, channel || null)
-      .map((r) => ({ ...r, findings: JSON.parse(r.findings) }));
+      .map((r) => ({ ...r, findings: JSON.parse(r.findings) })));
   }
 
   /**
