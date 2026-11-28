@@ -937,10 +937,22 @@ $('tr-end').onclick = () => {
   }
 };
 $('tr-all').onchange = () => renderTrial();
-$('tr-forget').onclick = async () => {
-  if (!confirm('Forget what every frequency tried came to? They’ll be tried again.')) return;
-  await api(`/radios/${radio.mac}/trial/results`, { method: 'DELETE' }).catch((e) => say(e.message, true));
+/** Forget what trying came to, so a trial takes those frequencies again. */
+async function forgetTried(verdict) {
+  try {
+    const { forgotten } = await api(`/radios/${radio.mac}/trial/results${verdict ? `?verdict=${verdict}` : ''}`, { method: 'DELETE' });
+    say(`${plural(forgotten, 'frequency', 'frequencies')} to try again.`);
+  } catch (e) {
+    say(e.message, true);
+  }
+  await trialServices();
   loadTrial();
+}
+$('tr-forget').onclick = () => {
+  if (confirm('Forget what every frequency tried came to? They’ll all be tried again.')) forgetTried(null);
+};
+$('tr-forget-quiet').onclick = () => {
+  if (confirm('Try the quiet ones again? Nothing came in on them while they were tried.')) forgetTried('quiet');
 };
 $('channels').addEventListener('close', () => closeTrial());
 
@@ -986,11 +998,14 @@ async function loadTrial() {
 async function trialServices() {
   const ticked = savedServices();
   try {
-    const got = await api(`/uniden/stations?miles=${$('tr-miles').value}&services=`);
+    const got = await api(`/uniden/stations?miles=${$('tr-miles').value}&services=&mac=${encodeURIComponent(radio.mac)}`);
+    // How many of each, and how many of those haven't been tried on this radio
     $('tr-services').replaceChildren(...Object.entries(got.services).map(([k, name]) => {
       const n = got.counts[k]?.ok ?? 0;
-      return el('label', { className: `toggle${n ? '' : ' off'}` },
-        el('input', { type: 'checkbox', value: k, checked: ticked.includes(k) }), ` ${name} (${n})`);
+      const left = got.counts[k]?.left ?? n;
+      return el('label', { className: `toggle${left ? '' : ' off'}`, title: left < n ? `${n - left} tried on this radio already` : '' },
+        el('input', { type: 'checkbox', value: k, checked: ticked.includes(k) }),
+        ` ${name} (${left < n ? `${left} of ${n} left` : n})`);
     }));
   } catch (e) {
     $('tr-services').replaceChildren(el('span', { className: 'tx-text error' }, e.message));
@@ -1058,6 +1073,8 @@ function renderTrialResults() {
   $('tr-results-note').textContent = `${plural(all.length, 'frequency', 'frequencies')} tried: ${n('good')} good, ` +
     `${n('some')} with some words, ${n('static')} static, ${n('quiet')} quiet. The good ones stayed on the radio; ` +
     `tick another to add it to ${shown ? regionName(shown.region, shown.name) : 'the region on show'}, then write the changes.`;
+  $('tr-forget-quiet').hidden = !n('quiet');
+  $('tr-forget-quiet').textContent = `Try the ${n('quiet')} quiet ones again`;
   $('tr-list').replaceChildren(...(list.length ? list.map((r) => {
     const s = r.station;
     const there = onRadio(s);

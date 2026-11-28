@@ -6,6 +6,7 @@
 - Findings: an answer that runs past 2048 tokens (gpt-oss thinking too long, about 1 in 100 calls) is asked once more with twice the room, instead of being lost as an error
 - Findings → Local terms no longer collects a town's name misheard as a term: dispatch calling "Holden Fire" heard as "hold and fire" or "hold the fire". Towns near the channel and the channel's own name count
 - Channels → Try channels works in the empty channels of the region on show, and the radio stays on that region: it no longer moves between a spare region and its own on a schedule. Each channel is decided on its own: words twice keep it (written as found), static three times takes it out at once, and after the hours set (12 by default, up to 48 of listening) anything not good comes off. Each one taken out makes room for the next. Keep and Drop on each row; Put the radio on it if it was moved; Stop trying keeps the good ones. A trial under way at the upgrade has its region put back
+- Channels → Try channels shows how many of each service haven't been tried on this radio yet ("7 of 68 left"), says why when there's nothing left to try instead of starting and stopping at once, and has Try the quiet ones again beside Forget them all
 - _...Add new stuff here..._
 
 ### 🐞 Bug fixes

@@ -827,7 +827,8 @@ export function createApp({ manager, store, sidecar, config, dataDir, updates, c
     api.post('/radios/:mac/trial/listen', admin, answer((req) => fromRadio(trials.listen(macOf(req)))));
     api.post('/radios/:mac/trial/channels/:slot', admin, answer((req) => fromRadio(trials.decide(macOf(req), Number(req.params.slot), String(req.body?.do ?? '')))));
     api.post('/radios/:mac/trial/end', admin, answer((req) => fromRadio(trials.end(macOf(req)))));
-    api.delete('/radios/:mac/trial/results', admin, answer((req) => trials.forget(macOf(req), req.query.key ? String(req.query.key) : null)));
+    api.delete('/radios/:mac/trial/results', admin, answer((req) => trials.forget(macOf(req), req.query.key ? String(req.query.key) : null,
+      { verdict: ['good', 'some', 'static', 'quiet'].includes(req.query.verdict) ? req.query.verdict : null })));
   }
   api.delete('/radios/:mac/backups/:id', admin, answer((req) => {
     const mac = macOf(req);
@@ -876,12 +877,15 @@ export function createApp({ manager, store, sidecar, config, dataDir, updates, c
     // Channels from Uniden's database: the frequencies near home the radio can receive, of the services asked for
     if (uniden) {
       api.get('/uniden/stations', admin, answer(async (req) => {
+        const mac = req.query.mac && trials ? normalizeMac(String(req.query.mac)) ?? '' : null;
         const got = uniden.stations(await home(), {
           miles: req.query.miles,
           services: String(req.query.services ?? '').split(',').filter((k) => Object.hasOwn(SERVICES, k)),
+          // How many of each a trial on this radio would still try
+          ...(mac === null ? {} : { fresh: trials.toTry(mac) }),
         });
         // What trying them on this radio found
-        const tried = req.query.mac && trials ? trials.verdicts(normalizeMac(String(req.query.mac)) ?? '') : null;
+        const tried = mac === null ? null : trials.verdicts(mac);
         if (tried) for (const s of got.stations) s.tried = tried.get(s.key) ?? null;
         return got;
       }));

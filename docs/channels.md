@@ -140,7 +140,10 @@ radio on that region; the channels already in it are left as they are.
   first, with its last words, and whether it was kept. Tick one to add it to the
   region on show, then **Write to radio**. The database tab marks what each one
   came to. **Try again** forgets a frequency's result so a trial takes it again;
-  **Forget them all** forgets every one.
+  **Try the quiet ones again** forgets those nothing came in on; **Forget them
+  all** forgets every one. A frequency is tried once on a radio until it's
+  forgotten, so each service shows how many are left ("7 of 68 left"), and a
+  trial with none left to try isn't started.
 - **The feed.** What comes in on a trial channel is a transmission like any
   other, under the channel's name, so it can be listened to; each is put on the
   map at its group's place unless its name is placed already.
@@ -253,13 +256,13 @@ reason.
 | --- | --- |
 | `GET /api/radios/:mac/channels?region=N` | every slot of a region, read from the radio now (the region it's on without `region`), and `quality`: by channel name, the last week's `count`, `noSpeech`, median `rssi` and `snrDb`, and `tags` |
 | `PUT /api/radios/:mac/channels` | `{region, channels, label}`: reads the region, backs it up, then writes the channels. Each is a new channel (`{id, name, rx_hz, tx_hz, mod, bandwidth, rx_tone, tx_tone, scan, power, tx_disable}`, `id` the slot from 0), an empty slot (`{id, rx_hz: 0}`), or a change to some of a channel's fields (`{id, set: {scan: false}}`). A write that changes nothing keeps no backup. A new channel may carry `lat` and `lon`, to put it on the map |
-| `GET /api/uniden/stations?miles=&services=` | the frequencies in Uniden's database near home the radio can receive, of the services named (comma-separated: `police`, `fire`, `ems`, `multi`, `works`, `ham`, `air`, `rail`, `business`, `schools`, `federal`, `other`; none for all), nearest first, each with its `service` and the `channel` it would be written as, or `ok: false` and `why`; `counts` gives each service's playable (`ok`) and digital (`not`) numbers. With `mac=`, each has `tried`: what trying it on that radio came to |
+| `GET /api/uniden/stations?miles=&services=` | the frequencies in Uniden's database near home the radio can receive, of the services named (comma-separated: `police`, `fire`, `ems`, `multi`, `works`, `ham`, `air`, `rail`, `business`, `schools`, `federal`, `other`; none for all), nearest first, each with its `service` and the `channel` it would be written as, or `ok: false` and `why`; `counts` gives each service's playable (`ok`) and digital (`not`) numbers. With `mac=`, each has `tried`: what trying it on that radio came to, and each service's count has `left`: how many a trial on that radio would still try |
 | `GET /api/radios/:mac/trial` | the radio's trial (the one under way, or the last: its `region`, `hours`, `tried`, `kept`, and `listening`, whether the radio is on the region now), the `channels` being tried with what's come in on each (`heard`, `speech`, `static`, `pending`, `sample`, `listenedHours`, `verdict` so far), and `results`: the latest verdict on each frequency tried on the radio, good first, each with the `station` as found and whether it was `kept` |
 | `POST /api/radios/:mac/trial` | `{region, services, miles, hours}`: back the region up, put the radio on it, and start trying channels in its empty slots |
 | `POST /api/radios/:mac/trial/listen` | put the radio back on the trial's region, scanning |
 | `POST /api/radios/:mac/trial/channels/:slot` | `{do: "keep"}` keeps the channel being tried in that slot now; `{do: "drop"}` takes it out and tries the next |
 | `POST /api/radios/:mac/trial/end` | grade the channels still being tried: the good ones stay, the rest come off |
-| `DELETE /api/radios/:mac/trial/results?key=` | forget what a frequency tried came to (`key` as in `results`), or every one without `key` |
+| `DELETE /api/radios/:mac/trial/results?key=&verdict=` | forget what a frequency tried came to (`key` as in `results`), every one whose latest result is `verdict` (`quiet`, say), or every one without either; answers how many were `forgotten` |
 | `GET /api/radios/:mac/backups` | the radio's backups, newest first |
 | `POST /api/radios/:mac/backups` | `{region, label}`: back a region up |
 | `GET /api/radios/:mac/backups/:id` | one backup, every slot |

@@ -128,6 +128,11 @@ export class Trials {
     const there = await this.manager.readChannels(mac, region);
     const slots = there.channels.filter((c) => c.empty).map((c) => c.id);
     if (!slots.length) throw fail(`${there.name || `region ${region + 1}`} has no empty channels: clear some to try channels in`);
+    const toTry = this.toTry(mac);
+    if (!this.uniden.stations(await this.home(), { miles, services }).stations.some((s) => toTry(s))) {
+      throw fail(`every one of those within ${miles} mi has been tried on this radio already: tick another service, ` +
+        'go further, or forget what was found (all of it, or the quiet ones) to try them again', 409);
+    }
     // Only its empty slots are written, but it's backed up anyway
     const backup = this.store.addChannelBackup({ mac, region: there.region, regionName: there.name,
       label: 'Before trying channels', channels: there.channels });
@@ -280,6 +285,22 @@ export class Trials {
     this.db.prepare('UPDATE trials SET slots = ?, changed_at = ? WHERE id = ?').run(JSON.stringify(slots), this.now(), t.id);
   }
 
+  /**
+   * What a candidate is tried as on a radio: itself if it hasn't been, else a noisy ham repeater listened to only with
+   * its tone (which keeps out noise and other users if the repeater sends it), else nothing.
+   * @param {string} mac - The radio.
+   * @returns {(s: object) => object|null} The station to try, or null.
+   */
+  toTry(mac) {
+    const tried = new Set(this.db.prepare('SELECT key FROM trial_channels WHERE mac = ?').all(mac).map((r) => r.key));
+    const noisy = new Set(this.db.prepare(`SELECT key FROM trial_channels c WHERE mac = ? AND verdict IN ('static', 'some')
+        AND id = (SELECT max(id) FROM trial_channels d WHERE d.mac = c.mac AND d.key = c.key)`).all(mac).map((r) => r.key));
+    return (found) => {
+      const s = tried.has(found.key) && noisy.has(found.key) ? withTone(found) : found;
+      return s && s.ok && !tried.has(s.key) ? s : null;
+    };
+  }
+
   /** The trial's empty slots filled with the next candidates. @returns {Promise<boolean>} False when none are left. */
   async fill(t) {
     const busy = new Set(this.trying(t).map((c) => c.slot));
@@ -289,18 +310,14 @@ export class Trials {
     // Still empty on the radio: one filled by hand since is left alone
     const open = free.filter((s) => read.channels.find((c) => c.id === s)?.empty);
     if (!open.length) return true;
-    const tried = new Set(this.db.prepare('SELECT key FROM trial_channels WHERE mac = ?').all(t.mac).map((r) => r.key));
     const onRadio = new Set(read.channels.filter((c) => !c.empty && c.rx_hz).map((c) => c.rx_hz));
     const { stations } = this.uniden.stations(await this.home(), { miles: t.miles, services: JSON.parse(t.services) });
-    // A ham repeater that came to static or a few words is tried again listening only with its tone, which keeps
-    // out noise and other users if the repeater sends it
-    const noisy = new Set(this.db.prepare(`SELECT key FROM trial_channels c WHERE mac = ? AND verdict IN ('static', 'some')
-        AND id = (SELECT max(id) FROM trial_channels d WHERE d.mac = c.mac AND d.key = c.key)`).all(t.mac).map((r) => r.key));
+    const toTry = this.toTry(t.mac);
     const next = [];
     for (const found of stations) {
       if (next.length >= open.length) break;
-      const s = tried.has(found.key) && noisy.has(found.key) ? withTone(found) : found;
-      if (!s || !s.ok || tried.has(s.key) || onRadio.has(s.channel.rx_hz)) continue;
+      const s = toTry(found);
+      if (!s || onRadio.has(s.channel.rx_hz)) continue;
       onRadio.add(s.channel.rx_hz);
       next.push(s);
     }
@@ -391,12 +408,15 @@ export class Trials {
    * Forget what was found, so those frequencies are tried again.
    * @param {string} mac - The radio.
    * @param {string|null} [key] - One frequency; null for every one not being tried now.
-   * @returns {{forgotten: number}} How many.
+   * @param {{verdict?: string|null}} [o] - Only those whose latest result is this ("quiet").
+   * @returns {{forgotten: number}} How many frequencies.
    */
-  forget(mac, key = null) {
-    const r = key
-      ? this.db.prepare('DELETE FROM trial_channels WHERE mac = ? AND key = ? AND verdict IS NOT NULL').run(mac, key)
-      : this.db.prepare('DELETE FROM trial_channels WHERE mac = ? AND verdict IS NOT NULL').run(mac);
-    return { forgotten: r.changes };
+  forget(mac, key = null, { verdict = null } = {}) {
+    const keys = key ? [key] : this.db.prepare(`SELECT key FROM trial_channels c WHERE mac = ? AND verdict IS NOT NULL
+        AND (? IS NULL OR verdict = ?)
+        AND id = (SELECT max(id) FROM trial_channels d WHERE d.mac = c.mac AND d.key = c.key AND d.verdict IS NOT NULL)`)
+      .all(mac, verdict, verdict).map((r) => r.key);
+    const del = this.db.prepare('DELETE FROM trial_channels WHERE mac = ? AND key = ? AND verdict IS NOT NULL');
+    return { forgotten: keys.filter((k) => del.run(mac, k).changes > 0).length };
   }
 }

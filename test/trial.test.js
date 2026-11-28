@@ -158,8 +158,16 @@ test('a region’s empty channels tried one by one: words kept, static out at on
     'uniden:154385000:100.0': 'good', 'uniden:449925000:D023:tone': 'good', 'uniden:449925000:D023': 'some',
     'uniden:146970000:114.8': 'static', 'uniden:154280000:': 'quiet', 'uniden:146970000:114.8:tone': 'quiet' });
 
-  // Forgotten, tried again; stopped early, even after the radio was out of reach
-  assert.deepEqual(trials.forget(MAC, 'uniden:154280000:'), { forgotten: 1 });
+  // Every one tried: not started, and said why; how many are left counted for the page
+  const left = () => uniden.stations(HOME, { miles: 30, services: ['fire'], fresh: trials.toTry(MAC) }).counts;
+  assert.deepEqual([left().fire.ok, left().fire.left, left().ham.left], [2, 0, 0]);
+  await assert.rejects(trials.begin(MAC, { region: 1, services: ['fire'], miles: 30 }), /tried on this radio already/);
+  assert.equal(trials.status(MAC).trial.state, 'done', 'no trial started');
+
+  // The quiet ones forgotten, tried again; stopped early, even after the radio was out of reach
+  assert.deepEqual(trials.forget(MAC, null, { verdict: 'quiet' }), { forgotten: 2 });
+  assert.deepEqual([left().fire.left, left().ham.left], [1, 1], 'the fire tac, and the repeater’s tone retry');
+  assert.equal(trials.verdicts(MAC).get('uniden:146970000:114.8'), 'static', 'the static one kept');
   s = await trials.begin(MAC, { region: 1, services: ['fire'], miles: 30 });
   assert.deepEqual(s.channels.map((c) => [c.slot, c.name]), [[2, 'Paxton Fir']], 'only what hasn’t been tried, in the empty one');
   radio.offline = true;

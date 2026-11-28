@@ -295,7 +295,7 @@ export class Uniden {
    *   stations: object[]}} Nearest first; counts, for each service, how many near the radio can and can't play;
    *   reimport when the database was imported before modes and tones were kept.
    */
-  stations(home, { miles = 30, services = null } = {}) {
+  stations(home, { miles = 30, services = null, fresh = null } = {}) {
     const mi = Math.min(Math.max(Number(miles) || 30, 1), 300);
     const want = services?.length ? new Set(services) : null;
     // Near enough to be worth reading: a box around home, wide enough for a group's own range
@@ -325,12 +325,13 @@ export class Uniden {
       if (best.has(key) && (best.get(key).dist ?? 0) <= (dist ?? 0)) continue;
       best.set(key, { r, dist, tone });
     }
-    const counts = Object.fromEntries(Object.keys(SERVICES).map((k) => [k, { ok: 0, not: 0 }]));
+    const counts = Object.fromEntries(Object.keys(SERVICES).map((k) => [k, { ok: 0, not: 0, ...(fresh ? { left: 0 } : {}) }]));
     const stations = [];
     for (const { r, dist, tone } of [...best.values()].sort((a, b) => (a.dist ?? 0) - (b.dist ?? 0) || a.r.hz - b.r.hz)) {
       const service = serviceOf(r);
       const s = station(r, dist, tone, service);
       counts[service][s.ok ? 'ok' : 'not']++;
+      if (fresh && s.ok && fresh(s)) counts[service].left++;
       if ((!want || want.has(service)) && stations.length < MAX_STATIONS) stations.push(s);
     }
     return {
