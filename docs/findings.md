@@ -268,7 +268,9 @@ There are four kinds of entry:
 says it didn't know (its `terms` answer), but only those the transmission really says, and not a number on its own
 ("1946", "$4.49", "nineteen fifty one": "10-13" and "7-3" are kept), a single letter, letters spelled out ("Sierra
 Alpha"), more than four words, or only everyday radio words ("negative", "fire alarm clear", "73-year-old male").
-Each is counted, with the last 12 transmissions it was said in. Terms collected before this stay in the list:
+Nor is a town's name misheard, alone or with its department: dispatch calling "Holden Fire" is often heard as "hold
+and fire" or "hold the fire". The towns are those near the channel (from **Roads**) and the words of the channel's
+name. Each is counted, with the last 12 transmissions it was said in. Terms collected before this stay in the list:
 reject or remove them there.
 
 **Worked out.** Once a collected term has been said 3 times, the model is asked what it likely means, given only

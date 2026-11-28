@@ -933,7 +933,8 @@ export class Findings {
       // service the model names on a channel of another (police on a fire channel) can be right, so it stays
       if (ch && (ch.service === 'amateur' || ['amateur', 'other'].includes(found.service))) found.service = ch.service;
       // Codes said, and what the model didn't know, counted toward working out what they mean
-      this.glossary.collect(firsts, { id, channel: t.channel_name, unknown: found.terms });
+      const towns = at ? this.roads.placesNear('town', at).map((p) => p.name) : [];
+      this.glossary.collect(firsts, { id, channel: t.channel_name, unknown: found.terms, towns });
       this.lastError = null;
     } catch (e) {
       error = e.message;

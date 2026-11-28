@@ -4,6 +4,7 @@
 ### ✨ Features and improvements
 - Findings → Local terms no longer collects what the model didn't know when it isn't a term: a number on its own (a time, an amount), a single letter, letters spelled out ("Sierra Alpha"), a whole sentence, or everyday radio words ("negative", "fire alarm clear"). Codes like "10-13" and "7-3" are still collected
 - Findings: an answer that runs past 2048 tokens (gpt-oss thinking too long, about 1 in 100 calls) is asked once more with twice the room, instead of being lost as an error
+- Findings → Local terms no longer collects a town's name misheard as a term: dispatch calling "Holden Fire" heard as "hold and fire" or "hold the fire". Towns near the channel and the channel's own name count
 - _...Add new stuff here..._
 
 ### 🐞 Bug fixes

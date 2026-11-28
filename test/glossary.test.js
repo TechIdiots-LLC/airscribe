@@ -1,6 +1,6 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { codesIn, onChannel, says, termKey, worthCollecting } from '../src/glossary.js';
+import { codesIn, onChannel, says, soundsLikeTown, termKey, worthCollecting } from '../src/glossary.js';
 import { numerals } from '../src/plates.js';
 
 const sqlite = await import('node:sqlite').then(() => true, () => false);
@@ -33,6 +33,20 @@ test('a term the model didn’t know is collected unless it’s a number, letter
     'negative', 'clear', 'fire alarm clear', '73-year-old male', 'female party', 'how come I didn’t get a chair'];
   assert.deepEqual(kept.filter((t) => !worthCollecting(t)), []);
   assert.deepEqual(left.filter(worthCollecting), []);
+});
+
+test('a town’s name misheard isn’t a term: "hold and fire" is Holden Fire', { skip: !sqlite }, async () => {
+  const towns = ['Holden', 'Rutland', 'Harvard', 'Sterling'];
+  const misheard = ['hold and fire', 'hold the fire', 'Hold on fire clear', 'Outland Fire', 'Paxon PD'];
+  assert.deepEqual(misheard.filter((t) => !soundsLikeTown(t, [...towns, 'Paxton'])), []);
+  assert.deepEqual(['hazard', 'Shelter', 'hold', 'Code 5', 'Section 12', 'hold the fire on duty'].filter((t) => soundsLikeTown(t, towns)), [],
+    'a word on its own has to be closer');
+  const { DatabaseSync } = await import('node:sqlite');
+  const { Glossary } = await import('../src/glossary.js');
+  const g = new Glossary(new DatabaseSync(':memory:'));
+  const text = 'Hold and fire, all fire personnel respond 243 Wachusett Street, Q5. Hold and fire clear, 2134.';
+  assert.deepEqual(g.collect([text], { id: 1, channel: 'Holden Fir', unknown: ['hold and fire', 'Q5'] }), ['Q5'],
+    'the channel’s own name counts, with no towns loaded');
 });
 
 test('an entry for some channels, with * for any characters', () => {

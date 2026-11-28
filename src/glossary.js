@@ -37,6 +37,26 @@ const STOPPED = new Set([...STOP].map((w) => w.replace(/'/g, '')));
 const fail = (message, status = 400) => Object.assign(new Error(message), { status });
 const numeric = (w) => /^\d+$/.test(w);
 
+// Said after a town's name when dispatch calls its department: "Holden Fire", "Paxton PD"
+const DEPARTMENT = new Set(['fire', 'police', 'pd', 'fd', 'ems', 'dispatch', 'rescue', 'ambulance', 'department', 'clear']);
+
+/**
+ * Whether a term is a town's name misheard, alone or with its department: "hold and fire" is Holden Fire.
+ * @param {string} term - As the model wrote it.
+ * @param {string[]} towns - The towns near the channel, and its name.
+ * @returns {boolean}
+ */
+export function soundsLikeTown(term, towns) {
+  const w = numerals(term);
+  const n = w.length;
+  while (w.length > 1 && DEPARTMENT.has(w.at(-1))) w.pop();
+  const said = w.join('');
+  if (said.length < 5 || /\d/.test(said)) return false;
+  // Closer on its own: "hazard" isn't Harvard, but "hold the fire" is Holden Fire
+  const max = w.length === n ? 1 : said.length >= 7 ? 3 : 2;
+  return towns.some((t) => distance(said, numerals(t).join(''), max) <= max);
+}
+
 /**
  * Whether a term the model didn't know is worth collecting: not a number on its own (a time, an amount, a house
  * number), a single letter, letters spelled out ("Sierra Alpha", a plate), a sentence, or only plain words
@@ -252,13 +272,17 @@ export class Glossary {
    * out: each is counted, with this transmission kept as an example. A term the model named that the
    * transmission doesn't say is left out.
    * @param {string[]} texts - Its readings, the one read first.
-   * @param {{id: number, channel: string|null, unknown?: string[]}} o - The transmission, and the model's unknown terms.
+   * @param {{id: number, channel: string|null, unknown?: string[], towns?: string[]}} o - The transmission, the
+   *   model's unknown terms, and the towns near the channel.
    * @returns {string[]} The terms noted.
    */
-  collect(texts, { id, channel = null, unknown = [] }) {
+  collect(texts, { id, channel = null, unknown = [], towns = [] }) {
     const words = texts.map(numerals);
     const terms = new Map();
-    for (const t of [...texts.flatMap(codesIn), ...unknown.filter(worthCollecting)]) {
+    // The channel's own name is a town's, often: "Holden Fir"
+    const near = [...towns, ...String(channel ?? '').split(/\s+/).filter((w) => w.length >= 5)];
+    const said = unknown.filter((t) => worthCollecting(t) && !soundsLikeTown(t, near));
+    for (const t of [...texts.flatMap(codesIn), ...said]) {
       const key = termKey(t);
       if (key && key.length <= 40 && !terms.has(key) && words.some((w) => says(w, key))) terms.set(key, String(t).trim().slice(0, 60));
     }
