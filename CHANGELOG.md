@@ -6,10 +6,12 @@
 - Findings gives the model the towns and businesses said near the channel ("Family Dolar" comes back as Family Dollar, "Grimfield" as Brimfield), looks at a town's roads when one a way off is named, and checks the house numbers said against the addresses: "1616 Roxbury Street isn't there (its numbers run 16 to 120)". A house number that's really the time said, on a street without that number, is taken out as the time
 - The Map's Roads mentioned puts a dot at the house when an address's number is among those imported, and at a named place mentioned (a business, a school); an address ending in a town is looked for around that town rather than the channel
 - Admin → Findings → Roads → Download and read: give an OpenStreetMap extract's address (a state's `.osm.pbf` from Geofabrik) and AirScribe downloads it, cuts the channels' area out with osmium and reads its roads, towns, places and addresses, with no PC step. The package now recommends `osmium-tool`, and the LXC template has it
+- Channels → Add channels… → From Uniden's database (was Ham) lists every service the database tags, not only ham: police, fire, EMS, interop, public works, aircraft (AM), railroad, business and more, ticked per radio, each with how many near home the radio can play. Anything not ham is written receive-only with its tone; digital channels are counted and hidden
 - _...Add new stuff here..._
 
 ### 🐞 Bug fixes
 - Findings gives the model the likeliest roads first: a road said by its whole name ("Walnut Street") is no longer crowded out by "A Street", "The Boulevard" and every "Main …" variant, and the new transmission's roads come before those of the earlier ones
+- Channels → Add channels: the Uniden list's status line (how many listed, channels free) shows under the list again; it had been written into the Ham profile panel, which shared its id
 - _...Add new stuff here..._
 
 ## 0.7.1

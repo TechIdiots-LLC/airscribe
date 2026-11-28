@@ -8,6 +8,7 @@ import { PROVIDERS } from './logins.js';
 import { PUBLISH_DEFAULTS, publicCutoff, publishable, publicView } from './publish.js';
 import { insights } from './insights.js';
 import { checkWrite, resolveWrite } from './channels.js';
+import { SERVICES } from './uniden.js';
 import { judge } from './quality.js';
 import { checkBeacon, checkProfile } from './beacon.js';
 import { creationOptions, requestOptions } from './webauthn.js';
@@ -866,8 +867,13 @@ export function createApp({ manager, store, sidecar, config, dataDir, updates, c
       if (!local && !out.rr) throw refuse(out.rrError ?? 'nothing to look it up by', 400);
       return out;
     }));
-    // A ham radio's channels from Uniden's database: the 2 m and 70 cm frequencies near home
-    if (uniden) api.get('/uniden/amateur', admin, answer(async (req) => uniden.amateur(await home(), { miles: req.query.miles })));
+    // Channels from Uniden's database: the frequencies near home the radio can receive, of the services asked for
+    if (uniden) {
+      api.get('/uniden/stations', admin, answer(async (req) => uniden.stations(await home(), {
+        miles: req.query.miles,
+        services: String(req.query.services ?? '').split(',').filter((k) => Object.hasOwn(SERVICES, k)),
+      })));
+    }
   }
 
   // Uniden's database, imported a file at a time from the scanner's SD card (BCDx36HP/HPDB)

@@ -5,7 +5,7 @@
  * named is found by that name, which is the database's own; by its frequency; or by its talkgroup.
  */
 import { similarity } from './radioreference.js';
-import { fromListing, standardInput } from './channels.js';
+import { RECEIVE_BANDS, fromListing, isHam, receiveBand, standardInput } from './channels.js';
 
 const NATIONWIDE_DEG = 6;   // a group whose rectangles span more than this has no place of its own
 const NEAR_KM = 150;        // a frequency's listings further than this from home are someone else's
@@ -127,6 +127,71 @@ export function parseHpd(text) {
   return out;
 }
 
+const MAX_STATIONS = 600;
+const MAX_RANGE_MI = 60;    // a group's own range counted at most this far: a statewide one isn't near everywhere
+
+/**
+ * The services a frequency is offered under, with the database's service numbers (FuncTagId, RadioReference's tag
+ * numbers) in each. Only conventional frequencies are listed: the radio can't follow a trunked system.
+ */
+export const SERVICES = {
+  police: { name: 'Police', tags: [2, 7, 23, 37] },
+  fire: { name: 'Fire', tags: [3, 8, 24] },
+  ems: { name: 'EMS and hospitals', tags: [4, 9, 25, 12] },
+  multi: { name: 'Multi-agency and interop', tags: [1, 6, 22, 11, 29] },
+  works: { name: 'Public works, utilities, transport', tags: [14, 34, 26] },
+  ham: { name: 'Ham', tags: [13] },
+  air: { name: 'Aircraft', tags: [15] },
+  rail: { name: 'Railroad', tags: [20] },
+  business: { name: 'Business, security, media', tags: [17, 33, 31] },
+  schools: { name: 'Schools', tags: [32] },
+  federal: { name: 'Federal and military', tags: [16, 30] },
+  other: { name: 'Other', tags: [21] },
+};
+const BY_TAG = new Map(Object.entries(SERVICES).flatMap(([k, v]) => v.tags.map((t) => [t, k])));
+const AMATEURISH = /amateur|\bham\b|\bares\b|races|skywarn|repeater|arrl|radio club|\b[akwn][a-z]?\d[a-z]{1,3}\b/i;
+
+/** A listing's service: its tag's, else what its name says (a callsign in a ham band is a ham's), else other. */
+function serviceOf(r) {
+  const tagged = BY_TAG.get(r.func);
+  if (tagged) return tagged;
+  const s = `${r.name} ${r.grp ?? ''}`;
+  if (AMATEURISH.test(s) && isHam(r.hz)) return 'ham';
+  if (/\b(pd|police|sheriff|trooper)\b/i.test(s)) return 'police';
+  if (/\b(fd|fire)\b/i.test(s)) return 'fire';
+  if (/\b(ems|ambulance|hospital)\b/i.test(s)) return 'ems';
+  return 'other';
+}
+
+/** One listing as the radio would be written with it, or why it can't be. */
+function station(r, dist, tone, service) {
+  const raw = String(r.mode ?? '').toUpperCase();
+  const audio = String(r.audio ?? '').toUpperCase();
+  const digital = /^(NAC|COLORCODE|RAN|DCODE|UNITID)=/i.test(audio) || /P25|DMR|NXDN|DSTAR|D-STAR|YSF|FUSION|DIGITAL/.test(raw);
+  const band = receiveBand(r.hz);
+  const ham = service === 'ham' && isHam(r.hz);
+  // AUTO (or none): the scanner works it out. The airband is AM and ham FM wide; anything else is taken as narrow,
+  // as licensees below 512 MHz have had to be since 2013.
+  const guessed = !digital && (!raw || raw === 'AUTO');
+  const mode = digital
+    ? (raw && raw !== 'AUTO' ? raw : audio.startsWith('NAC') ? 'P25' : audio.startsWith('COLORCODE') ? 'DMR' : audio.startsWith('RAN') ? 'NXDN' : 'Digital')
+    : guessed ? (band?.mod ?? (ham ? 'FM' : 'NFM')) : raw;
+  const input = ham ? standardInput(r.hz) : null;
+  const s = fromListing({ fid: r.id, out: r.hz / 1e6, in: input ? input / 1e6 : 0, tone, alpha: r.name, descr: r.grp }, mode);
+  // fromListing transmits on anything in a ham band: a listing that isn't a ham's is only listened to, with its tone
+  const channel = s.channel && !ham
+    ? { ...s.channel, tx_hz: s.channel.rx_hz, rx_tone: s.channel.rx_tone || s.channel.tx_tone, tx_tone: '', tx_disable: true, power: 'low' }
+    : s.channel;
+  return {
+    key: `uniden:${r.hz}:${tone}`, mhz: r.hz / 1e6, name: r.name, group: r.grp, system: r.system, service,
+    where: [r.state_code, r.county ? `${r.county} County` : r.system].filter(Boolean).join(' › '),
+    km: dist === null ? null : Math.round(dist * 10) / 10, lat: r.lat, lon: r.lon,
+    mode: r.mode ?? '', tone, amateur: service === 'ham',
+    input: input ? input / 1e6 : null, modeGuessed: guessed,
+    ok: s.ok, why: s.why, toneNote: s.toneNote, channel,
+  };
+}
+
 export class Uniden {
   /** @param {{store: import('./store.js').Store}} o - Where it's kept. */
   constructor({ store }) {
@@ -219,57 +284,60 @@ export class Uniden {
   }
 
   /**
-   * The 2 m and 70 cm frequencies the database lists near home, for a ham radio: each with what the radio would be
-   * written with, or why it can't be. The database gives what a repeater sends, its mode and its tone, not its
-   * input: a repeater's is taken from the band plan (standardInput), to check.
+   * The conventional frequencies the database lists near home that a UV-Pro can receive, of the services asked for:
+   * each with what the radio would be written with, or why it can't be. The database gives what a repeater sends,
+   * its mode and its tone, not its input: a ham repeater's is taken from the band plan (standardInput), to check.
+   * Anything else is written receive-only, with its tone to open the squelch.
    * @param {{lat: number, lon: number}|null} home - Where the radios are.
-   * @param {{miles?: number}} [o] - How far out.
-   * @returns {{date: string|null, reimport: boolean, home: object|null, stations: object[]}} Nearest first; reimport
-   *   when the database was imported before modes and tones were kept.
+   * @param {{miles?: number, services?: string[]|null}} [o] - How far out, and which services (SERVICES' keys);
+   *   none or null for every one.
+   * @returns {{date: string|null, reimport: boolean, home: object|null, miles: number, counts: object,
+   *   stations: object[]}} Nearest first; counts, for each service, how many near the radio can and can't play;
+   *   reimport when the database was imported before modes and tones were kept.
    */
-  amateur(home, { miles = 30 } = {}) {
+  stations(home, { miles = 30, services = null } = {}) {
     const mi = Math.min(Math.max(Number(miles) || 30, 1), 300);
+    const want = services?.length ? new Set(services) : null;
+    // Near enough to be worth reading: a box around home, wide enough for a group's own range
+    const args = [];
+    let box = '';
+    if (home) {
+      const pad = (mi + MAX_RANGE_MI) / 69;
+      const padLon = pad / Math.max(Math.cos((home.lat * Math.PI) / 180), 0.2);
+      box = ' AND e.lat BETWEEN ? AND ? AND e.lon BETWEEN ? AND ?';
+      args.push(home.lat - pad, home.lat + pad, home.lon - padLon, home.lon + padLon);
+    }
+    const bands = RECEIVE_BANDS.map((b) => `e.hz BETWEEN ${b.from} AND ${b.to}`).join(' OR ');
     const rows = this.db.prepare(`
       SELECT e.rowid AS id, e.*, s.code AS state_code, c.name AS county FROM uniden_entries e
         LEFT JOIN uniden_areas s ON s.kind = 'state' AND s.id = e.state_id
         LEFT JOIN uniden_areas c ON c.kind = 'county' AND c.id = e.county_id
-       WHERE e.kind = 'freq' AND e.lat IS NOT NULL AND (e.hz BETWEEN 144000000 AND 148000000 OR e.hz BETWEEN 420000000 AND 450000000)
-       LIMIT 20000`).all();
+       WHERE e.kind = 'freq' AND e.lat IS NOT NULL AND (${bands})${box}
+       LIMIT 50000`).all(...args);
     const best = new Map();   // one listing for each frequency and tone: the nearest
     for (const r of rows) {
       const dist = home ? km(home, r) : null;
       // Inside a group's area is near, however far its middle
-      const off = dist === null ? 0 : Math.max(0, dist - (r.range_mi ?? 0) * 1.609344);
+      const off = dist === null ? 0 : Math.max(0, dist - Math.min(r.range_mi ?? 0, MAX_RANGE_MI) * 1.609344);
       if (off > mi * 1.609344) continue;
       const tone = /^TONE=C(\d{2,3}\.\d)$/i.exec(r.audio ?? '')?.[1] ?? /^TONE=(D\d{3})N?$/i.exec(r.audio ?? '')?.[1] ?? '';
       const key = `${r.hz}|${tone}`;
       if (best.has(key) && (best.get(key).dist ?? 0) <= (dist ?? 0)) continue;
       best.set(key, { r, dist, tone });
     }
-    const amateurish = /amateur|\bham\b|\bares\b|races|skywarn|repeater|arrl|radio club|\b[akwn][a-z]?\d[a-z]{1,3}\b/i;
-    const stations = [...best.values()].sort((a, b) => (a.dist ?? 0) - (b.dist ?? 0) || a.r.hz - b.r.hz).slice(0, 300).map(({ r, dist, tone }) => {
-      const raw = String(r.mode ?? '').toUpperCase();
-      const digital = /^(NAC|COLORCODE|RAN|DCODE|UNITID)=/i.test(r.audio ?? '') || /P25|DMR|NXDN|DSTAR|D-STAR|YSF|FUSION|DIGITAL/.test(raw);
-      // AUTO (or none): the scanner works it out; amateur FM is taken as wide
-      const audio = String(r.audio ?? '').toUpperCase();
-      const mode = digital
-        ? (raw && raw !== 'AUTO' ? raw : audio.startsWith('NAC') ? 'P25' : audio.startsWith('COLORCODE') ? 'DMR' : audio.startsWith('RAN') ? 'NXDN' : 'Digital')
-        : !raw || raw === 'AUTO' ? 'FM' : raw;
-      const input = standardInput(r.hz);
-      const s = fromListing({ fid: r.id, out: r.hz / 1e6, in: input ? input / 1e6 : 0, tone, alpha: r.name, descr: r.grp }, mode);
-      return {
-        key: `uniden:${r.hz}:${tone}`, mhz: r.hz / 1e6, name: r.name, group: r.grp, system: r.system,
-        where: [r.state_code, r.county ? `${r.county} County` : r.system].filter(Boolean).join(' › '),
-        km: dist === null ? null : Math.round(dist * 10) / 10, lat: r.lat, lon: r.lon,
-        mode: r.mode ?? '', tone, amateur: amateurish.test(`${r.name} ${r.grp} ${r.system}`),
-        input: input ? input / 1e6 : null, modeGuessed: !digital && (!raw || raw === 'AUTO'),
-        ok: s.ok, why: s.why, toneNote: s.toneNote, channel: s.channel,
-      };
-    });
+    const counts = Object.fromEntries(Object.keys(SERVICES).map((k) => [k, { ok: 0, not: 0 }]));
+    const stations = [];
+    for (const { r, dist, tone } of [...best.values()].sort((a, b) => (a.dist ?? 0) - (b.dist ?? 0) || a.r.hz - b.r.hz)) {
+      const service = serviceOf(r);
+      const s = station(r, dist, tone, service);
+      counts[service][s.ok ? 'ok' : 'not']++;
+      if ((!want || want.has(service)) && stations.length < MAX_STATIONS) stations.push(s);
+    }
     return {
       date: this.store.setting('uniden.date') ?? null,
       reimport: Boolean(this.count()) && !this.db.prepare('SELECT 1 FROM uniden_entries WHERE mode IS NOT NULL LIMIT 1').get(),
-      home, miles: mi, stations,
+      home, miles: mi, counts, stations,
+      services: Object.fromEntries(Object.entries(SERVICES).map(([k, v]) => [k, v.name])),
     };
   }
 

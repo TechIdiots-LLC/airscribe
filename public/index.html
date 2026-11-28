@@ -601,7 +601,7 @@
     <div class="row">
       <div class="tabs" role="tablist">
         <button id="add-tab-near" role="tab">Stations near me</button>
-        <button id="add-tab-ham" role="tab">Ham, from Uniden’s database</button>
+        <button id="add-tab-db" role="tab">From Uniden’s database</button>
         <button id="add-tab-hand" role="tab">By hand</button>
       </div>
       <button id="ch-add-close" class="link">Close</button>
@@ -618,26 +618,27 @@
     </div>
     <p id="add-near-off" class="meta" hidden>Stations near you come from RadioReference: set it up in
       Admin → RadioReference first.</p>
-    <div id="add-ham" hidden>
-      <h3>2 m and 70 cm, from Uniden’s database</h3>
-      <p class="meta">The amateur-band frequencies the scanner’s database lists near you, nearest first, with their
-        mode and tone. The database gives what a repeater sends, not its input: a repeater is written to transmit on
-        the band plan’s usual offset, with its tone, so check the offset against a repeater directory before you key up.
-        Digital ones can’t be ticked.</p>
+    <div id="add-db" hidden>
+      <h3>From Uniden’s database</h3>
+      <p class="meta">The conventional frequencies the scanner’s database lists near you, nearest first, of the
+        services ticked. Each is written receive-only with its tone, except a ham repeater: the database gives what a
+        repeater sends, not its input, so it’s written to transmit on the band plan’s usual offset, with its tone. Check
+        the offset against a repeater directory before you key up. Trunked systems aren’t listed, and digital channels
+        can’t be ticked: the radio plays FM and AM.</p>
+      <div id="db-services" class="row wrap db-services"></div>
       <div class="row wrap">
-        <label>Within <select id="ham-miles">
-          <option value="15">15 mi</option><option value="30" selected>30 mi</option>
-          <option value="60">60 mi</option><option value="100">100 mi</option></select></label>
-        <input id="ham-q" type="search" placeholder="Filter: name, town, callsign…" size="22">
-        <label class="toggle" title="Named as amateur in the database: a callsign, a club, ARES, SKYWARN, a repeater">
-          <input type="checkbox" id="ham-only"> Named as amateur only</label>
-        <button id="ham-fill" title="Tick the nearest that can be written until the region is full">Fill the region with the nearest</button>
+        <label>Within <select id="db-miles">
+          <option value="5">5 mi</option><option value="15">15 mi</option>
+          <option value="30" selected>30 mi</option><option value="60">60 mi</option><option value="100">100 mi</option></select></label>
+        <input id="db-q" type="search" placeholder="Filter: name, town, callsign…" size="22">
+        <label class="toggle"><input type="checkbox" id="db-unplayable"> Show ones the radio can’t play</label>
+        <button id="db-fill" title="Tick the nearest that can be written until the region is full">Fill the region with the nearest</button>
       </div>
-      <p id="ham-status" class="meta" role="status"></p>
-      <ul id="ham-list" class="st-freqs ham-list"></ul>
-      <button id="ham-more" hidden>Show more</button>
+      <p id="db-status" class="meta" role="status"></p>
+      <ul id="db-list" class="st-freqs ham-list"></ul>
+      <button id="db-more" hidden>Show more</button>
     </div>
-    <p id="add-ham-off" class="meta" hidden>Import Uniden’s database in Admin → Uniden’s database first.</p>
+    <p id="add-db-off" class="meta" hidden>Import Uniden’s database in Admin → Uniden’s database first.</p>
     <div id="add-hand" hidden></div>
   </section>
   <div id="ch-pending" class="pending" hidden>

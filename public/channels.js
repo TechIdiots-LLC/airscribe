@@ -125,6 +125,7 @@ $('ch-discard').onclick = () => {
 /** @param {object} r - The radio, as the radio list has it. */
 async function open(r) {
   radio = r;
+  db = null;   // each radio keeps its own services ticked
   shown = null;
   marks = {};
   pending.clear();
@@ -140,7 +141,7 @@ async function open(r) {
   busy(true);
   say('Reading the radio…');
   loadBackups();
-  // Stations near me needs RadioReference set up; the ham tab, Uniden's database imported
+  // Stations near me needs RadioReference set up; the database tab, Uniden's database imported
   api('/map').then((m) => { lookup = Boolean(m.rr); unidenReady = Boolean(m.uniden); }, () => { lookup = false; unidenReady = false; });
   try {
     const info = await api(`/radios/${r.mac}/controls`);
@@ -607,28 +608,28 @@ const miles = (km) => {
   return mi < 10 ? `${mi.toFixed(1)} mi` : `${Math.round(mi)} mi`;
 };
 
-$('ch-add-open').onclick = () => openAdd(lookup ? 'near' : unidenReady ? 'ham' : 'hand');
+$('ch-add-open').onclick = () => openAdd(lookup ? 'near' : unidenReady ? 'db' : 'hand');
 $('ch-add-close').onclick = () => { $('ch-add').hidden = true; };
 $('add-tab-near').onclick = () => openAdd('near');
 $('add-tab-hand').onclick = () => openAdd('hand');
-$('add-tab-ham').onclick = () => openAdd('ham');
+$('add-tab-db').onclick = () => openAdd('db');
 $('st-more').onclick = () => { showing += 25; renderGroups(); };
 $('st-listen').onclick = () => listen();
 
 /** The Add panel, on one of its tabs. */
 async function openAdd(tab) {
   $('ch-add').hidden = false;
-  for (const [t, id] of [['near', 'add-tab-near'], ['ham', 'add-tab-ham'], ['hand', 'add-tab-hand']]) {
+  for (const [t, id] of [['near', 'add-tab-near'], ['db', 'add-tab-db'], ['hand', 'add-tab-hand']]) {
     $(id).setAttribute('aria-selected', String(t === tab));
     $(id).classList.toggle('on', t === tab);
   }
   $('add-near').hidden = tab !== 'near' || !lookup;
   $('add-near-off').hidden = tab !== 'near' || lookup;
   $('add-hand').hidden = tab !== 'hand';
-  $('add-ham').hidden = tab !== 'ham' || !unidenReady;
-  $('add-ham-off').hidden = tab !== 'ham' || unidenReady;
-  if (tab === 'ham') {
-    if (unidenReady) await loadHam();
+  $('add-db').hidden = tab !== 'db' || !unidenReady;
+  $('add-db-off').hidden = tab !== 'db' || unidenReady;
+  if (tab === 'db') {
+    if (unidenReady) await loadDb();
     return;
   }
   if (tab === 'hand') {
@@ -723,8 +724,8 @@ function stationItem(s, g) {
 
 /** Tick boxes follow what's in the list, wherever they're shown. */
 function syncBoxes() {
-  if (!$('add-ham').hidden) hamCount();
-  for (const li of document.querySelectorAll('#st-groups li[data-key], #ham-list li[data-key]')) {
+  if (!$('add-db').hidden) dbCount();
+  for (const li of document.querySelectorAll('#st-groups li[data-key], #db-list li[data-key]')) {
     const box = li.querySelector('input');
     if (box) box.checked = slotOfKey(li.dataset.key) !== undefined;
   }
@@ -753,59 +754,88 @@ async function listen() {
   }
 }
 
-// ---- Ham, from Uniden's database ---------------------------------------------------
-// The 2 m and 70 cm frequencies the scanner's database lists near home, for a radio kept to the ham bands. Ticked
+// ---- From Uniden's database --------------------------------------------------------
+// The frequencies the scanner's database lists near home that the radio can receive, of the services ticked. Ticked
 // ones join the list like any other station, and go to the radio with Write to radio.
 
-let ham = null;            // the server's answer, for the distance asked
-let hamShowing = 50;
+let db = null;             // the server's answer, for the distance and services asked
+let dbShowing = 50;
+const SERVICES_KEY = 'airscribe.channels.services';
 
-$('ham-miles').onchange = () => { ham = null; loadHam(); };
-$('ham-q').oninput = () => { hamShowing = 50; renderHam(); };
-$('ham-only').onchange = () => { hamShowing = 50; renderHam(); };
-$('ham-more').onclick = () => { hamShowing += 50; renderHam(); };
-$('ham-fill').onclick = () => fillHam();
+/** The services ticked last time on this radio; ham the first time. */
+function savedServices() {
+  try {
+    const all = JSON.parse(localStorage.getItem(SERVICES_KEY) ?? '{}');
+    if (Array.isArray(all[radio?.mac])) return all[radio.mac];
+  } catch { /* storage may be off */ }
+  return ['ham'];
+}
 
-async function loadHam() {
-  if (!ham) {
-    $('ham-list').replaceChildren(el('li', { className: 'meta' }, 'Looking in Uniden’s database…'));
-    try {
-      ham = await api(`/uniden/amateur?miles=${$('ham-miles').value}`);
-    } catch (e) {
-      $('ham-list').replaceChildren(el('li', { className: 'tx-text error' }, e.message));
-      return;
-    }
+function saveServices(list) {
+  try {
+    const all = JSON.parse(localStorage.getItem(SERVICES_KEY) ?? '{}');
+    all[radio.mac] = list;
+    localStorage.setItem(SERVICES_KEY, JSON.stringify(all));
+  } catch { /* storage may be off */ }
+}
+
+const tickedServices = () => [...document.querySelectorAll('#db-services input:checked')].map((b) => b.value);
+
+$('db-miles').onchange = () => { db = null; loadDb(); };
+$('db-q').oninput = () => { dbShowing = 50; renderDb(); };
+$('db-unplayable').onchange = () => { dbShowing = 50; renderDb(); };
+$('db-more').onclick = () => { dbShowing += 50; renderDb(); };
+$('db-fill').onclick = () => fillDb();
+
+async function loadDb() {
+  const ticked = db ? tickedServices() : savedServices();
+  $('db-list').replaceChildren(el('li', { className: 'meta' }, 'Looking in Uniden’s database…'));
+  try {
+    db = await api(`/uniden/stations?miles=${$('db-miles').value}&services=${encodeURIComponent(ticked.join(','))}`);
+  } catch (e) {
+    $('db-list').replaceChildren(el('li', { className: 'tx-text error' }, e.message));
+    return;
   }
-  renderHam();
+  // One box for each service, with how many near the radio can play
+  $('db-services').replaceChildren(...Object.entries(db.services).map(([k, name]) => {
+    const n = db.counts[k] ?? { ok: 0, not: 0 };
+    const box = el('input', { type: 'checkbox', value: k, checked: ticked.includes(k) });
+    box.onchange = () => { saveServices(tickedServices()); dbShowing = 50; loadDb(); };
+    const label = el('label', { className: `toggle${n.ok ? '' : ' off'}` }, box, ` ${name} (${n.ok})`);
+    label.title = n.not ? `${n.ok} the radio can play, ${n.not} more it can’t (digital)` : `${n.ok} the radio can play`;
+    return label;
+  }));
+  renderDb();
 }
 
 /** The stations the filter leaves. */
-function hamShown() {
-  const q = $('ham-q').value.trim().toLowerCase();
-  return (ham?.stations ?? []).filter((s) => (!$('ham-only').checked || s.amateur) &&
+function dbShown() {
+  const q = $('db-q').value.trim().toLowerCase();
+  return (db?.stations ?? []).filter((s) => (s.ok || $('db-unplayable').checked) &&
     (!q || `${s.name} ${s.group} ${s.where} ${mhz(s.mhz * 1e6)}`.toLowerCase().includes(q)));
 }
 
 /** How many slots the region has left, beside the list. */
-function hamCount() {
-  if (!ham) return;
+function dbCount() {
+  if (!db) return;
   const free = shown ? shown.channels.filter((c, i) => c.empty && !pending.has(i)).length : 0;
-  const list = hamShown();
+  const list = dbShown();
   const parts = [
-    ham.reimport ? 'Uniden’s database was imported before modes and tones were kept: import it again in Admin to see them.' : '',
-    `${plural(list.length, 'frequency', 'frequencies')} within ${ham.miles} mi${ham.home ? '' : ' (home unknown: set a ZIP in RadioReference, or place channels on the map)'}.`,
+    db.reimport ? 'Uniden’s database was imported before modes and tones were kept: import it again in Admin to see them.' : '',
+    `${plural(list.length, 'frequency', 'frequencies')} within ${db.miles} mi${db.home ? '' : ' (home unknown: set a ZIP in RadioReference, or place channels on the map)'}.`,
     shown ? `${free} of ${shown.channels.length} channels free in ${regionName(shown.region, shown.name)}.` : '',
   ];
-  $('ham-status').textContent = parts.filter(Boolean).join(' ');
-  $('ham-fill').disabled = !free;
+  $('db-status').textContent = parts.filter(Boolean).join(' ');
+  $('db-fill').disabled = !free;
 }
 
-function renderHam() {
-  const list = hamShown();
-  $('ham-list').replaceChildren(...(list.length ? list.slice(0, hamShowing).map(hamItem)
-    : [el('li', { className: 'meta' }, ham?.stations.length ? 'None match.' : 'The database lists no 2 m or 70 cm frequencies this near.')]));
-  $('ham-more').hidden = list.length <= hamShowing;
-  hamCount();
+function renderDb() {
+  const list = dbShown();
+  $('db-list').replaceChildren(...(list.length ? list.slice(0, dbShowing).map(dbItem)
+    : [el('li', { className: 'meta' }, !tickedServices().length ? 'Tick the services to list.'
+      : db?.stations.length ? 'None match.' : 'The database lists none of those this near.')]));
+  $('db-more').hidden = list.length <= dbShowing;
+  dbCount();
 }
 
 /** The slot already holding a station's frequency, once what's pending is written; -1 when none does. */
@@ -818,7 +848,7 @@ function onRadio(s) {
   return -1;
 }
 
-function hamItem(s) {
+function dbItem(s) {
   const there = onRadio(s);
   const box = el('input', { type: 'checkbox', disabled: !s.ok || there >= 0, checked: slotOfKey(s.key) !== undefined });
   box.onchange = () => {
@@ -829,7 +859,7 @@ function hamItem(s) {
       if (slot !== undefined) undo(slot);
     }
     // Others on the same frequency now say it's taken
-    renderHam();
+    renderDb();
   };
   const tx = s.ok && !s.channel.tx_disable && s.channel.tx_hz !== s.channel.rx_hz
     ? `input ${mhz(s.channel.tx_hz)} (band plan)` : s.ok && !s.channel.tx_disable ? 'simplex' : '';
@@ -837,8 +867,9 @@ function hamItem(s) {
     .filter(Boolean).join(' · ');
   const li = el('li', { className: s.ok ? '' : 'off' },
     el('label', {}, box, el('span', {}, what)),
-    el('div', { className: 'meta' }, [s.where, s.km === null ? '' : miles(s.km), s.amateur ? 'named as amateur' : '',
-      s.modeGuessed ? 'mode not listed: written as FM' : ''].filter(Boolean).join(' · ')),
+    el('div', { className: 'meta' }, [db.services[s.service], s.where, s.km === null ? '' : miles(s.km),
+      s.modeGuessed ? `mode not listed: written as ${s.channel?.mod === 'AM' ? 'AM' : `${s.channel?.bandwidth ?? ''} FM`}` : '']
+      .filter(Boolean).join(' · ')),
     there >= 0 ? el('div', { className: 'meta' }, `${pending.has(there) ? 'In the list already' : 'On the radio already'}, as channel ${there + 1}` +
       `${view(there).c.name ? ` (${view(there).c.name})` : ''}: the same frequency.`) : '',
     !s.ok ? el('div', { className: 'meta' }, `Can’t be written: ${s.why}.`)
@@ -848,13 +879,13 @@ function hamItem(s) {
 }
 
 /** Tick the nearest that can be written, as the filter shows them, until the region is full. */
-function fillHam() {
+function fillDb() {
   let added = 0;
-  for (const s of hamShown()) {
+  for (const s of dbShown()) {
     if (firstFree() < 0) break;
     if (!s.ok || slotOfKey(s.key) !== undefined || onRadio(s) >= 0) continue;
     if (addChannel(s.channel, { key: s.key, group: { lat: s.lat, lon: s.lon } }) >= 0) added++;
   }
-  renderHam();
+  renderDb();
   say(added ? `${plural(added, 'channel')} added; write the changes to put them on the radio.` : 'Nothing more to add.');
 }

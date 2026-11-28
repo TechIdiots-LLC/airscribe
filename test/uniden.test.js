@@ -136,12 +136,14 @@ const HAM = [T('TargetModel', 'BCDx36HP'), T('FormatVersion', '1.00'),
   T('C-Freq', 'CFreqId=55', 'CGroupId=5', 'Wachusett', 'Off', '147150000', 'AUTO', 'TONE=C100.0', '13'),
   T('C-Group', 'CGroupId=6', 'CountyId=1213', 'Statewide Amateur', 'Off', '42.400000', '-72.300000', '5.0', 'Circle', 'Off', 'Global'),
   T('C-Freq', 'CFreqId=61', 'CGroupId=6', 'W1BIM again', 'Off', '146970000', 'FM', 'TONE=C114.8', '13'),
-  T('C-Freq', 'CFreqId=62', 'CGroupId=1', 'Holden FD Dispatch', 'Off', '154385000', 'NFM', 'TONE=C100.0', '3'),
+  T('C-Freq', 'CFreqId=62', 'CGroupId=5', 'Holden FD Dispatch', 'Off', '154385000', 'NFM', 'TONE=C100.0', '3'),
+  T('C-Freq', 'CFreqId=63', 'CGroupId=5', 'Paxton Fire Tac', 'Off', '145230000', 'AUTO', '', '8'),
+  T('C-Freq', 'CFreqId=64', 'CGroupId=5', 'Tower', 'Off', '120500000', 'AUTO', '', '15'),
   T('C-Group', 'CGroupId=7', 'CountyId=9', 'Far Ham', 'Off', '34.000000', '-118.000000', '5.0', 'Circle', 'Off', 'Global'),
   T('C-Freq', 'CFreqId=71', 'CGroupId=7', 'Far Repeater', 'Off', '146940000', 'FM', '', '13'),
 ].join('\r\n');
 
-test('the 2 m and 70 cm frequencies near home, as a ham radio would be written', { skip: !sqlite }, async () => {
+test('the frequencies near home of the services asked for, as the radio would be written', { skip: !sqlite }, async () => {
   const [e] = parseHpd(HAM).entries;
   assert.deepEqual([e.mode, e.audio, e.func], ['FM', 'TONE=C114.8', 13], 'mode, tone and service are kept');
   const { Store } = await import('../src/store.js');
@@ -149,7 +151,7 @@ test('the 2 m and 70 cm frequencies near home, as a ham radio would be written',
   const u = new Uniden({ store: new Store(':memory:', 'base') });
   u.importFile('hpdb.cfg', CFG);
   u.importFile('s_000025.hpd', HAM);
-  const got = u.amateur(HOME, { miles: 30 });
+  const got = u.stations(HOME, { miles: 30, services: ['ham'] });
   assert.equal(got.reimport, false);
   const by = Object.fromEntries(got.stations.map((s) => [s.name, s]));
   assert.deepEqual(Object.keys(by).sort(), ['Club DMR', 'Holden 70cm', 'Simplex Calling', 'W1BIM Paxton', 'Wachusett'],
@@ -164,7 +166,20 @@ test('the 2 m and 70 cm frequencies near home, as a ham radio would be written',
   assert.deepEqual([by['Club DMR'].ok, by['Club DMR'].why], [false, 'DMR is digital or data, and the radio plays FM and AM']);
   assert.deepEqual([by.Wachusett.modeGuessed, by.Wachusett.channel.mod, by.Wachusett.channel.tx_hz], [true, 'FM', 147750000]);
   assert.deepEqual(got.stations.map((s) => s.km).every((k, i, a) => !i || a[i - 1] <= k), true, 'nearest first');
-  const far = u.amateur(HOME, { miles: 3000 });
+  const far = u.stations(HOME, { miles: 3000, services: ['ham'] });
   assert.deepEqual([far.miles, far.stations.length], [300, 5], 'at most 300 miles out: never a coast away');
-  assert.equal(u.amateur(null).stations.length, 6, 'home unknown: every one, unsorted by distance');
+  assert.equal(u.stations(null, { services: ['ham'] }).stations.length, 6, 'home unknown: every one, unsorted by distance');
+  assert.deepEqual([got.counts.ham, got.counts.fire, got.counts.police], [{ ok: 4, not: 1 }, { ok: 2, not: 0 }, { ok: 0, not: 0 }],
+    'each service counted, whichever were asked for');
+  const fire = u.stations(HOME, { miles: 30, services: ['fire'] });
+  const fd = Object.fromEntries(fire.stations.map((s) => [s.name, s]));
+  assert.deepEqual(Object.keys(fd).sort(), ['Holden FD Dispatch', 'Paxton Fire Tac']);
+  assert.deepEqual(
+    [fd['Holden FD Dispatch'].channel.rx_tone, fd['Holden FD Dispatch'].channel.tx_disable, fd['Holden FD Dispatch'].channel.bandwidth],
+    ['100.0', true, 'narrow'], 'receive-only, opened by its tone');
+  assert.deepEqual([fd['Paxton Fire Tac'].modeGuessed, fd['Paxton Fire Tac'].channel.bandwidth, fd['Paxton Fire Tac'].channel.tx_hz],
+    [true, 'narrow', 145230000], 'not a ham’s, though in the band: narrow, and never keyed');
+  const air = u.stations(HOME, { miles: 30, services: ['air'] }).stations;
+  assert.deepEqual(air.map((s) => [s.name, s.ok, s.channel?.mod]), [['Tower', true, 'AM']], 'the airband, as AM when the mode isn’t given');
+  assert.equal(u.stations(HOME, { miles: 30 }).stations.length, 8, 'no services named: every one');
 });
