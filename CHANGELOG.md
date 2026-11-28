@@ -3,6 +3,7 @@
 ## master
 ### ✨ Features and improvements
 - Channels → Try channels shows how many of each service haven't been tried on this radio yet ("7 of 68 left"), says why when there's nothing left to try instead of starting and stopping at once, and has Try the quiet ones again beside Forget them all
+- Channels: Words and Static columns beside Heard count each channel's last week as Try channels does: transmissions with words, and those that opened on static. Hover over Words for the last words heard; Static shows red when it's half or more
 - _...Add new stuff here..._
 
 ### 🐞 Bug fixes

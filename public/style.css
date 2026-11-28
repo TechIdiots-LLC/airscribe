@@ -461,5 +461,6 @@ main.page-text li { background: none; border: 0; border-radius: 0; padding: 0; m
 .dg-findings { margin-top: 8px; }
 /* Channels → Try channels: what came in on each frequency */
 table.slots td.said { white-space: normal; min-width: 14em; color: var(--muted); }
+table.slots td.num.bad { color: var(--bad); }
 .pill.good { color: var(--ok); } .pill.some { color: var(--warn); } .pill.static { color: var(--bad); }
 .st-freqs .pill { margin-left: 6px; font-size: 11px; }

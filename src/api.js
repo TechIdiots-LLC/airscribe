@@ -752,11 +752,15 @@ export function createApp({ manager, store, sidecar, config, dataDir, updates, c
   api.get('/radios/:mac/channels', admin, answer(async (req) => {
     const mac = macOf(req);
     const read = await fromRadio(manager.readChannels(mac, regionOf(req.query.region)));
-    const rows = store.channelQuality({ since: Date.now() - QUALITY_DAYS * 24 * 60 * 60 * 1000, mac });
+    const since = Date.now() - QUALITY_DAYS * 24 * 60 * 60 * 1000;
+    const rows = store.channelQuality({ since, mac });
+    // By frequency, as a channel trial counts them: openings, those with words, those on static, and the last words
+    const said = Object.fromEntries([...store.heardByFrequency({ mac, since })]
+      .map(([hz, c]) => [hz, { heard: c.heard, speech: c.speech, static: c.static, sample: c.sample }]));
     // A ham channel listening with no tone: the one Uniden's database lists for it, to listen only with
     const toneless = read.channels.filter((c) => !c.empty && c.rx_hz && !c.rx_tone).map((c) => c.rx_hz);
     const tones = uniden?.count() && toneless.length ? uniden.tones(toneless, await homeOf({ radioreference, store })) : {};
-    return { ...read, qualityDays: QUALITY_DAYS, quality: Object.fromEntries([...rows].map(([name, r]) => [name, judge(r)])), tones };
+    return { ...read, qualityDays: QUALITY_DAYS, quality: Object.fromEntries([...rows].map(([name, r]) => [name, judge(r)])), said, tones };
   }));
   api.put('/radios/:mac/channels', admin, answer(async (req) => {
     const mac = macOf(req);

@@ -165,6 +165,13 @@ last week, by the name the radio gives it, and tags it:
 Untick **Scan** to have the radio skip a channel like that, or remove it.
 Hovering over the count shows the numbers behind the tag.
 
+**Words** and **Static** count the same week of transmissions by frequency, as
+[a channel trial](#trying-channels) does: how many came in with words (two or
+more, from the main engine, not static), and how many opened the squelch on
+noise (under 6 dB of quieting). The rest are neither: a word or two, a beep,
+data, or not transcribed yet. Hovering over Words shows the last words heard;
+Static is red when it's half or more of what came in.
+
 Two things are measured for each transmission as it comes in:
 
 - **The signal reading:** the strongest of the radio's own readings (0 to 15)
@@ -254,7 +261,7 @@ reason.
 
 | Request | Does |
 | --- | --- |
-| `GET /api/radios/:mac/channels?region=N` | every slot of a region, read from the radio now (the region it's on without `region`), and `quality`: by channel name, the last week's `count`, `noSpeech`, median `rssi` and `snrDb`, and `tags` |
+| `GET /api/radios/:mac/channels?region=N` | every slot of a region, read from the radio now (the region it's on without `region`), and `quality`: by channel name, the last week's `count`, `noSpeech`, median `rssi` and `snrDb`, and `tags`; `said`: by frequency, the week's `heard`, `speech` and `static` counts and the last words (`sample`) |
 | `PUT /api/radios/:mac/channels` | `{region, channels, label}`: reads the region, backs it up, then writes the channels. Each is a new channel (`{id, name, rx_hz, tx_hz, mod, bandwidth, rx_tone, tx_tone, scan, power, tx_disable}`, `id` the slot from 0), an empty slot (`{id, rx_hz: 0}`), or a change to some of a channel's fields (`{id, set: {scan: false}}`). A write that changes nothing keeps no backup. A new channel may carry `lat` and `lon`, to put it on the map |
 | `GET /api/uniden/stations?miles=&services=` | the frequencies in Uniden's database near home the radio can receive, of the services named (comma-separated: `police`, `fire`, `ems`, `multi`, `works`, `ham`, `air`, `rail`, `business`, `schools`, `federal`, `other`; none for all), nearest first, each with its `service` and the `channel` it would be written as, or `ok: false` and `why`; `counts` gives each service's playable (`ok`) and digital (`not`) numbers. With `mac=`, each has `tried`: what trying it on that radio came to, and each service's count has `left`: how many a trial on that radio would still try |
 | `GET /api/radios/:mac/trial` | the radio's trial (the one under way, or the last: its `region`, `hours`, `tried`, `kept`, and `listening`, whether the radio is on the region now), the `channels` being tried with what's come in on each (`heard`, `speech`, `static`, `pending`, `sample`, `listenedHours`, `verdict` so far), and `results`: the latest verdict on each frequency tried on the radio, good first, each with the `station` as found and whether it was `kept` |

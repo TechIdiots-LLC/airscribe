@@ -209,10 +209,12 @@ const STATE = { adding: 'new', editing: 'changed', removing: 'removed when writt
 function render() {
   renderPending();
   if (!shown) return;
-  const head = el('tr', {}, ...['#', 'Name', 'Receive', 'Transmit', 'Tone', 'Mode', 'Scan', 'Heard', '']
+  const head = el('tr', {}, ...['#', 'Name', 'Receive', 'Transmit', 'Tone', 'Mode', 'Scan', 'Heard', 'Words', 'Static', '']
     .map((t, i) => el('th', {
       className: i === 0 ? 'num' : '',
-      title: t === 'Heard' ? `Transmissions on it in the last ${shown.qualityDays ?? 7} days, and whether they were mostly static or weak` : '',
+      title: t === 'Heard' ? `Transmissions on it in the last ${shown.qualityDays ?? 7} days, and whether they were mostly static or weak`
+        : t === 'Words' ? 'Of those, how many came in with words (two or more, from the main engine, not static)'
+          : t === 'Static' ? 'Of those, how many opened the squelch on noise (under 6 dB of quieting)' : '',
     }, t)));
   const all = shown.channels;
   const rows = [];
@@ -224,12 +226,12 @@ function render() {
       while (j + 1 < all.length && all[j + 1].empty && !pending.has(j + 1) && marks[j + 1] === marks[i]) j++;
       rows.push(el('tr', { className: `empty${marks[i] ? ` ${marks[i]}` : ''}` },
         el('td', { className: 'num' }, j > i ? `${i + 1}–${j + 1}` : String(i + 1)),
-        el('td', { colSpan: 8 }, j > i ? `${j - i + 1} empty` : 'empty')));
+        el('td', { colSpan: 10 }, j > i ? `${j - i + 1} empty` : 'empty')));
       i = j;
       continue;
     }
     rows.push(row(i));
-    if (editing === i) rows.push(el('tr', { className: 'edit' }, el('td', { colSpan: 9 }, editForm(i))));
+    if (editing === i) rows.push(el('tr', { className: 'edit' }, el('td', { colSpan: 11 }, editForm(i))));
   }
   $('ch-table').replaceChildren(el('thead', {}, head), el('tbody', {}, ...rows));
   renderPending();
@@ -258,6 +260,7 @@ function row(slot) {
     el('td', {}, modeText(c)),
     el('td', {}, scan),
     heard(state === 'adding' ? null : shown.quality?.[c.name]),
+    ...said(state === 'adding' ? null : shown.said?.[c.rx_hz]),
     el('td', { className: 'acts' }, ...actions));
 }
 
@@ -297,6 +300,20 @@ function heard(q) {
     ...q.tags.map((t) => TAG_SAYS[t])].filter(Boolean);
   return el('td', { className: 'heard', title: `${facts.join('; ')}.` },
     String(q.count), ...q.tags.map((t) => el('span', { className: `pill tag-${t}` }, t)));
+}
+
+/**
+ * How many of a channel's transmissions came in with words, and how many on static, as a channel trial counts them;
+ * the last words in the Words cell's tip.
+ * @param {object|undefined} n - Its frequency's counts.
+ * @returns {HTMLElement[]} The two cells.
+ */
+function said(n) {
+  if (!n?.heard) return [el('td', { className: 'num meta' }, '–'), el('td', { className: 'num meta' }, '–')];
+  return [
+    el('td', { className: 'num', title: n.sample ? `Last words, ${when(n.sample.at)}: “${n.sample.text}”` : '' }, String(n.speech)),
+    el('td', { className: `num${n.static && n.static >= n.heard / 2 ? ' bad' : ''}` }, String(n.static)),
+  ];
 }
 
 function renderPending() {

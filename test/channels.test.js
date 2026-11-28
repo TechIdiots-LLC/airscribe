@@ -154,7 +154,7 @@ test('a radio\'s channels: read, written after a backup, and put back', { skip: 
       ['Holden PD', 10, 26, 'en route', 3], ['Rutland FD', 2, 3, '', 1], ['Rutland FD', 3, 4, '', 2], ['Rutland FD', 2, 2.5, 'uh', 3],
       ['Rutland FD', 9, 30, 'eight days ago', 8 * 24]]) {
       const id = store.addTransmission({ mac: MAC, startedAt: now - ago * 3600000, durationMs: 1000, audioFile: 'q.wav',
-        channelName: name, rssi, snrDb });
+        channelName: name, channelHz: name === 'Holden PD' ? 155070000 : 154385000, rssi, snrDb });
       store.saveTranscript(id, 'base', { status: 'done', text });
     }
     store.addTransmission({ mac: OTHER, startedAt: now, durationMs: 1000, audioFile: 'o.wav', channelName: 'Holden PD', rssi: 1, snrDb: 1 });
@@ -164,6 +164,10 @@ test('a radio\'s channels: read, written after a backup, and put back', { skip: 
     assert.deepEqual(read.quality['Holden PD'], { count: 3, noSpeech: 0, rssi: 11, snrDb: 28, tags: [] }, 'this radio\'s only');
     assert.deepEqual(read.quality['Rutland FD'].tags, ['static', 'weak'], 'not counting the one from last week');
     assert.equal(read.quality['Rutland FD'].count, 3);
+    // As a channel trial counts them: words (two or more), and static
+    assert.deepEqual([read.said[155070000].heard, read.said[155070000].speech, read.said[155070000].static, read.said[155070000].sample.text],
+      [3, 2, 0, 'car 4'], '"clear" is one word');
+    assert.deepEqual([read.said[154385000].heard, read.said[154385000].speech, read.said[154385000].static], [3, 0, 3]);
     assert.equal((await call('GET', `/${MAC}/channels?region=1`)).body.name, 'Travel');
     assert.deepEqual(calls.map((c) => c[2]), [null, 1]);
     assert.equal((await call('GET', `/${MAC}/channels?region=x`)).status, 400);
