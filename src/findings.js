@@ -681,8 +681,8 @@ export class Findings {
    * @param {{system?: string, schema?: object, name?: string}} [o] - The instructions and schema; Findings' own by default.
    * @returns {Promise<{reply: unknown, usage: object}>} The parsed answer, and what it took.
    */
-  async ask(user, { system = SYSTEM, schema = SCHEMA, name = 'findings', most = ANSWER_MAX } = {}) {
-    const t0 = this.now();
+  async ask(user, { system = SYSTEM, schema = SCHEMA, name = 'findings', most = ANSWER_MAX, since = this.now() } = {}) {
+    const t0 = since;
     const url = this.get('url');
     const model = this.get('model');
     if (!url || !model) throw fail('Findings has no server or model: set them in Admin → Findings.');
@@ -714,6 +714,8 @@ export class Findings {
     const content = ollama ? reply?.message?.content : reply?.choices?.[0]?.message?.content;
     // Stopped at the most it may write: a model going round in circles, not an answer
     if ((ollama ? reply?.done_reason : reply?.choices?.[0]?.finish_reason) === 'length') {
+      // Once more with twice the room: gpt-oss now and then thinks past it
+      if (most < ANSWER_MAX * 2) return this.ask(user, { system, schema, name, most: ANSWER_MAX * 2, since: t0 });
       throw new Error(`the model wrote ${most} tokens without finishing its answer`);
     }
     const n = (v) => (Number.isInteger(v) && v >= 0 ? v : undefined);

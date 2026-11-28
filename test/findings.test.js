@@ -611,11 +611,21 @@ test('an OpenAI-style server is asked the OpenAI way', { skip: !sqlite }, async 
   assert.equal(seen[2].body.think, 'low', 'Ollama’s way of saying it');
   assert.equal(seen[1].body.max_tokens, 2048, 'an answer is only so long');
   assert.equal(seen[2].body.options.num_predict, 2048);
-  // A model going round in circles is stopped there, and said to be
-  const looping = new Findings({ store: new Store(':memory:', 'base'),
-    fetch: async () => Response.json({ message: { content: '{"summary":"x x x' }, done_reason: 'length' }) });
+  // A model going round in circles is given twice the room once, then stopped there, and said to be
+  const most = [];
+  const looping = new Findings({ store: new Store(':memory:', 'base'), fetch: async (url, o) => {
+    most.push(JSON.parse(o.body).options.num_predict);
+    return Response.json({ message: { content: '{"summary":"x x x' }, done_reason: 'length' });
+  } });
   looping.save({ api: 'ollama', url: 'http://server.invalid', model: 'm' });
-  await assert.rejects(looping.test(), /wrote 2048 tokens without finishing/);
+  await assert.rejects(looping.test(), /wrote 4096 tokens without finishing/);
+  assert.deepEqual(most, [2048, 4096]);
+  let tries = 0;
+  const second = new Findings({ store: new Store(':memory:', 'base'), fetch: async () => (++tries === 1
+    ? Response.json({ message: { content: '{"summary":"x' }, done_reason: 'length' })
+    : Response.json({ message: { content: '{"summary":"finished"}' }, done_reason: 'stop' })) });
+  second.save({ api: 'ollama', url: 'http://server.invalid', model: 'm' });
+  assert.equal((await second.test()).found.summary, 'finished', 'the second try answered');
   const silent = new Findings({ store: new Store(':memory:', 'base'),
     fetch: async () => { throw Object.assign(new Error('aborted'), { name: 'TimeoutError' }); } });
   silent.save({ api: 'ollama', url: 'http://server.invalid', model: 'm' });
