@@ -62,7 +62,9 @@ The new one's transcript is the default engine's, or, when that heard nothing, t
 when another radio heard words too, or two other engines did: one engine finding words where the default heard none
 was most often static made into words ("May Street in him"), so that isn't read. After
 it come **other readings** of the same words: each other engine's, when it differs, and another radio's that heard
-the same frequency within five seconds, while this one was on the air (two radios on one dispatch channel, a scanner and a handheld). The model is
+the same frequency within five seconds, while this one was on the air (two radios on one dispatch channel, a scanner and a handheld).
+When one radio heard two calls close together (a "thank you", then the next call), the other radio's copy goes with
+the one that started nearest it. The model is
 told to use them together to work out what was said. A copy from another radio is left out of the other channels'
 traffic.
 

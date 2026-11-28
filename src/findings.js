@@ -844,14 +844,20 @@ export class Findings {
     const text = heard[0].text;
     const same = (a, b) => words(a) === words(b);
     // The same transmission from another radio on the frequency: another reading, not other traffic. On the air at
-    // the same time too: on a busy frequency the next call starts within seconds of this one
+    // the same time too: on a busy frequency the next call starts within seconds of this one. And each the other's
+    // nearest: a short "thank you" just before a call isn't that call on the other radio
     const sameCall = this.number('sameCallSeconds') * 1000;
     const copies = t.channel_hz && sameCall ? this.db.prepare(`
-      SELECT id, channel_name FROM transmissions
-       WHERE channel_hz = ? AND mac IS NOT ? AND id != ? AND abs(started_at - ?) <= ?
-         AND started_at < ? AND started_at + duration_ms > ?`)
+      SELECT c.id, c.channel_name FROM transmissions c
+       WHERE c.channel_hz = ? AND c.mac IS NOT ? AND c.id != ? AND abs(c.started_at - ?) <= ?
+         AND c.started_at < ? AND c.started_at + c.duration_ms > ?
+         AND NOT EXISTS (SELECT 1 FROM transmissions o
+                          WHERE o.started_at BETWEEN ? AND ? AND o.channel_hz = c.channel_hz AND o.id NOT IN (c.id, ?)
+                            AND ((o.mac IS ? AND abs(o.started_at - c.started_at) < abs(? - c.started_at))
+                              OR (o.mac IS c.mac AND abs(o.started_at - ?) < abs(c.started_at - ?))))`)
       .all(t.channel_hz, t.mac, id, t.started_at, sameCall,
-        t.started_at + (t.duration_ms ?? 0) + OVERLAP_MS, t.started_at - OVERLAP_MS) : [];
+        t.started_at + (t.duration_ms ?? 0) + OVERLAP_MS, t.started_at - OVERLAP_MS,
+        t.started_at - 2 * sameCall, t.started_at + 2 * sameCall, id, t.mac, t.started_at, t.started_at, t.started_at) : [];
     // A copy already read is the finding for both: this one is attached to it
     const first = copies.map((c) => this.db.prepare(`SELECT transmission_id AS id, status, sent FROM findings
                                                       WHERE transmission_id = ? AND status IN ('done', 'error')`).get(c.id))

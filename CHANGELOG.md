@@ -5,6 +5,7 @@
 - _...Add new stuff here..._
 
 ### 🐞 Bug fixes
+- Findings: with two radios on one frequency, a short call just before another ("Thank you.") no longer takes the other radio's copy of the next call as its own reading, which had it summed up as that call (a plate check) and left the real call without its second reading
 - _...Add new stuff here..._
 
 ## 0.9.0

@@ -239,6 +239,24 @@ test('a call heard by two radios is read once, the other attached', { skip: !sql
   await findings.read(f);
   assert.equal(calls.length, 5);
   assert.doesNotMatch(calls[4].messages[1].content, /kimberly/);
+
+  // A short one just before a call: the other radio's copy is the call's, the one nearest it
+  findings.save({ sameCallSeconds: 5 });
+  const at2 = at + 200_000;
+  const thanks = store.addTransmission({ mac: 'AA', startedAt: at2, durationMs: 800, audioFile: 'g.wav',
+    channelName: 'Regional Police Operations', channelHz: 453875000 });
+  store.saveTranscript(thanks, 'base', { status: 'done', text: 'thank you' });
+  const plate = tx('AA', 'Regional Police Operations', 'mass reg seven kilo juliet bravo three seven', 200_900);
+  const copy = tx('BB', 'Rutld Reg2', 'reg seven kilo juliet bravo thirty seven', 201_700);
+  await findings.read(thanks);
+  assert.doesNotMatch(calls[5].messages[1].content, /another radio/, 'not the call after it');
+  await findings.read(plate);
+  await findings.read(copy);
+  await findings.drain();
+  assert.equal(calls.length, 7, 'the call read, its copy attached to it, not to the thank you');
+  assert.match(calls[6].messages[1].content, /New transmission:\nmass reg seven kilo juliet bravo three seven/);
+  assert.match(calls[6].messages[1].content, /another radio on the same frequency \(Rutld Reg2\): reg seven kilo/);
+  assert.deepEqual(findings.results({}).find((x) => x.id === plate)?.copies.map((x) => x.id), [copy]);
 });
 
 test('what goes with each transmission is set on the Admin page', { skip: !sqlite }, async () => {
