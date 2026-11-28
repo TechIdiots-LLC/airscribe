@@ -84,6 +84,53 @@ counties is listed once, at its nearest.
 What the database has depends on the county: it's RadioReference's data, which
 lists some areas' channels more fully than others'.
 
+## Trying channels
+
+Listed near you isn't the same as heard here: a channel twenty miles off may be
+out of reach, and one in reach may only ever open the squelch on noise.
+**Try channels…** finds out on the radio before you keep them.
+
+- **What's tried.** The nearest frequencies from Uniden's database, of the
+  services ticked and within the distance chosen, that this radio hasn't tried
+  before and doesn't have on its own region (the region on show when you start).
+  Digital ones are left out.
+- **Where.** A spare region you pick. What's on it is backed up first, then
+  written over a region's worth at a time (30 on a UV-Pro), each channel
+  listened to only, with its tone, whatever it is. When every candidate has been
+  tried, or you stop, the region is put back as it was.
+- **The schedule.** The radio listens to the trial region for some minutes
+  (20 by default), then its own region (40), and so on, so it keeps hearing its
+  own channels. Own region 0 keeps it on the trial. It's never moved while
+  something's coming in.
+- **How long.** Each batch is graded after the hours set (6 by default, so 2 of
+  listening on the default schedule), waiting up to ten minutes more for
+  transcripts still to come. **Grade now and try the next** does it early.
+  A police or fire channel can be quiet for an hour, so a short batch calls
+  good channels quiet.
+- **Grading.** By frequency, from what came in on it on this radio while it was
+  in the batch:
+  - **good**: words (two or more, from the main engine, not static) more than
+    once, or once with no more than one static opening;
+  - **some words**: words, but mostly static: a weak or distant station;
+  - **static**: the squelch opened on noise (under 6 dB of quieting, as the
+    Heard column judges it), or three times and never with words;
+  - **quiet**: nothing, or too little to tell.
+
+  A channel that opens on static four times with no words has its scan turned
+  off on the radio, so it stops holding up the rest of the batch.
+- **Keeping them.** **Tried on this radio** lists every frequency tried, good
+  first, with its last words. Tick one to add it to the region on show, as it
+  was found (a ham repeater with its band plan input and tone), then **Write to
+  radio**. The database tab marks what each one came to. **Try again** forgets a
+  frequency's result so the next trial takes it; **Forget them all** forgets
+  every one.
+- **The feed.** What comes in on a trial channel is a transmission like any
+  other, under the channel's name, so it can be listened to; each is put on the
+  map at its group's place unless its name is placed already.
+
+The radio has to stay connected for a trial to move it. One out of reach is
+tried again every 30 seconds, and the error shows above the batch.
+
 ## How each channel came through: static and weak
 
 The **Heard** column counts each channel's transmissions on this radio in the
@@ -187,7 +234,12 @@ reason.
 | --- | --- |
 | `GET /api/radios/:mac/channels?region=N` | every slot of a region, read from the radio now (the region it's on without `region`), and `quality`: by channel name, the last week's `count`, `noSpeech`, median `rssi` and `snrDb`, and `tags` |
 | `PUT /api/radios/:mac/channels` | `{region, channels, label}`: reads the region, backs it up, then writes the channels. Each is a new channel (`{id, name, rx_hz, tx_hz, mod, bandwidth, rx_tone, tx_tone, scan, power, tx_disable}`, `id` the slot from 0), an empty slot (`{id, rx_hz: 0}`), or a change to some of a channel's fields (`{id, set: {scan: false}}`). A write that changes nothing keeps no backup. A new channel may carry `lat` and `lon`, to put it on the map |
-| `GET /api/uniden/stations?miles=&services=` | the frequencies in Uniden's database near home the radio can receive, of the services named (comma-separated: `police`, `fire`, `ems`, `multi`, `works`, `ham`, `air`, `rail`, `business`, `schools`, `federal`, `other`; none for all), nearest first, each with its `service` and the `channel` it would be written as, or `ok: false` and `why`; `counts` gives each service's playable (`ok`) and digital (`not`) numbers |
+| `GET /api/uniden/stations?miles=&services=` | the frequencies in Uniden's database near home the radio can receive, of the services named (comma-separated: `police`, `fire`, `ems`, `multi`, `works`, `ham`, `air`, `rail`, `business`, `schools`, `federal`, `other`; none for all), nearest first, each with its `service` and the `channel` it would be written as, or `ok: false` and `why`; `counts` gives each service's playable (`ok`) and digital (`not`) numbers. With `mac=`, each has `tried`: what trying it on that radio came to |
+| `GET /api/radios/:mac/trial` | the radio's trial (the one under way, or the last), the batch's `channels` with what's come in on each (`heard`, `speech`, `static`, `pending`, `sample`, `skipped`, `verdict` so far), and `results`: the latest verdict on each frequency tried on the radio, good first, each with the `station` as found |
+| `POST /api/radios/:mac/trial` | `{region, homeRegion, services, miles, trialMin, homeMin, hours}`: back the region up and start trying channels in it |
+| `POST /api/radios/:mac/trial/next` | grade the batch on what's come in, and write the next |
+| `POST /api/radios/:mac/trial/end` | grade the batch, put the region back, and move the radio to its own |
+| `DELETE /api/radios/:mac/trial/results?key=` | forget what a frequency tried came to (`key` as in `results`), or every one without `key` |
 | `GET /api/radios/:mac/backups` | the radio's backups, newest first |
 | `POST /api/radios/:mac/backups` | `{region, label}`: back a region up |
 | `GET /api/radios/:mac/backups/:id` | one backup, every slot |

@@ -293,6 +293,39 @@ export class Store {
   }
 
   /**
+   * What one radio heard on each frequency over a time, for a channel trial (src/trial.js): how many times the
+   * squelch opened, how many were static, and how many came to words (two or more, from the main engine, not static
+   * or data), with the latest of those.
+   * @param {{mac: string, since: number, until?: number}} f - The radio and the time.
+   * @returns {Map<number, {heard: number, static: number, speech: number, pending: number, sample: object|null}>}
+   *   By receive frequency in hertz.
+   */
+  heardByFrequency({ mac, since, until = Number.MAX_SAFE_INTEGER }) {
+    const engine = this.defaultEngine ? 'AND x.engine = ?' : '';
+    const rows = this.db.prepare(
+      `SELECT t.id, t.channel_hz AS hz, t.started_at, t.status, t.data,
+              (t.snr_db IS NOT NULL AND t.snr_db < ${STATIC_DB}) AS static,
+              (SELECT x.text FROM transcripts x WHERE x.transmission_id = t.id AND x.status = 'done' ${engine}
+                 AND instr(trim(coalesce(x.text, '')), ' ') > 0 ORDER BY x.id LIMIT 1) AS words
+         FROM transmissions t
+        WHERE t.mac = ? AND t.transmit = 0 AND t.channel_hz IS NOT NULL AND t.started_at >= ? AND t.started_at < ?
+        ORDER BY t.started_at`,
+    ).all(...(this.defaultEngine ? [this.defaultEngine] : []), mac, since, until);
+    const out = new Map();
+    for (const r of rows) {
+      const c = out.get(r.hz) ?? { heard: 0, static: 0, speech: 0, pending: 0, sample: null };
+      out.set(r.hz, c);
+      c.heard++;
+      if (r.static) c.static++;
+      else if (r.words && !r.data) {
+        c.speech++;
+        c.sample = { id: r.id, at: r.started_at, text: r.words };
+      } else if (r.status === 'pending') c.pending++;
+    }
+    return out;
+  }
+
+  /**
    * Record what one engine made of one transmission, replacing any earlier
    * attempt by the same engine.
    * @param {number} id - Transmission id.

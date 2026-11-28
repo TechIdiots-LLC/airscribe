@@ -9,6 +9,7 @@ import { PUBLISH_DEFAULTS, publicCutoff, publishable, publicView } from './publi
 import { insights } from './insights.js';
 import { checkWrite, resolveWrite } from './channels.js';
 import { SERVICES } from './uniden.js';
+import { homeOf } from './home.js';
 import { judge } from './quality.js';
 import { checkBeacon, checkProfile } from './beacon.js';
 import { creationOptions, requestOptions } from './webauthn.js';
@@ -133,9 +134,10 @@ function channelQuery(value) {
  * @param {import('./logins.js').Logins} [o.logins] - Signing in with Google, GitHub, Discord or Facebook.
  * @param {import('./findings.js').Findings} [o.findings] - Admin → Findings.
  * @param {import('./uniden.js').Uniden} [o.uniden] - Uniden's database, for the Map's Find.
+ * @param {import('./trial.js').Trials} [o.trials] - Trying channels on a radio.
  * @returns {import('express').Express} The app.
  */
-export function createApp({ manager, store, sidecar, config, dataDir, updates, cleanup, radioreference, accounts, logins, findings, uniden }) {
+export function createApp({ manager, store, sidecar, config, dataDir, updates, cleanup, radioreference, accounts, logins, findings, uniden, trials }) {
   const app = express();
   const linked = accounts && logins ? logins : null;
   const auth = createAuth(config, {
@@ -815,6 +817,14 @@ export function createApp({ manager, store, sidecar, config, dataDir, updates, c
     if (!Object.keys(changes).length) throw refuse('nothing to change', 400);
     return fromRadio(manager.setRadioBeacon(mac, changes));
   }));
+  // Trying channels from Uniden's database on a radio, a batch at a time (src/trial.js)
+  if (trials) {
+    api.get('/radios/:mac/trial', admin, answer((req) => trials.status(macOf(req))));
+    api.post('/radios/:mac/trial', admin, answer((req) => fromRadio(trials.begin(macOf(req), req.body ?? {}))));
+    api.post('/radios/:mac/trial/next', admin, answer((req) => fromRadio(trials.next(macOf(req)))));
+    api.post('/radios/:mac/trial/end', admin, answer((req) => fromRadio(trials.end(macOf(req)))));
+    api.delete('/radios/:mac/trial/results', admin, answer((req) => trials.forget(macOf(req), req.query.key ? String(req.query.key) : null)));
+  }
   api.delete('/radios/:mac/backups/:id', admin, answer((req) => {
     const mac = macOf(req);
     backupOf(req, mac);
@@ -837,15 +847,7 @@ export function createApp({ manager, store, sidecar, config, dataDir, updates, c
     const latestDetails = store.db.prepare(`SELECT details FROM transmissions WHERE channel_name = ? AND details IS NOT NULL
                                               ORDER BY started_at DESC LIMIT 1`);
     // Where the radios are, near enough: the ZIP code's, else the middle of the channels placed
-    const home = async () => {
-      if (radioreference?.ready()) {
-        const z = await radioreference.zipInfo().catch(() => null);
-        if (Number.isFinite(z?.lat) && Number.isFinite(z?.lon)) return { lat: z.lat, lon: z.lon };
-      }
-      const placed = store.channelsSeen().filter((c) => c.lat !== null && c.lon !== null);
-      if (!placed.length) return null;
-      return { lat: placed.reduce((t, c) => t + c.lat, 0) / placed.length, lon: placed.reduce((t, c) => t + c.lon, 0) / placed.length };
-    };
+    const home = () => homeOf({ radioreference, store });
     api.get('/channels/:name/lookup', admin, answer(async (req) => {
       const c = store.channelsSeen().find((x) => x.name === String(req.params.name));
       if (!c) throw refuse('no transmission has come in on that channel', 404);
@@ -869,10 +871,16 @@ export function createApp({ manager, store, sidecar, config, dataDir, updates, c
     }));
     // Channels from Uniden's database: the frequencies near home the radio can receive, of the services asked for
     if (uniden) {
-      api.get('/uniden/stations', admin, answer(async (req) => uniden.stations(await home(), {
-        miles: req.query.miles,
-        services: String(req.query.services ?? '').split(',').filter((k) => Object.hasOwn(SERVICES, k)),
-      })));
+      api.get('/uniden/stations', admin, answer(async (req) => {
+        const got = uniden.stations(await home(), {
+          miles: req.query.miles,
+          services: String(req.query.services ?? '').split(',').filter((k) => Object.hasOwn(SERVICES, k)),
+        });
+        // What trying them on this radio found
+        const tried = req.query.mac && trials ? trials.verdicts(normalizeMac(String(req.query.mac)) ?? '') : null;
+        if (tried) for (const s of got.stations) s.tried = tried.get(s.key) ?? null;
+        return got;
+      }));
     }
   }
 

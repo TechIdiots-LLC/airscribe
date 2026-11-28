@@ -15,6 +15,8 @@ import { Logins } from './logins.js';
 import { Findings } from './findings.js';
 import { Roads } from './roads.js';
 import { Uniden } from './uniden.js';
+import { Trials } from './trial.js';
+import { homeOf } from './home.js';
 
 const args = process.argv.slice(2);
 const flag = (n) => args.includes(n);
@@ -79,6 +81,9 @@ cleanup.start();
 const radioreference = new RadioReference({ store, config: config.radioreference });
 // and from Uniden's database, imported from a scanner's SD card
 const uniden = new Uniden({ store });
+// Channels → Try channels: candidates from it tried on a radio, a batch at a time (docs/channels.md#trying-channels)
+const trials = new Trials({ store, manager, uniden, home: () => homeOf({ radioreference, store }) });
+trials.start();
 // Signing in with Google, GitHub, Discord or Facebook, once an admin turns one on
 const logins = new Logins({ store, accounts, config: config.auth });
 // Admin → Findings: transcripts read by a language model, once an admin turns it on
@@ -88,7 +93,7 @@ const roads = new Roads({ store, overpass: config.findings?.overpass, tiles: con
 const findings = new Findings({ store, manager, primary, engines: extra, roads });
 findings.start();
 const app = createApp({
-  manager, store, sidecar, config, dataDir: config.dataDir, updates, cleanup, radioreference, accounts, logins, findings, uniden,
+  manager, store, sidecar, config, dataDir: config.dataDir, updates, cleanup, radioreference, accounts, logins, findings, uniden, trials,
 });
 
 // One address: signed-out visitors get the public view (docs/publishing.md)
@@ -108,6 +113,7 @@ const shutdown = () => {
   updates.stop();
   cleanup.stop();
   findings.stop();
+  trials.stop();
   manager.stopRetrying();
   sidecar.stop();
   for (const e of engines.values()) e.stop?.(); // release any held workers

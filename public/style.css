@@ -459,3 +459,7 @@ main.page-text li { background: none; border: 0; border-radius: 0; padding: 0; m
 #dg-hours details { margin: 6px 0; }
 #dg-hours summary { cursor: pointer; font-weight: 600; }
 .dg-findings { margin-top: 8px; }
+/* Channels → Try channels: what came in on each frequency */
+table.slots td.said { white-space: normal; min-width: 14em; color: var(--muted); }
+.pill.good { color: var(--ok); } .pill.some { color: var(--warn); } .pill.static { color: var(--bad); }
+.st-freqs .pill { margin-left: 6px; font-size: 11px; }
