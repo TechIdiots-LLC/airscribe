@@ -3,6 +3,8 @@
 // and written together, with backups to put back. Opened from a radio's
 // Channels button. Admins only; the server checks again, backs the region up
 // before writing to it, and the radio link reads each channel back.
+import { keep, recall } from './prefs.js';
+
 const $ = (id) => document.getElementById(id);
 const el = (tag, props = {}, ...kids) => {
   const e = Object.assign(document.createElement(tag), props);
@@ -769,21 +771,24 @@ let db = null;             // the server's answer, for the distance and services
 let dbShowing = 50;
 const SERVICES_KEY = 'airscribe.channels.services';
 
+/** Each radio's services ticked last time, kept with the account (prefs.js). */
+function allServices() {
+  try {
+    const all = JSON.parse(recall(SERVICES_KEY, '{}'));
+    return all && typeof all === 'object' && !Array.isArray(all) ? all : {};
+  } catch {
+    return {};
+  }
+}
+
 /** The services ticked last time on this radio; ham the first time. */
 function savedServices() {
-  try {
-    const all = JSON.parse(localStorage.getItem(SERVICES_KEY) ?? '{}');
-    if (Array.isArray(all[radio?.mac])) return all[radio.mac];
-  } catch { /* storage may be off */ }
-  return ['ham'];
+  const list = allServices()[radio?.mac];
+  return Array.isArray(list) ? list : ['ham'];
 }
 
 function saveServices(list) {
-  try {
-    const all = JSON.parse(localStorage.getItem(SERVICES_KEY) ?? '{}');
-    all[radio.mac] = list;
-    localStorage.setItem(SERVICES_KEY, JSON.stringify(all));
-  } catch { /* storage may be off */ }
+  keep(SERVICES_KEY, JSON.stringify({ ...allServices(), [radio.mac]: list }));
 }
 
 const tickedServices = () => [...document.querySelectorAll('#db-services input:checked')].map((b) => b.value);

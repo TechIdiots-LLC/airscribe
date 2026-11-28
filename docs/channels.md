@@ -53,7 +53,7 @@ counties is listed once, at its nearest.
   business, schools, federal and military, other. Each says how many near home
   the radio can play. The service is the database's own (its service tag, as
   RadioReference numbers them); a frequency without one goes by its name, and
-  else under other. What's ticked is kept for each radio, in the browser.
+  else under other. What's ticked is kept for each radio, with your account.
 - **What's written.** Anything but a ham frequency is written receive-only, with
   its tone as the receive tone, so the squelch opens only for its users. One
   whose mode isn't listed (AUTO) is written as narrow FM, as licensees below

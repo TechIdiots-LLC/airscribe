@@ -8,7 +8,7 @@ const SYNCED = new Set([
   'airscribe.hideSilent', 'airscribe.mapStyle', 'airscribe.map.channels', 'airscribe.map.channelsHidden',
   'airscribe.map.radio', 'airscribe.map.inView', 'airscribe.map.hideSilent', 'airscribe.map.words', 'airscribe.map.tab',
   'airscribe.map.stations', 'airscribe.map.stationHours', 'airscribe.map.roads', 'airscribe.map.roadsHours',
-  'airscribe.uniden.states',
+  'airscribe.uniden.states', 'airscribe.channels.services',
 ]);
 const SAVE_MS = 800;
 
