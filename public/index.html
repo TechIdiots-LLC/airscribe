@@ -594,7 +594,7 @@
     <button id="ch-reread">Read again</button>
     <button id="ch-backup">Back up this region</button>
     <button id="ch-add-open">Add channels…</button>
-    <button id="ch-trial-open" title="Try frequencies from Uniden’s database on this radio before keeping them">Try channels…</button>
+    <button id="ch-trial-open" title="Try frequencies from Uniden’s database in this region’s empty channels">Try channels…</button>
   </div>
   <p id="channels-status" class="meta" role="status"></p>
   <button id="st-listen" hidden>Switch the radio to this region and scan</button>
@@ -645,34 +645,29 @@
   <section id="ch-trial" class="stations" hidden>
     <div class="row"><h3>Try channels</h3><button id="tr-close" class="link">Close</button></div>
     <div id="tr-setup" hidden>
-      <p class="meta">Tries frequencies from Uniden’s database on this radio before you keep them. The nearest ones
-        not tried yet, of the services ticked, are written into a spare region, listened to only, a region’s worth at a
-        time. The radio moves between that region and its own on the schedule below, so it keeps hearing its own
-        channels. Each frequency is graded by what comes in: words, static, or nothing. One that keeps opening on static
-        with no words has its scan turned off. When every candidate has been tried, or you stop, the spare region is
-        put back as it was (it’s backed up first). The good ones can then be added to a region.</p>
+      <p class="meta">Tries frequencies from Uniden’s database in the empty channels of the region on show, and puts the
+        radio on that region to listen. Each is listened to only. One that comes in with words is kept, one that only
+        opens on static is taken out at once, and one still without words after the hours below is taken out too; each
+        one taken out makes room for the next. Channels already in the region are left as they are, so a region
+        cleared for this is best.</p>
+      <p id="tr-where" class="meta"></p>
       <div id="tr-services" class="row wrap db-services"></div>
       <div class="row wrap">
-        <label>Try them in <select id="tr-region"></select></label>
         <label>Within <select id="tr-miles">
           <option value="5">5 mi</option><option value="15">15 mi</option>
           <option value="30" selected>30 mi</option><option value="60">60 mi</option></select></label>
-      </div>
-      <div class="row wrap">
-        <label>Listen to them <input id="tr-trial-min" type="number" min="5" max="1440" value="20" size="4"> min</label>
-        <label>then its own region <input id="tr-home-min" type="number" min="0" max="1440" value="40" size="4"> min</label>
-        <label>for <input id="tr-hours" type="number" min="0.5" max="72" step="0.5" value="6" size="4"> hours a batch</label>
+        <label>Give each up to <input id="tr-hours" type="number" min="0.5" max="48" step="0.5" value="12" size="4"> hours</label>
         <button id="tr-start">Start trying</button>
       </div>
-      <p class="meta">Own region 0 min keeps the radio on the ones being tried. A police or fire channel can be quiet for
-        an hour: give a batch a few hours of listening.</p>
+      <p class="meta">A police or fire channel can be quiet for hours: up to a day finds the quiet ones. Only the time
+        the radio is on this region counts.</p>
     </div>
     <div id="tr-running" hidden>
       <p id="tr-state" class="meta" role="status"></p>
+      <div class="row wrap"><button id="tr-listen" hidden>Put the radio on it</button></div>
       <div class="scroll-x"><table class="slots" id="tr-table"></table></div>
       <div class="row wrap">
-        <button id="tr-next" title="Grade this batch on what’s come in so far, and write the next">Grade now and try the next</button>
-        <button id="tr-end">Stop and put the region back</button>
+        <button id="tr-end" title="The good ones stay; the rest come off the radio">Stop trying</button>
       </div>
     </div>
     <div id="tr-results" hidden>

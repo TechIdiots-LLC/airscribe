@@ -820,11 +820,12 @@ export function createApp({ manager, store, sidecar, config, dataDir, updates, c
     if (!Object.keys(changes).length) throw refuse('nothing to change', 400);
     return fromRadio(manager.setRadioBeacon(mac, changes));
   }));
-  // Trying channels from Uniden's database on a radio, a batch at a time (src/trial.js)
+  // Trying channels from Uniden's database in a region's empty slots (src/trial.js)
   if (trials) {
     api.get('/radios/:mac/trial', admin, answer((req) => trials.status(macOf(req))));
     api.post('/radios/:mac/trial', admin, answer((req) => fromRadio(trials.begin(macOf(req), req.body ?? {}))));
-    api.post('/radios/:mac/trial/next', admin, answer((req) => fromRadio(trials.next(macOf(req)))));
+    api.post('/radios/:mac/trial/listen', admin, answer((req) => fromRadio(trials.listen(macOf(req)))));
+    api.post('/radios/:mac/trial/channels/:slot', admin, answer((req) => fromRadio(trials.decide(macOf(req), Number(req.params.slot), String(req.body?.do ?? '')))));
     api.post('/radios/:mac/trial/end', admin, answer((req) => fromRadio(trials.end(macOf(req)))));
     api.delete('/radios/:mac/trial/results', admin, answer((req) => trials.forget(macOf(req), req.query.key ? String(req.query.key) : null)));
   }

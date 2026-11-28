@@ -919,20 +919,21 @@ function fillDb() {
 }
 
 // ---- Try channels: candidates from Uniden's database tried on the radio ---------------------
-// The server writes them into a spare region a batch at a time, moves the radio between it and its own region, and
-// grades each frequency on what comes in (src/trial.js). Good ones are added to the region on show like any station.
+// The server fills the empty channels of one region with them and the radio listens there; each is kept, or taken out
+// and replaced, on what comes in (src/trial.js).
 
 let trial = null;          // the server's status: {trial, channels, results}
 let trialTimer = null;
+let trialChanged = null;   // when the trial last changed its region, as last seen
 const VERDICT = { good: 'good', some: 'some words', static: 'static', quiet: 'quiet' };
 
 $('ch-trial-open').onclick = () => openTrial();
 $('tr-close').onclick = () => closeTrial();
 $('tr-start').onclick = () => startTrial();
-$('tr-next').onclick = () => trialAction('next', 'Grading this batch and writing the next…');
+$('tr-listen').onclick = () => trialAction('listen', 'Putting the radio on the region…');
 $('tr-end').onclick = () => {
-  if (confirm('Stop trying channels? This batch is graded on what’s come in, and the region is put back as it was.')) {
-    trialAction('end', 'Putting the region back…');
+  if (confirm('Stop trying channels? Each one being tried is graded on what’s come in: the good ones stay, the rest come off the radio.')) {
+    trialAction('end', 'Stopping…');
   }
 };
 $('tr-all').onchange = () => renderTrial();
@@ -969,8 +970,15 @@ async function loadTrial() {
     say(e.message, true);
     return;
   }
-  const running = trial.trial && ['running', 'ending'].includes(trial.trial.state);
+  const t = trial.trial;
+  const running = t && ['running', 'ending'].includes(t.state);
   if (!running && !$('tr-services').childElementCount) await trialServices();
+  // The trial changed the region on show: read again, unless there are changes to it not written yet
+  if (t && t.changedAt !== trialChanged) {
+    const first = trialChanged === null;
+    trialChanged = t.changedAt;
+    if (!first && shown?.region === t.region && !pending.size) await load(t.region);
+  }
   renderTrial();
 }
 
@@ -991,6 +999,7 @@ async function trialServices() {
 $('tr-miles').onchange = () => trialServices();
 
 const clock = (ms) => new Date(ms).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+const hoursText = (h) => (h >= 1 ? `${Math.round(h * 10) / 10} h` : `${Math.round(h * 60)} min`);
 
 function renderTrial() {
   if (!trial) return;
@@ -999,33 +1008,43 @@ function renderTrial() {
   $('tr-setup').hidden = running;
   $('tr-running').hidden = !running;
   if (!running) {
-    // A region other than the one the radio listens on
-    const own = shown?.region ?? 0;
-    const had = $('tr-region').value;
-    $('tr-region').replaceChildren(...Array.from({ length: Math.max(regions.length, own + 1) }, (_, i) => i)
-      .filter((i) => i !== own)
-      .map((i) => el('option', { value: i }, regionName(i))));
-    if (had && [...$('tr-region').options].some((o) => o.value === had)) $('tr-region').value = had;
+    const free = shown ? shown.channels.filter((c) => c.empty).length : 0;
+    $('tr-where').textContent = shown
+      ? `In ${regionName(shown.region, shown.name)}: ${plural(free, 'empty channel')} to try them in.` +
+        (free ? '' : ' Clear some, or pick another region above.')
+      : '';
+    $('tr-start').disabled = !shown || !free;
   } else {
-    const parts = t.state === 'ending'
-      ? [`Putting ${regionName(t.region)} back${t.error ? '' : '…'}`]
-      : [`Batch ${t.batch} in ${regionName(t.region)}`,
-        t.on === 'trial' ? `listening to it now${t.homeMin ? `, ${regionName(t.homeRegion)} next` : ''}` : t.on === 'home' ? `on ${regionName(t.homeRegion)} for now` : '',
-        t.batchEnds ? `graded at ${clock(t.batchEnds)}` : 'writing the next batch'];
-    $('tr-state').textContent = parts.filter(Boolean).join(' · ') + (t.error ? `. The radio said: ${t.error}` : '.');
+    const where = regionName(t.region);
+    const parts = t.state === 'ending' ? [`Stopping in ${where}${t.error ? '' : '…'}`]
+      : [`Trying ${plural(trial.channels.length, 'channel')} in ${where}`,
+        `${t.tried} tried so far, ${t.kept} kept`,
+        t.listening ? 'the radio is listening to it' : t.radioRegion === null ? 'the radio isn’t connected: nothing counts till it is'
+          : `the radio is on ${regionName(t.radioRegion)}: nothing counts till it’s back`];
+    $('tr-state').textContent = parts.join(' · ') + (t.error ? `. The radio said: ${t.error}` : '.');
     $('tr-state').className = t.error ? 'tx-text error' : 'meta';
-    const head = el('tr', {}, ...['Name', 'MHz', 'Service', 'Heard', 'Words', 'Static', 'So far', 'Last words'].map((h) => el('th', {}, h)));
-    $('tr-table').replaceChildren(el('thead', {}, head), el('tbody', {}, ...trial.channels.map((c) => el('tr', {},
-      el('td', {}, c.name, c.toneSquelch ? el('span', { className: 'pill', title: 'Tried again listening only with its tone, after static the first time' }, 'with tone') : '',
-        c.skipped ? el('span', { className: 'pill', title: 'Opened on static again and again with no words: its scan is off' }, 'skipped') : ''),
-      el('td', { className: 'num' }, mhz(c.hz)),
-      el('td', {}, trial.services?.[c.service] ?? c.service ?? ''),
-      el('td', { className: 'num' }, String(c.heard)),
-      el('td', { className: 'num' }, String(c.speech)),
-      el('td', { className: 'num' }, String(c.static)),
-      el('td', {}, el('span', { className: `pill ${c.verdict}` }, VERDICT[c.verdict]), c.pending ? ` (${c.pending} to read)` : ''),
-      el('td', { className: 'said' }, c.sample ? `${clock(c.sample.at)}: ${c.sample.text}` : '')))));
-    $('tr-next').disabled = t.state !== 'running';
+    $('tr-listen').hidden = t.state !== 'running' || t.listening || t.radioRegion === null;
+    $('tr-listen').textContent = `Put the radio on ${where}`;
+    const head = el('tr', {}, ...['Ch', 'Name', 'MHz', 'Service', 'Listened', 'Words', 'Static', 'So far', '', 'Last words']
+      .map((h) => el('th', {}, h)));
+    $('tr-table').replaceChildren(el('thead', {}, head), el('tbody', {}, ...trial.channels.map((c) => {
+      const keep = el('button', { className: 'link', title: 'Keep it on the radio now' }, 'Keep');
+      keep.onclick = () => trialAction(`channels/${c.slot}`, `Keeping ${c.name}…`, { do: 'keep' });
+      const drop = el('button', { className: 'link', title: 'Take it off and try the next' }, 'Drop');
+      drop.onclick = () => trialAction(`channels/${c.slot}`, `Taking ${c.name} out…`, { do: 'drop' });
+      return el('tr', {},
+        el('td', { className: 'num' }, String(c.slot + 1)),
+        el('td', {}, c.name, c.toneSquelch ? el('span', { className: 'pill', title: 'Tried again listening only with its tone, after static the first time' }, 'with tone') : ''),
+        el('td', { className: 'num' }, mhz(c.hz)),
+        el('td', {}, [trial.services?.[c.service] ?? c.service, c.km === null ? '' : miles(c.km)].filter(Boolean).join(' · ')),
+        el('td', { className: 'num' }, `${hoursText(c.listenedHours)} of ${hoursText(t.hours)}`),
+        el('td', { className: 'num' }, String(c.speech)),
+        el('td', { className: 'num' }, String(c.static)),
+        el('td', {}, el('span', { className: `pill ${c.verdict}` }, VERDICT[c.verdict]), c.pending ? ` (${c.pending} to read)` : ''),
+        el('td', { className: 'acts' }, keep, drop),
+        el('td', { className: 'said' }, c.sample ? `${clock(c.sample.at)}: ${c.sample.text}` : ''));
+    })));
+    $('tr-end').disabled = t.state !== 'running';
   }
   renderTrialResults();
 }
@@ -1034,18 +1053,15 @@ function renderTrialResults() {
   const all = trial.results ?? [];
   $('tr-results').hidden = !all.length;
   if (!all.length) return;
-  const t = trial.trial;
-  const intoTrial = t && ['running', 'ending'].includes(t.state) && shown?.region === t.region;
-  const kept = all.filter((r) => $('tr-all').checked || r.verdict === 'good' || r.verdict === 'some');
+  const list = all.filter((r) => $('tr-all').checked || r.verdict === 'good' || r.verdict === 'some');
   const n = (v) => all.filter((r) => r.verdict === v).length;
   $('tr-results-note').textContent = `${plural(all.length, 'frequency', 'frequencies')} tried: ${n('good')} good, ` +
-    `${n('some')} with some words, ${n('static')} static, ${n('quiet')} quiet. ` +
-    (intoTrial ? 'Pick your own region above to add the good ones to it.'
-      : `Tick one to add it to ${shown ? regionName(shown.region, shown.name) : 'the region on show'}, then write the changes.`);
-  $('tr-list').replaceChildren(...(kept.length ? kept.map((r) => {
+    `${n('some')} with some words, ${n('static')} static, ${n('quiet')} quiet. The good ones stayed on the radio; ` +
+    `tick another to add it to ${shown ? regionName(shown.region, shown.name) : 'the region on show'}, then write the changes.`;
+  $('tr-list').replaceChildren(...(list.length ? list.map((r) => {
     const s = r.station;
     const there = onRadio(s);
-    const box = el('input', { type: 'checkbox', disabled: intoTrial || !s.channel || there >= 0, checked: slotOfKey(s.key) !== undefined });
+    const box = el('input', { type: 'checkbox', disabled: !s.channel || there >= 0, checked: slotOfKey(s.key) !== undefined });
     box.onchange = () => {
       if (box.checked) {
         if (addChannel(s.channel, { key: s.key, group: { lat: s.lat, lon: s.lon } }) < 0) box.checked = false;
@@ -1060,50 +1076,58 @@ function renderTrialResults() {
       await api(`/radios/${radio.mac}/trial/results?key=${encodeURIComponent(s.key)}`, { method: 'DELETE' }).catch((e) => say(e.message, true));
       loadTrial();
     };
-    const hrs = r.hours >= 1 ? `${Math.round(r.hours * 10) / 10} h` : `${Math.round(r.hours * 60)} min`;
     return el('li', { className: r.verdict === 'good' || r.verdict === 'some' ? '' : 'off' },
       el('label', {}, box, el('span', {}, [mhz(s.mhz * 1e6), s.name, s.tone, s.toneSquelch ? 'listening only with its tone' : ''].filter(Boolean).join(' · ')),
-        el('span', { className: `pill ${r.verdict}` }, VERDICT[r.verdict])),
+        el('span', { className: `pill ${r.verdict}` }, VERDICT[r.verdict]), r.kept ? el('span', { className: 'pill' }, 'kept') : ''),
       el('div', { className: 'meta' }, `${[trial.services?.[s.service] ?? s.service, s.where, s.km === null ? '' : miles(s.km)].filter(Boolean).join(' · ')} · ` +
-        `${plural(r.heard, 'opening')} in ${hrs}: ${r.speech} with words, ${r.static} static `, again),
+        `${plural(r.heard ?? 0, 'opening')} in ${hoursText(r.hours)}: ${r.speech ?? 0} with words, ${r.static ?? 0} static `, again),
       r.sample ? el('div', { className: 'meta' }, `“${r.sample.text}”`) : '',
-      there >= 0 ? el('div', { className: 'meta' }, `${pending.has(there) ? 'In the list already' : 'On this region already'}, as channel ${there + 1}.`) : '');
+      there >= 0 ? el('div', { className: 'meta' }, `${pending.has(there) ? 'In the list already' : 'On this region'}, as channel ${there + 1}.`) : '');
   }) : [el('li', { className: 'meta' }, 'None with words yet.')]));
 }
 
 async function startTrial() {
   const services = [...document.querySelectorAll('#tr-services input:checked')].map((b) => b.value);
   if (!services.length) return say('Tick at least one service to try.', true);
-  const region = Number($('tr-region').value);
-  if (!confirm(`Try channels in ${regionName(region)}? What’s on it is backed up, written over a batch at a time, ` +
-    'and put back when the trial ends.')) return;
+  if (!shown || !discardOk()) return;
+  const region = shown.region;
+  const free = shown.channels.filter((c) => c.empty).length;
+  if (!confirm(`Try channels in the ${plural(free, 'empty channel')} of ${regionName(region, shown.name)}? ` +
+    'The radio is put on that region to listen to them.')) return;
   saveServices([...new Set([...savedServices(), ...services])]);
   busy(true);
-  say(`Writing the first batch into ${regionName(region)}…`);
+  say(`Writing the first ones into ${regionName(region, shown.name)}…`);
   try {
     trial = await api(`/radios/${radio.mac}/trial`, { method: 'POST', body: {
-      region, homeRegion: shown?.region ?? 0, services, miles: Number($('tr-miles').value),
-      trialMin: Number($('tr-trial-min').value), homeMin: Number($('tr-home-min').value), hours: Number($('tr-hours').value),
+      region, services, miles: Number($('tr-miles').value), hours: Number($('tr-hours').value),
     } });
-    say(trial.channels.length ? `Trying ${plural(trial.channels.length, 'channel')} in ${regionName(region)}.` : 'Nothing left to try.');
+    trialChanged = trial.trial?.changedAt ?? null;
+    say(trial.channels.length ? `Trying ${plural(trial.channels.length, 'channel')} in ${regionName(region, shown.name)}.` : 'Nothing left to try.');
   } catch (e) {
     say(e.message, true);
-  } finally {
     busy(false);
+    return;
   }
+  busy(false);
+  await load(region);
+  renderTrial();
 }
 
-async function trialAction(what, saying) {
+async function trialAction(what, saying, body = undefined) {
+  if (what !== 'listen' && !discardOk()) return;
   busy(true);
   say(saying);
+  let done = '';
   try {
-    trial = await api(`/radios/${radio.mac}/trial/${what}`, { method: 'POST' });
-    say(trial.trial?.state === 'done' ? `${regionName(trial.trial.region)} is put back, and the radio is on ${regionName(trial.trial.homeRegion)}.`
-      : `Batch ${trial.trial?.batch}: ${plural(trial.channels.length, 'channel')} to try.`);
+    trial = await api(`/radios/${radio.mac}/trial/${what}`, { method: 'POST', ...(body ? { body } : {}) });
+    const t = trial.trial;
+    done = t?.state === 'done' ? `Stopped: ${t.kept} kept in ${regionName(t.region)}.`
+      : t?.listening ? `Listening to ${regionName(t.region)}.` : 'Done.';
   } catch (e) {
     say(e.message, true);
-    await loadTrial();
   } finally {
     busy(false);
   }
+  await loadTrial();
+  if (done) say(done);
 }

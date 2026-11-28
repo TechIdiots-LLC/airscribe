@@ -67,7 +67,7 @@ test('a frequency’s verdict from what came in on it', () => {
   assert.equal(verdict({ heard: 0, static: 0, speech: 0 }), 'quiet');
 });
 
-test('channels tried on a radio a batch at a time, graded, and the region put back', { skip: !sqlite }, async () => {
+test('a region’s empty channels tried one by one: words kept, static out at once, quiet out when its time is up', { skip: !sqlite }, async () => {
   const { Store } = await import('../src/store.js');
   const { Uniden } = await import('../src/uniden.js');
   const { Trials } = await import('../src/trial.js');
@@ -78,97 +78,113 @@ test('channels tried on a radio a batch at a time, graded, and the region put ba
   const radio = new FakeRadio();
   let now = Date.UTC(2026, 10, 27, 12);
   const trials = new Trials({ store, manager: radio, uniden, home: async () => HOME, now: () => now });
-
-  await assert.rejects(trials.begin(MAC, { region: 0, homeRegion: 0, services: ['ham'] }), /other than the one/);
-  await assert.rejects(trials.begin(MAC, { region: 1, homeRegion: 0, services: [] }), /at least one service/);
-  let s = await trials.begin(MAC, { region: 1, homeRegion: 0, trialMin: 20, homeMin: 40, hours: 6, services: ['ham', 'fire'], miles: 30 });
-  assert.equal(s.trial.state, 'running');
-  assert.equal(s.trial.batch, 1);
-  assert.equal(s.trial.on, 'trial');
-  // Not 146.97 (on the radio's own region), not the DMR one, not police (not asked for); nearest first, 4 slots
-  assert.deepEqual(s.channels.map((c) => c.hz).sort(), [154280000, 154385000, 449925000]);
-  const written = radio.regions[1].filter((c) => !c.empty);
-  assert.equal(written.length, 3, 'the old channel in the trial region written over, the slot left empty');
-  assert.ok(written.every((c) => c.tx_disable && c.scan), 'listened to only, and scanned');
-  assert.equal(written.find((c) => c.rx_hz === 154385000).rx_tone, '100.0', 'opened by its tone');
-  assert.deepEqual(radio.controls.slice(-2), [['region', 1], ['scan', true]], 'the radio moved to the trial region');
-  assert.equal(store.channelBackup(1).label, 'Before trying channels');
-  await assert.rejects(trials.begin(MAC, { region: 2, homeRegion: 0, services: ['ham'] }), /already/);
-
-  // What came in: words on the fire dispatch, static on the 70 cm repeater, nothing on the fire tac
   const tx = (hz, { snrDb = 25, text = null, at = now + 60e3 } = {}) => {
     const id = store.addTransmission({ mac: MAC, startedAt: at, durationMs: 4000, audioFile: 'x.wav', channelHz: hz, snrDb });
     if (text !== null) store.saveTranscript(id, 'base', { status: 'done', text });
     return id;
   };
+  const on = () => radio.regions[1].map((c) => (c.empty ? null : c.rx_hz));
+  const wait = async (min) => {
+    for (let i = 0; i < min; i += 4) { now += 4 * 60e3; await trials.tick(); }
+  };
+
+  await assert.rejects(trials.begin(MAC, { region: 1, services: [] }), /at least one service/);
+  radio.regions[2] = radio.regions[2].map((c, id) => ({ id, name: `C${id}`, rx_hz: 146520000 + id, empty: false }));
+  await assert.rejects(trials.begin(MAC, { region: 2, services: ['ham'] }), /no empty channels/);
+  let s = await trials.begin(MAC, { region: 1, services: ['ham', 'fire'], miles: 30, hours: 0.5 });
+  assert.equal(s.trial.state, 'running');
+  assert.deepEqual(radio.controls.slice(-2), [['region', 1], ['scan', true]], 'the radio put on the region');
+  assert.ok(s.trial.listening);
+  // Its own channel left alone; the empty ones filled, nearest first, listened to only
+  assert.deepEqual(on(), [162550000, 146970000, 154280000, 154385000]);
+  assert.ok(radio.regions[1].slice(1).every((c) => c.tx_disable && c.scan));
+  assert.equal(radio.regions[1][3].rx_tone, '100.0', 'opened by its tone');
+  assert.equal(store.channelBackup(s.trial.backupId).label, 'Before trying channels');
+  await assert.rejects(trials.begin(MAC, { region: 1, services: ['ham'] }), /already/);
+
+  // Words twice: kept at once. Static three times with none: out at once, and the ham repeater tried again listening
+  // only with its tone
   tx(154385000, { text: 'Engine 1 respond to Main Street' });
   tx(154385000, { text: 'Engine 1 on scene', at: now + 120e3 });
-  for (let i = 0; i < 4; i++) tx(449925000, { snrDb: 2, text: 'So, we are going.' });
-  now += 10 * 60e3;
-  await trials.tick();
+  for (let i = 0; i < 3; i++) tx(146970000, { snrDb: 2, text: 'So, we are going.', at: now + (1 + i) * 60e3 });
+  await wait(4);
   s = trials.status(MAC);
-  const by = Object.fromEntries(s.channels.map((c) => [c.hz, c]));
-  assert.deepEqual([by[154385000].speech, by[154385000].verdict], [2, 'good']);
-  assert.deepEqual([by[449925000].static, by[449925000].skipped, by[449925000].verdict], [4, true, 'static']);
-  assert.equal(radio.regions[1].find((c) => c.rx_hz === 449925000).scan, false, 'the static one skipped when scanning');
-  assert.equal(by[154280000].verdict, 'quiet');
+  assert.deepEqual(on(), [162550000, 146970000, 154280000, 154385000]);
+  assert.deepEqual(s.channels.map((c) => [c.slot, c.key]), [[1, 'uniden:146970000:114.8:tone'], [2, 'uniden:154280000:']]);
+  assert.equal(radio.regions[1][1].rx_tone, '114.8');
+  assert.deepEqual([s.trial.tried, s.trial.kept], [2, 1]);
+  assert.deepEqual(s.results.map((r) => [r.station.name, r.verdict, r.kept]),
+    [['Holden FD Dispatch', 'good', true], ['W1BIM Paxton', 'static', false]]);
+  assert.equal(s.results[0].sample.text, 'Engine 1 on scene');
 
-  // The schedule: 20 minutes on the trial region, 40 on its own
-  now += 15 * 60e3;
-  await trials.tick();
-  assert.equal(radio.state.get(MAC).region, 0);
-  assert.equal(trials.status(MAC).trial.on, 'home');
-  radio.state.get(MAC).rx = true;
-  now += 40 * 60e3;
-  await trials.tick();
-  assert.equal(radio.state.get(MAC).region, 0, 'not moved while something’s coming in');
-  radio.state.get(MAC).rx = false;
-  await trials.tick();
+  // Only time on the region counts
+  radio.state.get(MAC).region = 0;
+  await wait(8);
+  s = trials.status(MAC);
+  assert.equal(s.trial.listening, false);
+  assert.equal(s.channels[1].listenedHours, 4 / 60, 'not while the radio was elsewhere');
+  await trials.listen(MAC);
   assert.equal(radio.state.get(MAC).region, 1);
 
-  // A transmission still to be transcribed holds the grading up a while
-  const late = tx(154280000, { at: now });
-  now = s.trial.batchAt + 6 * 3600e3 + 60e3;
-  await trials.tick();
-  assert.equal(trials.status(MAC).results.length, 0, 'waiting on the transcript');
-  store.saveTranscript(late, 'base', { status: 'done', text: '' });
-  await trials.tick();
+  // Dropped by hand: the next one in
+  await assert.rejects(trials.decide(MAC, 3, 'keep'), /no channel being tried there/);
+  s = await trials.decide(MAC, 1, 'drop');
+  assert.deepEqual(s.channels.map((c) => [c.slot, c.key]), [[1, 'uniden:449925000:D023'], [2, 'uniden:154280000:']]);
+
+  // Time up: nothing at all comes off, then words once among static (a weak one), tried again with its tone
+  tx(449925000, { text: 'Monitoring the repeater', at: now + 60e3 });
+  tx(449925000, { snrDb: 2, text: 'Uh', at: now + 120e3 });
+  tx(449925000, { snrDb: 2, text: 'Uh', at: now + 180e3 });
+  await wait(28);
   s = trials.status(MAC);
-  assert.deepEqual(s.results.map((r) => [r.station.name, r.verdict]),
-    [['Holden FD Dispatch', 'good'], ['Holden 70cm', 'static'], ['Paxton Fire Tac', 'quiet']], 'good first');
-  assert.equal(s.results[0].sample.text, 'Engine 1 on scene');
-  assert.equal(s.results[0].station.channel.rx_hz, 154385000, 'the station as found, to keep');
-  // The repeater that came to static, tried again listening only with its tone
-  await trials.tick();
+  assert.deepEqual(s.channels.map((c) => c.key), ['uniden:449925000:D023'], 'the quiet one off, nothing left to put in');
+  assert.deepEqual(on(), [162550000, 449925000, null, 154385000]);
+  await wait(4);
   s = trials.status(MAC);
-  assert.deepEqual([s.trial.batch, ...s.channels.map((c) => [c.key, c.toneSquelch])], [2, ['uniden:449925000:D023:tone', true]]);
-  assert.equal(radio.regions[1].find((c) => c.rx_hz === 449925000).rx_tone, 'D023');
+  assert.equal(trials.verdicts(MAC).get('uniden:449925000:D023'), 'some');
+  assert.deepEqual(s.channels.map((c) => [c.slot, c.key, c.toneSquelch]), [[1, 'uniden:449925000:D023:tone', true]]);
+  assert.equal(radio.regions[1][1].rx_tone, 'D023');
+
+  // Kept: written as found, a ham repeater with its input and tone; then nothing left to try
   tx(449925000, { text: 'Monitoring, go ahead', at: now + 60e3 });
   tx(449925000, { text: 'Clear on the repeater', at: now + 120e3 });
-  now += 10 * 60e3;
-  // Graded early; nothing left to try: the region put back as it was, the radio on its own
-  s = await trials.next(MAC);
-  assert.equal(s.trial.state, 'done');
-  const tone = s.results.find((r) => r.key === 'uniden:449925000:D023:tone');
-  assert.deepEqual([tone.verdict, tone.station.channel.rx_tone, tone.station.channel.tx_tone], ['good', 'D023', 'D023'],
-    'kept, it listens and transmits with its tone');
-  assert.deepEqual(radio.regions[1].filter((c) => !c.empty).map((c) => c.name), ['Spare'], 'the region as it was');
-  assert.equal(radio.state.get(MAC).region, 0);
-  assert.deepEqual(Object.fromEntries(trials.verdicts(MAC)),
-    { 'uniden:154385000:100.0': 'good', 'uniden:449925000:D023': 'static', 'uniden:449925000:D023:tone': 'good', 'uniden:154280000:': 'quiet' });
+  await wait(4);
+  const kept = radio.regions[1][1];
+  assert.deepEqual([kept.rx_hz, kept.tx_hz, kept.rx_tone, kept.tx_tone, Boolean(kept.tx_disable)],
+    [449925000, 444925000, 'D023', 'D023', false]);
+  assert.equal(trials.status(MAC).trial.state, 'done');
+  assert.deepEqual(on(), [162550000, 449925000, null, 154385000]);
+  assert.deepEqual(Object.fromEntries(trials.verdicts(MAC)), {
+    'uniden:154385000:100.0': 'good', 'uniden:449925000:D023:tone': 'good', 'uniden:449925000:D023': 'some',
+    'uniden:146970000:114.8': 'static', 'uniden:154280000:': 'quiet', 'uniden:146970000:114.8:tone': 'quiet' });
 
-  // Forgotten, tried again; ended early, put back even after the radio was out of reach
+  // Forgotten, tried again; stopped early, even after the radio was out of reach
   assert.deepEqual(trials.forget(MAC, 'uniden:154280000:'), { forgotten: 1 });
-  s = await trials.begin(MAC, { region: 1, homeRegion: 0, services: ['fire'], miles: 30 });
-  assert.deepEqual(s.channels.map((c) => c.name), ['Paxton Fir'], 'only what hasn’t been tried');
+  s = await trials.begin(MAC, { region: 1, services: ['fire'], miles: 30 });
+  assert.deepEqual(s.channels.map((c) => [c.slot, c.name]), [[2, 'Paxton Fir']], 'only what hasn’t been tried, in the empty one');
   radio.offline = true;
   await assert.rejects(trials.end(MAC));
   assert.equal(trials.status(MAC).trial.state, 'ending');
   radio.offline = false;
   await trials.tick();
-  s = trials.status(MAC);
-  assert.equal(s.trial.state, 'done');
-  assert.equal(s.results.find((r) => r.hz === 154280000).verdict, 'quiet', 'graded on what came in before it ended');
-  assert.deepEqual(radio.regions[1].filter((c) => !c.empty).map((c) => c.name), ['Spare']);
+  assert.equal(trials.status(MAC).trial.state, 'done');
+  assert.deepEqual(on(), [162550000, 449925000, null, 154385000], 'the quiet one off');
+});
 
+test('a trial of the first version, under way at an upgrade, has its region put back', { skip: !sqlite }, async () => {
+  const { Store } = await import('../src/store.js');
+  const { Trials } = await import('../src/trial.js');
+  const store = new Store(':memory:', 'base');
+  const radio = new FakeRadio();
+  const trials = new Trials({ store, manager: radio, uniden: null, home: async () => HOME });
+  const before = await radio.readChannels(MAC, 1);
+  const backup = store.addChannelBackup({ mac: MAC, region: 1, regionName: 'R1', label: 'Before trying channels', channels: before.channels });
+  radio.regions[1][2] = { id: 2, name: 'Tried', rx_hz: 154280000, empty: false };
+  radio.state.get(MAC).region = 1;
+  store.db.prepare(`INSERT INTO trials (mac, region, home_region, trial_min, home_min, hours, services, backup_id, state, batch_at, started_at)
+                    VALUES (?, 1, 0, 20, 40, 6, '["fire"]', ?, 'running', 1, 1)`).run(MAC, backup.id);
+  await trials.tick();
+  assert.equal(trials.status(MAC).trial.state, 'done');
+  assert.deepEqual(radio.regions[1].filter((c) => !c.empty).map((c) => c.name), ['Spare']);
+  assert.equal(radio.state.get(MAC).region, 0);
 });
