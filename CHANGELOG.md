@@ -2,19 +2,24 @@
 
 ## master
 ### ✨ Features and improvements
-- Admin → Findings → Roads brings in towns, named places (businesses, schools) and addresses with the roads: from the map's tiles (towns and places), from OpenStreetMap, or from a file. A file can be addresses alone, OpenAddresses-style (number, street, city), and leaves the roads as they were. `tools/roads-from-osm.sh` now exports all of them
-- Findings gives the model the towns and businesses said near the channel ("Family Dolar" comes back as Family Dollar, "Grimfield" as Brimfield), looks at a town's roads when one a way off is named, and checks the house numbers said against the addresses: "1616 Roxbury Street isn't there (its numbers run 16 to 120)". A house number that's really the time said, on a street without that number, is taken out as the time
-- The Map's Roads mentioned puts a dot at the house when an address's number is among those imported, and at a named place mentioned (a business, a school); an address ending in a town is looked for around that town rather than the channel
-- Admin → Findings → Roads → Download and read: give an OpenStreetMap extract's address (a state's `.osm.pbf` from Geofabrik) and AirScribe downloads it, cuts the channels' area out with osmium and reads its roads, towns, places and addresses, with no PC step. The package now recommends `osmium-tool`, and the LXC template has it
 - Channels → Add channels… → From Uniden's database (was Ham) lists every service the database tags, not only ham: police, fire, EMS, interop, public works, aircraft (AM), railroad, business and more, ticked per radio, each with how many near home the radio can play. Anything not ham is written receive-only with its tone; digital channels are counted and hidden
 - Channels → Try channels…: tries frequencies from Uniden's database on the radio before you keep them. A batch at a time goes into a spare region (backed up, and put back at the end), the radio moves between it and its own region on a schedule, and each frequency is graded on what came in: good, some words, static or quiet. One that keeps opening on static has its scan turned off. The good ones can be added to a region, and the database tab marks what each came to
 - Channels: a ham channel listening with no tone offers the tone Uniden's database lists for it ("static? use 114.8" when it's mostly static), to listen only with its repeater's tone and keep the noise out. Try channels retries a static ham repeater the same way
 - _...Add new stuff here..._
 
 ### 🐞 Bug fixes
-- Findings gives the model the likeliest roads first: a road said by its whole name ("Walnut Street") is no longer crowded out by "A Street", "The Boulevard" and every "Main …" variant, and the new transmission's roads come before those of the earlier ones
 - Channels → Add channels: the Uniden list's status line (how many listed, channels free) shows under the list again; it had been written into the Ham profile panel, which shared its id
 - _...Add new stuff here..._
+
+## 0.8.0
+### ✨ Features and improvements
+- Admin → Findings → Roads brings in towns, named places (businesses, schools) and addresses with the roads: from the map's tiles (towns and places), from OpenStreetMap, or from a file. A file can be addresses alone, OpenAddresses-style (number, street, city), and leaves the roads as they were. `tools/roads-from-osm.sh` now exports all of them
+- Findings gives the model the towns and businesses said near the channel ("Family Dolar" comes back as Family Dollar, "Grimfield" as Brimfield), looks at a town's roads when one a way off is named, and checks the house numbers said against the addresses: "1616 Roxbury Street isn't there (its numbers run 16 to 120)". A house number that's really the time said, on a street without that number, is taken out as the time
+- The Map's Roads mentioned puts a dot at the house when an address's number is among those imported, and at a named place mentioned (a business, a school); an address ending in a town is looked for around that town rather than the channel
+- Admin → Findings → Roads → Download and read: give an OpenStreetMap extract's address (a state's `.osm.pbf` from Geofabrik) and AirScribe downloads it, cuts the channels' area out with osmium and reads its roads, towns, places and addresses, with no PC step. The package now recommends `osmium-tool`, and the LXC template has it
+
+### 🐞 Bug fixes
+- Findings gives the model the likeliest roads first: a road said by its whole name ("Walnut Street") is no longer crowded out by "A Street", "The Boulevard" and every "Main …" variant, and the new transmission's roads come before those of the earlier ones
 
 ## 0.7.1
 ### ✨ Features and improvements
